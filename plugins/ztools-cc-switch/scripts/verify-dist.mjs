@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 
 const required = [
-  'index.html', 'plugin.json', 'default-rules.json',
+  'index.html', 'plugin.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'default-rules.json',
   'preload/index.js', 'preload/configManager.js', 'preload/sidecarClient.js', 'preload/clientVisibility.js',
   'preload/skillManager.js', 'preload/routerManager.js', 'preload/claudeDesktopManager.js', 'preload/balanceManager.js', 'preload/hostStartupManager.js', 'preload/codexHistoryManager.js', 'preload/usageScriptManager.js', 'preload/logManager.js',
   'preload/failoverManager.js',

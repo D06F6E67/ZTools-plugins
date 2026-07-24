@@ -2,6 +2,7 @@
   "name": "ztools-cc-switch",
   "version": "1.52.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "在 ZTools 中统一管理 AI CLI Provider、Skills、本地路由、用量与日志",
   "scripts": {
