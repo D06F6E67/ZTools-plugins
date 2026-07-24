@@ -102,7 +102,7 @@ onMounted(load)
       <article class="settings-card">
         <span class="card-label">LISTEN</span><h2>监听与日志</h2>
         <div class="compact-fields">
-          <label>地址<select :value="status.config.host" :disabled="status.running" @change="save({ host: $event.target.value })"><option>127.0.0.1</option><option>0.0.0.0</option></select></label>
+          <label>地址<select :value="status.config.host" disabled><option>127.0.0.1</option></select><small>仅允许本机访问</small></label>
           <label>端口<input type="number" :value="status.config.port" :disabled="status.running" @change="save({ port: Number($event.target.value) })" /></label>
         </div>
         <label class="toggle-row"><span><strong>请求日志</strong><small>记录 Token、延迟与状态码</small></span><input type="checkbox" :checked="status.config.logging" @change="save({ logging: $event.target.checked })" /></label>

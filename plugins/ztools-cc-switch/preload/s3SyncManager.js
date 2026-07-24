@@ -4,6 +4,7 @@ const crypto = require('node:crypto')
 const fsp = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
+const { requireSecureHttpUrl } = require('./networkSecurity')
 
 const CONFIG_KEY = 'cc-switch:s3-config-v1'
 const SECRET_KEY = 'cc-switch:s3-secret-v1'
@@ -89,7 +90,7 @@ function createS3SyncManager(options = {}) {
     if (!config.region || !/^[a-z0-9-]+$/i.test(config.region)) throw new Error('S3 Region 无效')
     if (!config.bucket || !/^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/i.test(config.bucket)) throw new Error('S3 Bucket 名称无效')
     if (!config.accessKeyId || !(config._secretAccessKey || secretAccessKey())) throw new Error('S3 Access Key 尚未完整保存')
-    if (config.endpoint) { const endpoint = new URL(config.endpoint); if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('S3 Endpoint 必须使用 HTTP(S)') }
+    if (config.endpoint) requireSecureHttpUrl(config.endpoint, 'S3 Endpoint')
   }
   function remotePrefix(config) { return `${config.remoteRoot}/v${PROTOCOL_VERSION}/json-v${DATA_VERSION}/${config.profile}` }
   function objectUrl(config, key = '') {

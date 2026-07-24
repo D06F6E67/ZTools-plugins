@@ -47,3 +47,15 @@ test('S3 sync uploads manifest last, detects conflict, verifies and restores bac
   const restored = await manager.sync({ strategy: 'remote' }); assert.equal(restored.direction, 'download')
   const data = JSON.parse(await fs.readFile(providersPath, 'utf8')); assert.equal(data.providers[0].name, 'initial')
 })
+
+test('S3 Endpoint 拒绝远程 HTTP，但允许回环 HTTP', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-s3-security-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir); await fs.writeFile(path.join(dataDir, 'providers.json'), '{}')
+  const storage = createMemoryStorage(); const codec = { secure: true, encode: v => v, decode: v => v }
+  const manager = createS3SyncManager({ backupManager: createBackupManager({ dataDir }), storage, secretCodec: codec, fetchImpl: async () => new Response(null, { status: 200 }) })
+  const base = { region: 'us-east-1', bucket: 'bucket', accessKeyId: 'AKID', secretAccessKey: 'SECRET' }
+  await manager.saveConfig({ ...base, endpoint: 'http://s3.example.com' })
+  await assert.rejects(() => manager.checkConnection(), /远程地址必须使用 HTTPS/)
+  await manager.saveConfig({ ...base, endpoint: 'http://localhost:9000' })
+  assert.equal((await manager.checkConnection()).ok, true)
+})

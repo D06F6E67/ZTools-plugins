@@ -11,6 +11,8 @@ const { restoreResponseNamespaces, restoreNamespaceSseStream, injectPromptCacheK
 const { normalizeOptimizer, normalizeCopilot, optimizeBedrockRequest, optimizeCopilotRequest } = require('./requestOptimizer')
 
 const ROUTER_CLIENTS = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'openclaw', 'hermes', 'grokbuild'])
+const MAX_TRANSFORM_RESPONSE_BYTES = 32 * 1024 * 1024
+const ROUTER_HOP_HEADER = 'x-ztools-router-hop'
 
 function inferClient(urlPath, headers = {}) {
   const explicit = String(headers['x-ztools-client'] || '').toLowerCase()
@@ -207,7 +209,7 @@ function createRouterManager(options = {}) {
   }
 
   function normalizeConfig(value) {
-    const host = value.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1'
+    const host = '127.0.0.1'
     const port = Math.min(Math.max(Number(value.port) || 15721, 1024), 65535)
     return {
       host,
@@ -281,6 +283,29 @@ function createRouterManager(options = {}) {
     return Buffer.concat(chunks)
   }
 
+  async function readUpstreamBody(upstreamResponse, maxBytes = MAX_TRANSFORM_RESPONSE_BYTES) {
+    const declared = Number(upstreamResponse.headers?.get?.('content-length') || 0)
+    if (declared > maxBytes) {
+      await upstreamResponse.body?.cancel?.().catch(() => {})
+      throw Object.assign(new Error('上游转换响应超过 32 MB 安全限制'), { statusCode: 502 })
+    }
+    const chunks = []; let size = 0
+    const reader = upstreamResponse.body.getReader()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > maxBytes) {
+          await reader.cancel().catch(() => {})
+          throw Object.assign(new Error('上游转换响应超过 32 MB 安全限制'), { statusCode: 502 })
+        }
+        chunks.push(Buffer.from(value))
+      }
+    } finally { reader.releaseLock() }
+    return Buffer.concat(chunks)
+  }
+
   async function handleRequest(request, response) {
     const start = performance.now()
     let firstTokenMs = null
@@ -292,6 +317,8 @@ function createRouterManager(options = {}) {
     requestCount += 1
     try {
       const config = await loadConfig()
+      const hop = Number.parseInt(String(request.headers[ROUTER_HOP_HEADER] || '0'), 10)
+      if (Number.isFinite(hop) && hop > 0) throw Object.assign(new Error('检测到本地路由递归请求'), { statusCode: 508 })
       client = inferClient(request.url || '/', request.headers)
       if (!config.routes[client]) throw Object.assign(new Error(`${client} 路由未启用`), { statusCode: 404 })
       if (client === 'claude-desktop') {
@@ -378,8 +405,11 @@ function createRouterManager(options = {}) {
           }
         }
         const upstream = joinUpstream(provider.baseUrl, prepared.path)
+        const routerOrigin = `http://127.0.0.1:${config.port}`
+        if (upstream.origin === routerOrigin) throw Object.assign(new Error('Provider Base URL 不能指向当前本地路由'), { statusCode: 508 })
         const headers = { ...request.headers }
         delete headers.host; delete headers['content-length']; delete headers['x-ztools-client']
+        headers[ROUTER_HOP_HEADER] = '1'
         headers.accept = headers.accept || 'application/json'
         Object.assign(headers, optimizerHeaders)
         const credential = managedAuth?.token || provider.apiKey
@@ -440,12 +470,9 @@ function createRouterManager(options = {}) {
           if (!response.write(chunk)) await new Promise((resolve) => response.once('drain', resolve))
         }
       } else if (upstreamResponse.body && prepared?.transformed) {
-        const chunks = []
-        for await (const chunk of Readable.fromWeb(upstreamResponse.body)) {
-          if (firstTokenMs === null) firstTokenMs = Math.round(performance.now() - start)
-          chunks.push(chunk)
-        }
-        const upstreamText = Buffer.concat(chunks).toString('utf8')
+        const upstreamBytes = await readUpstreamBody(upstreamResponse)
+        if (firstTokenMs === null && upstreamBytes.length) firstTokenMs = Math.round(performance.now() - start)
+        const upstreamText = upstreamBytes.toString('utf8')
         captured.push(Buffer.from(upstreamText)); capturedBytes = Buffer.byteLength(upstreamText)
         const converted = transformResponse({ sourceProtocol: prepared.sourceProtocol, targetProtocol: prepared.targetProtocol, bodyText: upstreamText, streaming: prepared.stream })
         if (prepared.namespaceRestoreMap?.size) {
@@ -463,9 +490,7 @@ function createRouterManager(options = {}) {
           if (!response.write(chunk)) await new Promise((resolve) => response.once('drain', resolve))
         }
       } else if (upstreamResponse.body && prepared?.namespaceTransformed) {
-        const chunks = []
-        for await (const chunk of Readable.fromWeb(upstreamResponse.body)) chunks.push(chunk)
-        const upstreamText = Buffer.concat(chunks).toString('utf8')
+        const upstreamText = (await readUpstreamBody(upstreamResponse)).toString('utf8')
         const restored = restoreResponseNamespaces(JSON.parse(upstreamText), prepared.namespaceRestoreMap)
         const outputText = JSON.stringify(restored.value)
         captured.push(Buffer.from(outputText)); capturedBytes = Buffer.byteLength(outputText)
@@ -580,4 +605,4 @@ function createRouterManager(options = {}) {
   return { start, stop, status, loadConfig, saveConfig, getCircuitBreakerStats, resetCircuitBreaker }
 }
 
-module.exports = { ROUTER_CLIENTS, DEFAULT_CIRCUIT_BREAKER, normalizeCircuitBreaker, CircuitBreaker, inferClient, joinUpstream, rectifyPayload, extractUsage, secureTokenEqual, mapClaudeDesktopModel, claudeDesktopModelsResponse, createRouterManager }
+module.exports = { ROUTER_CLIENTS, DEFAULT_CIRCUIT_BREAKER, MAX_TRANSFORM_RESPONSE_BYTES, ROUTER_HOP_HEADER, normalizeCircuitBreaker, CircuitBreaker, inferClient, joinUpstream, rectifyPayload, extractUsage, secureTokenEqual, mapClaudeDesktopModel, claudeDesktopModelsResponse, createRouterManager }

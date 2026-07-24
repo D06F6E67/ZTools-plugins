@@ -26,3 +26,16 @@ test('uploads, detects conflicts and downloads WebDAV backups', async (t) => {
   const resolved = await manager.sync({ strategy: 'remote' }); assert.equal(resolved.direction, 'download')
   const restored = JSON.parse(await fs.readFile(path.join(dataDir, 'providers.json'), 'utf8')); assert.equal(restored.providers[0].name, 'initial')
 })
+
+test('WebDAV 拒绝远程 HTTP、允许回环 HTTP，并限制下载体积', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-webdav-security-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir); await fs.writeFile(path.join(dataDir, 'providers.json'), '{}')
+  const storage = createMemoryStorage(); const codec = { secure: true, encode: v => v, decode: v => v }
+  let response = new Response('{}', { status: 200 })
+  const manager = createWebdavSyncManager({ backupManager: createBackupManager({ dataDir }), storage, secretCodec: codec, fetchImpl: async () => response })
+  await manager.saveConfig({ url: 'http://dav.example.com', username: 'u', password: 'p' })
+  await assert.rejects(() => manager.download(), /远程地址必须使用 HTTPS/)
+  await manager.saveConfig({ url: 'http://127.0.0.1:9999', username: 'u' })
+  response = new Response('{}', { status: 200, headers: { 'content-length': String(100 * 1024 * 1024 + 1) } })
+  await assert.rejects(() => manager.download(), /超过 100 MB/)
+})

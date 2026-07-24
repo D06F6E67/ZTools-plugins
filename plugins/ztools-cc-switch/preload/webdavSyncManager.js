@@ -4,10 +4,12 @@ const fsp = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
 const crypto = require('node:crypto')
+const { requireSecureHttpUrl } = require('./networkSecurity')
 
 const CONFIG_KEY = 'cc-switch:webdav-config-v1'
 const SECRET_KEY = 'cc-switch:webdav-secret-v1'
 const STATE_KEY = 'cc-switch:webdav-state-v1'
+const MAX_BACKUP_BYTES = 100 * 1024 * 1024
 function stableBackupHash(bytes) {
   try { const value = JSON.parse(Buffer.from(bytes).toString('utf8')); return crypto.createHash('sha256').update(JSON.stringify({ format: value.format, version: value.version, files: value.files })).digest('hex') }
   catch { return crypto.createHash('sha256').update(bytes).digest('hex') }
@@ -52,11 +54,32 @@ function createWebdavSyncManager(options = {}) {
   }
   function password() { const encoded = readValue(SECRET_KEY, ''); return encoded ? secretCodec.decode(encoded) : '' }
   function validateConfig(config) {
-    let parsed
-    try { parsed = new URL(config.url) } catch { throw new Error('WebDAV URL 无效') }
-    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('WebDAV URL 必须使用 HTTP(S)')
+    requireSecureHttpUrl(config.url, 'WebDAV URL')
     if (!config.username) throw new Error('WebDAV 用户名不能为空')
     if (!password()) throw new Error('WebDAV 密码尚未保存')
+  }
+  async function responseBytes(response, maxBytes = MAX_BACKUP_BYTES) {
+    const declared = Number(response.headers?.get?.('content-length') || 0)
+    if (declared > maxBytes) {
+      await response.body?.cancel?.().catch(() => {})
+      throw new Error('WebDAV 备份超过 100 MB 安全限制')
+    }
+    if (!response.body) return Buffer.alloc(0)
+    const chunks = []; let size = 0
+    const reader = response.body.getReader()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > maxBytes) {
+          await reader.cancel().catch(() => {})
+          throw new Error('WebDAV 备份超过 100 MB 安全限制')
+        }
+        chunks.push(Buffer.from(value))
+      }
+    } finally { reader.releaseLock() }
+    return Buffer.concat(chunks)
   }
   async function saveConfig(patch = {}) {
     const current = getConfig()
@@ -74,12 +97,12 @@ function createWebdavSyncManager(options = {}) {
     const base = new URL(config.url); const parts = config.remotePath.split('/').slice(0, -1); let current = base.pathname.replace(/\/+$/, '')
     for (const part of parts) {
       current += `/${encodeURIComponent(part)}`; const url = new URL(base); url.pathname = current
-      const response = await fetchImpl(url, { method: 'MKCOL', headers: authHeaders(config) })
+      const response = await fetchImpl(url, { method: 'MKCOL', headers: authHeaders(config), redirect: 'error' })
       if (![201, 405, 301, 302].includes(response.status) && !response.ok) throw new Error(`创建 WebDAV 目录失败：HTTP ${response.status}`)
     }
   }
   async function remoteInfo(config) {
-    const response = await fetchImpl(remoteUrl(config), { method: 'HEAD', headers: authHeaders(config) })
+    const response = await fetchImpl(remoteUrl(config), { method: 'HEAD', headers: authHeaders(config), redirect: 'error' })
     if (response.status === 404) return { exists: false, etag: '', modifiedAt: 0 }
     if (!response.ok) throw new Error(`读取 WebDAV 元数据失败：HTTP ${response.status}`)
     return { exists: true, etag: response.headers.get('etag') || '', modifiedAt: Date.parse(response.headers.get('last-modified') || '') || 0 }
@@ -95,7 +118,7 @@ function createWebdavSyncManager(options = {}) {
     try {
       await ensureCollections(config); const headers = { ...authHeaders(config), 'Content-Type': 'application/json' }
       if (options.expectedEtag && !options.force) headers['If-Match'] = options.expectedEtag
-      const response = await fetchImpl(remoteUrl(config), { method: 'PUT', headers, body: bundle.bytes })
+      const response = await fetchImpl(remoteUrl(config), { method: 'PUT', headers, body: bundle.bytes, redirect: 'error' })
       if (response.status === 412) throw Object.assign(new Error('远端备份已变化，请先处理同步冲突'), { code: 'CONFLICT' })
       if (!response.ok) throw new Error(`WebDAV 上传失败：HTTP ${response.status}`)
       const info = await remoteInfo(config); const state = { etag: info.etag, localHash: bundle.hash, lastSyncAt: new Date().toISOString() }; storage.setItem(STATE_KEY, state)
@@ -104,10 +127,10 @@ function createWebdavSyncManager(options = {}) {
   }
   async function download() {
     const config = getConfig(); validateConfig(config); emit({ state: 'downloading', message: '正在下载 WebDAV 备份…', direction: 'download' })
-    const response = await fetchImpl(remoteUrl(config), { method: 'GET', headers: authHeaders(config) })
+    const response = await fetchImpl(remoteUrl(config), { method: 'GET', headers: authHeaders(config), redirect: 'error' })
     if (response.status === 404) throw new Error('远端尚无备份')
     if (!response.ok) throw new Error(`WebDAV 下载失败：HTTP ${response.status}`)
-    const bytes = Buffer.from(await response.arrayBuffer()); const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'ztools-webdav-import-')); const file = path.join(directory, 'backup.json')
+    const bytes = await responseBytes(response); const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'ztools-webdav-import-')); const file = path.join(directory, 'backup.json')
     try {
       await fsp.writeFile(file, bytes, { mode: 0o600 }); await backupManager.importBackup(file)
       const info = await remoteInfo(config); const state = { etag: info.etag, localHash: stableBackupHash(bytes), lastSyncAt: new Date().toISOString() }; storage.setItem(STATE_KEY, state)
@@ -150,4 +173,4 @@ function createWebdavSyncManager(options = {}) {
   return { getConfig, saveConfig, getStatus: () => ({ ...status }), subscribe, upload, download, sync, scheduleAutoSync }
 }
 
-module.exports = { CONFIG_KEY, SECRET_KEY, STATE_KEY, normalizeRemotePath, stableBackupHash, createMemoryStorage, createWebdavSyncManager }
+module.exports = { CONFIG_KEY, SECRET_KEY, STATE_KEY, MAX_BACKUP_BYTES, normalizeRemotePath, stableBackupHash, createMemoryStorage, createWebdavSyncManager }

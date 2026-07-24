@@ -61,6 +61,8 @@ function parseDeepLink(input) {
   if (!['provider', 'prompt', 'mcp', 'skill'].includes(resource)) throw new Error(`不支持的 Deep Link 资源: ${resource}`)
 
   if (resource === 'provider') {
+    const usageFields = ['usageEnabled', 'usageScript', 'usageApiKey', 'usageBaseUrl', 'usageAccessToken', 'usageUserId', 'usageAutoInterval']
+    if (usageFields.some((name) => params.has(name))) throw new Error('外部链接不支持用量脚本；请先导入 Provider，再在用量管理中手动配置')
     const app = required(params, 'app')
     if (!APPS.has(app)) throw new Error(`不支持的 Provider 应用: ${app}`)
     const endpoint = params.get('endpoint')?.split(',').map((item, index) => validateHttpUrl(item.trim(), `endpoint[${index}]`)).filter(Boolean) || []
@@ -70,8 +72,7 @@ function parseDeepLink(input) {
       resource, app, enabled, name: safeName(required(params, 'name')), homepage, endpoint,
       apiKey: String(params.get('apiKey') || ''), model: String(params.get('model') || '').trim(), notes: String(params.get('notes') || '').slice(0, 4000),
       haikuModel: String(params.get('haikuModel') || '').trim(), sonnetModel: String(params.get('sonnetModel') || '').trim(), opusModel: String(params.get('opusModel') || '').trim(),
-      icon: String(params.get('icon') || '').trim().slice(0, 80), config: String(params.get('config') || ''), configFormat: String(params.get('configFormat') || '').trim(), configUrl,
-      usageEnabled: optionalBoolean(params.get('usageEnabled'), Boolean(params.get('usageScript'))), usageScript: String(params.get('usageScript') || ''), usageApiKey: String(params.get('usageApiKey') || ''), usageBaseUrl: String(params.get('usageBaseUrl') || ''), usageAccessToken: String(params.get('usageAccessToken') || ''), usageUserId: String(params.get('usageUserId') || ''), usageAutoInterval: Number(params.get('usageAutoInterval') || 0)
+      icon: String(params.get('icon') || '').trim().slice(0, 80), config: String(params.get('config') || ''), configFormat: String(params.get('configFormat') || '').trim(), configUrl
     }
   }
   if (resource === 'prompt') {
@@ -83,7 +84,7 @@ function parseDeepLink(input) {
     if (!apps.length || apps.some((app) => app !== 'openclaw' && !MCP_APPS.has(app))) throw new Error('MCP apps 包含不支持的应用')
     const decoded = JSON.parse(decodeBase64(required(params, 'config'), 'config'))
     if (!decoded?.mcpServers || typeof decoded.mcpServers !== 'object' || Array.isArray(decoded.mcpServers) || !Object.keys(decoded.mcpServers).length) throw new Error('MCP config 必须包含非空 mcpServers 对象')
-    return { resource, apps, enabled, mcpServers: decoded.mcpServers }
+    return { resource, apps, enabled: false, requestedEnabled: enabled, mcpServers: decoded.mcpServers }
   }
   const repo = required(params, 'repo')
   const parts = repo.split('/')
@@ -122,7 +123,6 @@ function createDeepLinkManager(options = {}) {
   const configManager = options.configManager
   const extensionManager = options.extensionManager
   const skillManager = options.skillManager
-  const saveUsageScript = options.saveUsageScript
   const fetchImpl = options.fetchImpl || globalThis.fetch
   const pending = new Map()
 
@@ -146,7 +146,6 @@ function createDeepLinkManager(options = {}) {
       try { parsed = JSON.parse(content) } catch { throw new Error('Provider config 目前必须是 JSON') }
       request = inferProviderConfig(request, parsed)
     }
-    if (request.resource === 'provider' && request.usageScript) request.usageScript = decodeBase64(request.usageScript, 'usageScript')
     if (request.resource === 'provider') {
       if (!request.apiKey) throw new Error('Provider API Key 不能为空')
       if (!request.endpoint.length) throw new Error('Provider endpoint 不能为空')
@@ -154,9 +153,23 @@ function createDeepLinkManager(options = {}) {
     }
     const pendingId = crypto.randomUUID(); pending.set(pendingId, { request, expiresAt: Date.now() + PENDING_TTL_MS })
     const preview = request.resource === 'provider'
-      ? { resource: request.resource, app: request.app, name: request.name, endpoint: request.endpoint, homepage: request.homepage, model: request.model, notes: request.notes, enabled: request.enabled, usageEnabled: request.usageEnabled && Boolean(request.usageScript), maskedApiKey: `${request.apiKey.slice(0, 4)}${'*'.repeat(12)}` }
+      ? { resource: request.resource, app: request.app, name: request.name, endpoint: request.endpoint, homepage: request.homepage, model: request.model, notes: request.notes, enabled: request.enabled, maskedApiKey: `${request.apiKey.slice(0, 4)}${'*'.repeat(12)}` }
       : request.resource === 'prompt' ? { resource: request.resource, app: request.app, name: request.name, description: request.description, contentPreview: request.content.slice(0, 240), enabled: request.enabled }
-        : request.resource === 'mcp' ? { resource: request.resource, apps: request.apps, serverIds: Object.keys(request.mcpServers), enabled: request.enabled }
+        : request.resource === 'mcp' ? {
+            resource: request.resource,
+            apps: request.apps,
+            enabled: false,
+            requestedEnabled: request.requestedEnabled,
+            servers: Object.entries(request.mcpServers).map(([id, spec]) => ({
+              id,
+              type: typeof spec?.url === 'string' ? 'http' : 'command',
+              url: typeof spec?.url === 'string' ? spec.url : '',
+              command: typeof spec?.command === 'string' ? spec.command : '',
+              args: Array.isArray(spec?.args) ? spec.args.map(String) : [],
+              envKeys: spec?.env && typeof spec.env === 'object' && !Array.isArray(spec.env) ? Object.keys(spec.env) : [],
+              headerKeys: (spec?.headers || spec?.http_headers) && typeof (spec.headers || spec.http_headers) === 'object' ? Object.keys(spec.headers || spec.http_headers) : []
+            }))
+          }
           : { resource: request.resource, repo: request.repo, directory: request.directory, branch: request.branch, enabled: request.enabled }
     return { pendingId, expiresAt: Date.now() + PENDING_TTL_MS, preview }
   }
@@ -166,7 +179,6 @@ function createDeepLinkManager(options = {}) {
     if (request.resource === 'provider') {
       const apiType = request.app === 'claude' ? 'anthropic' : request.app === 'gemini' ? 'gemini' : 'openai_compat'
       const provider = await configManager.saveProvider({ id: safeId(request.name), name: request.name, apiKey: request.apiKey, baseUrl: request.endpoint[0], model: request.model, clients: [request.app], apiType, wireApi: request.app === 'codex' ? 'responses' : 'chat_completions', claudeAuthField: 'ANTHROPIC_AUTH_TOKEN', source: 'imported', notes: request.notes, homepage: request.homepage, customEndpoints: request.endpoint.slice(1), modelMap: request.app === 'claude' ? { haiku: request.haikuModel, sonnet: request.sonnetModel, opus: request.opusModel } : {} })
-      if (request.usageScript && saveUsageScript) await saveUsageScript(provider.id, { enabled: request.usageEnabled, templateType: 'custom', code: request.usageScript, baseUrl: request.usageBaseUrl, apiKey: request.usageApiKey && request.usageApiKey !== request.apiKey ? request.usageApiKey : '', accessToken: request.usageAccessToken, userId: request.usageUserId, autoQueryInterval: request.usageAutoInterval })
       if (request.enabled) await configManager.switchProvider(request.app, provider.id)
       return { type: 'provider', id: provider.id, name: provider.name, app: request.app, enabled: request.enabled }
     }
@@ -181,11 +193,10 @@ function createDeepLinkManager(options = {}) {
         try {
           const isHttp = typeof spec?.url === 'string'
           const saved = await extensionManager.saveMcp({ id, name: id, type: isHttp ? 'http' : 'command', url: spec?.url || '', headers: spec?.headers || spec?.http_headers || {}, command: spec?.command || '', args: spec?.args || [], env: spec?.env || {}, apps: {} })
-          if (request.enabled) for (const app of request.apps) if (app !== 'openclaw') await extensionManager.setMcpEnabled(saved.id, app, true)
           importedIds.push(saved.id)
         } catch (error) { failed.push({ id, error: error.message }) }
       }
-      return { type: 'mcp', importedCount: importedIds.length, importedIds, failed }
+      return { type: 'mcp', importedCount: importedIds.length, importedIds, failed, enabled: false, requiresReview: true }
     }
     await skillManager.addSkillRepo({ owner: request.owner, name: request.name, branch: request.branch, enabled: request.enabled })
     return { type: 'skill', repo: request.repo, enabled: request.enabled }

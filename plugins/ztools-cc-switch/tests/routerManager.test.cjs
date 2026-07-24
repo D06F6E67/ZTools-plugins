@@ -26,6 +26,38 @@ test('router helpers infer clients, join paths and rectify thinking budgets', ()
   })
 })
 
+test('router config always normalizes listening host to loopback', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-host-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const router = createRouterManager({ dataDir: root, getActiveProvider: async () => null })
+  const config = await router.saveConfig({ host: '0.0.0.0' })
+  assert.equal(config.host, '127.0.0.1')
+})
+
+test('router rejects self-recursive upstream and forwarded router hops', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-recursion-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r)); const port = probe.address().port; await new Promise(r => probe.close(r))
+  const router = createRouterManager({ dataDir: root, getActiveProvider: async () => ({ id: 'loop', name: 'Loop', apiKey: 'key', baseUrl: `http://127.0.0.1:${port}`, model: 'gpt', apiType: 'responses' }) })
+  await router.saveConfig({ port, routes: { codex: true } }); await router.start(); t.after(() => router.stop())
+  const options = { method: 'POST', headers: { 'content-type': 'application/json', 'x-ztools-client': 'codex' }, body: '{}' }
+  let response = await fetch(`http://127.0.0.1:${port}/v1/responses`, options)
+  assert.equal(response.status, 508); assert.match((await response.json()).error.message, /不能指向当前本地路由/)
+  response = await fetch(`http://127.0.0.1:${port}/v1/responses`, { ...options, headers: { ...options.headers, 'x-ztools-router-hop': '1' } })
+  assert.equal(response.status, 508); assert.match((await response.json()).error.message, /递归/)
+})
+
+test('router caps buffered transformed responses before conversion', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-response-limit-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r)); const port = probe.address().port; await new Promise(r => probe.close(r))
+  const router = createRouterManager({
+    dataDir: root,
+    fetchImpl: async () => new Response('{"choices":[]}', { status: 200, headers: { 'content-type': 'application/json', 'content-length': String(32 * 1024 * 1024 + 1) } }),
+    getActiveProvider: async () => ({ id: 'chat', name: 'Chat', apiKey: 'key', baseUrl: 'https://api.example.com/v1', model: 'gpt', apiType: 'openai_compat' })
+  })
+  await router.saveConfig({ port, routes: { codex: true } }); await router.start(); t.after(() => router.stop())
+  const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-ztools-client': 'codex' }, body: '{}' })
+  assert.equal(response.status, 502); assert.match((await response.json()).error.message, /超过 32 MB/)
+})
+
 test('Claude Desktop helpers expose safe catalog ids and map aliases, roles and 1M suffixes', () => {
   const provider = { claudeDesktopRoutes: [{ routeId: 'claude-opus-4-8', upstreamModel: 'kimi-k2.7', supports1m: true }, { routeId: 'claude-haiku-4-5', upstreamModel: 'kimi-k2.7-fast' }] }
   assert.equal(claudeDesktopModelsResponse(provider).data[0].supports1m, true)
