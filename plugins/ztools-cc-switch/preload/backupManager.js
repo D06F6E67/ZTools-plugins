@@ -5,10 +5,12 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 
 const DATA_FILES = ['providers.json', 'universal-providers.json', 'common-config-snippets.json', 'profiles.json', 'omo-profiles.json', 'skills-state.json', 'extensions.json', 'router-config.json', 'request-logs.jsonl', 'model-pricing.json', 'billing-defaults.json', 'connectivity-check-config.json', 'connectivity-check-logs.jsonl', 'log-config.json']
+const MAX_BACKUP_FILE_BYTES = 100 * 1024 * 1024
 function createBackupManager(options = {}) {
   const dataDir = path.resolve(options.dataDir)
   const localBackupDir = path.join(dataDir, 'backups')
   const localSettingsPath = path.join(dataDir, 'backup-settings.json')
+  let importQueue = Promise.resolve()
   async function atomicWrite(filePath, content) {
     await fsp.mkdir(path.dirname(filePath), { recursive: true })
     if (fs.existsSync(filePath)) await fsp.copyFile(filePath, `${filePath}.pre-import-${Date.now()}.bak`)
@@ -43,8 +45,12 @@ function createBackupManager(options = {}) {
     await atomicWrite(target, `${JSON.stringify(bundle, null, 2)}\n`)
     return { path: target, fileCount: Object.keys(files).length }
   }
-  async function importBackup(source) {
-    const sourcePath = path.resolve(String(source || '')); const bundle = JSON.parse(await fsp.readFile(sourcePath, 'utf8'))
+  async function performImportBackup(source) {
+    const sourcePath = path.resolve(String(source || ''))
+    const stat = await fsp.lstat(sourcePath)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('备份来源必须是安全的普通文件')
+    if (stat.size > MAX_BACKUP_FILE_BYTES) throw new Error('备份文件超过 100 MB 安全限制')
+    const bundle = JSON.parse(await fsp.readFile(sourcePath, 'utf8'))
     if (bundle.format !== 'ztools-cc-switch-backup' || bundle.version !== 1 || !bundle.files || typeof bundle.files !== 'object') throw new Error('不是有效的 AI Provider Switch 备份')
     const candidates = []
     for (const [filename, content] of Object.entries(bundle.files)) {
@@ -78,6 +84,11 @@ function createBackupManager(options = {}) {
       throw new Error(`备份导入失败，已恢复原数据：${error.message}`)
     }
     return { imported: candidates.length, source: sourcePath }
+  }
+  function importBackup(source) {
+    const task = importQueue.then(() => performImportBackup(source))
+    importQueue = task.catch(() => {})
+    return task
   }
   function validateFilename(filename) {
     const value = String(filename || '')
@@ -163,4 +174,4 @@ function createBackupManager(options = {}) {
   }
   return { exportBackup, importBackup, getLocalBackupSettings, saveLocalBackupSettings, listLocalBackups, createLocalBackup, restoreLocalBackup, renameLocalBackup, deleteLocalBackup, periodicLocalBackupIfNeeded }
 }
-module.exports = { DATA_FILES, createBackupManager }
+module.exports = { DATA_FILES, MAX_BACKUP_FILE_BYTES, createBackupManager }

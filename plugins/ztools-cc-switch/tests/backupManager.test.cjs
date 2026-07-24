@@ -1,6 +1,6 @@
 'use strict'
 const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs/promises'); const os = require('node:os'); const path = require('node:path')
-const { createBackupManager } = require('../preload/backupManager')
+const { MAX_BACKUP_FILE_BYTES, createBackupManager } = require('../preload/backupManager')
 test('exports redacted backups and imports with recoverable file backups', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-backup-test-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
   const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir); await fs.writeFile(path.join(dataDir, 'providers.json'), JSON.stringify({ providers: [{ apiKey: 'secret', name: 'P' }] }))
@@ -45,4 +45,27 @@ test('导入后半程失败时回滚所有已修改文件并删除本次新建�
   assert.equal(await fs.readFile(path.join(dataDir, 'providers.json'), 'utf8'), '{"before":true}\n')
   await assert.rejects(fs.access(path.join(dataDir, 'profiles.json')))
   await assert.rejects(fs.access(path.join(dataDir, 'skills-state.json')))
+})
+
+test('并发导入按调用顺序串行执行且不会交叉回滚', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-backup-queue-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir)
+  const make = async (name, value) => { const file = path.join(root, name); await fs.writeFile(file, JSON.stringify({ format: 'ztools-cc-switch-backup', version: 1, files: { 'providers.json': JSON.stringify({ value }) } })); return file }
+  let active = 0; let maxActive = 0
+  const manager = createBackupManager({ dataDir, beforeImportWrite: async () => { active += 1; maxActive = Math.max(maxActive, active); await new Promise((resolve) => setTimeout(resolve, 15)); active -= 1 } })
+  const first = await make('first.json', 1); const second = await make('second.json', 2)
+  await Promise.all([manager.importBackup(first), manager.importBackup(second)])
+  assert.equal(maxActive, 1)
+  assert.equal(JSON.parse(await fs.readFile(path.join(dataDir, 'providers.json'), 'utf8')).value, 2)
+})
+
+test('本地导入拒绝符号链接和超过 100 MB 的备份', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-backup-limit-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir)
+  const target = path.join(root, 'target.json'); await fs.writeFile(target, '{}')
+  const link = path.join(root, 'link.json'); await fs.symlink(target, link)
+  const manager = createBackupManager({ dataDir })
+  await assert.rejects(() => manager.importBackup(link), /安全的普通文件/)
+  const oversized = path.join(root, 'oversized.json'); await fs.writeFile(oversized, ''); await fs.truncate(oversized, MAX_BACKUP_FILE_BYTES + 1)
+  await assert.rejects(() => manager.importBackup(oversized), /超过 100 MB/)
 })
