@@ -297,7 +297,7 @@ export default function DevTools ({ enterAction }) {
     <div className='dt'>
       <header className='dt__topbar'>
         <div className='dt__brand'>
-          <span>uTools 插件</span>
+          <span>zTools 插件</span>
           <strong>研发工具箱</strong>
         </div>
         <nav className='dt__nav' aria-label='工具分组'>
