@@ -43,7 +43,7 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 - 保留客户端配置文件中的未知字段与 Codex 既有登录材料
 - Provider 预设随插件版本静态发布，不在运行时下载或覆盖规则
 - 复刻上游 `ccswitch://v1/import` Deep Link，支持 Provider、Prompt、MCP 与 Skill 仓库；借用 ZTools Feature/`onPluginEnter` 接收入口并展示确认弹窗
-- Deep Link 密钥与配置原文仅在 Preload 保存，Web UI 只接收脱敏预览和 10 分钟一次性确认 ID；外部配置 URL 强制 HTTPS、限时且限制 1 MB；MCP 导入后保持禁用，需审核后手动启用
+- Deep Link 密钥与配置原文仅在 Preload 保存，Web UI 只接收脱敏预览和 10 分钟一次性确认 ID；Provider 只接受内联 Base64 配置，远程端点强制 HTTPS（回环地址除外）；MCP 导入后保持禁用，同 ID 自动创建安全副本并需审核后手动启用
 - OAuth 设备码复制优先借用 ZTools 剪贴板能力；Webview 不直接申请浏览器剪贴板权限
 - 设置页支持跳过/恢复 Claude Code 初次安装确认，仅增量维护 `~/.claude.json` 的 `hasCompletedOnboarding` 字段，并在变更前生成 `.bak`
 - Claude Code VS Code 插件联动开关，对照上游增量维护 `~/.claude/config.json` 的 `primaryApiKey: "any"`，关闭时只删除该字段
