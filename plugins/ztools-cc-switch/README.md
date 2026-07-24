@@ -43,7 +43,7 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 - 保留客户端配置文件中的未知字段与 Codex 既有登录材料
 - Provider 预设随插件版本静态发布，不在运行时下载或覆盖规则
 - 复刻上游 `ccswitch://v1/import` Deep Link，支持 Provider、Prompt、MCP 与 Skill 仓库；借用 ZTools Feature/`onPluginEnter` 接收入口并展示确认弹窗
-- Deep Link 密钥与配置原文仅在 Preload 保存，Web UI 只接收脱敏预览和 10 分钟一次性确认 ID；外部配置 URL 强制 HTTPS、限时且限制 1 MB
+- Deep Link 密钥与配置原文仅在 Preload 保存，Web UI 只接收脱敏预览和 10 分钟一次性确认 ID；外部配置 URL 强制 HTTPS、限时且限制 1 MB；MCP 导入后保持禁用，需审核后手动启用
 - OAuth 设备码复制优先借用 ZTools 剪贴板能力；Webview 不直接申请浏览器剪贴板权限
 - 设置页支持跳过/恢复 Claude Code 初次安装确认，仅增量维护 `~/.claude.json` 的 `hasCompletedOnboarding` 字段，并在变更前生成 `.bak`
 - Claude Code VS Code 插件联动开关，对照上游增量维护 `~/.claude/config.json` 的 `primaryApiKey: "any"`，关闭时只删除该字段
@@ -61,7 +61,7 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 - Provider 可配置非负成本倍率、按请求或响应模型计价，以及每日/每月 USD 消费限额；用量概览显示实时进度与超限状态
 - 用量页提供 Claude、Codex、Gemini、GrokBuild 应用级默认倍率与计价来源；Claude Desktop 继承 Claude，Provider 留空继承或单独覆盖，按请求计价锚定映射后的实际出站模型
 - Provider 自定义用量脚本支持 General、New API 与 Custom 模板、临时测试和页面内定时查询；请求/提取代码运行在受限 Preload `vm` 上下文，HTTPS 同源模板、超时、响应大小及结果类型均受校验
-- 用量脚本独立 API Key、Access Token 与 User ID 通过 ZTools `safeStorage` 保存，Web UI 仅显示配置状态；Provider Deep Link 可携带 Base64 脚本并在确认后安全导入
+- 用量脚本独立 API Key、Access Token 与 User ID 通过 ZTools `safeStorage` 保存，Web UI 仅显示配置状态；Provider Deep Link 拒绝用量脚本与用量凭据，需导入后在插件内手动配置
 - 宿主日志支持 error/warn/info/debug/trace 级别与总开关，只持久化插件标识消息并脱敏 Bearer、API Key、Token、密码及 URL 凭据
 - 日志维护支持单文件大小、保留天数和请求日志条目上限；启动及每六小时自动压缩，手动清理以重命名备份代替直接删除
 - 内置主流 Claude、GPT 与 Gemini 模型定价，支持自定义四类 Token 单价并回填未定价历史记录；自定义定价随便携备份迁移
@@ -216,14 +216,14 @@ ztools publish
 - Provider 数据默认保存在 ZTools `userData/ztools-cc-switch/providers.json`，也可覆盖插件数据目录；文件权限按当前用户写入。
 - OAuth Token 不写入 Provider JSON 或 WebDAV 备份；前端只能读取脱敏账号元数据，无法调用内部 Token 获取方法。
 - WebDAV 密码与 S3 Secret Access Key 使用系统 `safeStorage` 加密，设置页只显示“已保存”状态。
-- 本地路由默认只监听 `127.0.0.1`；切换到 `0.0.0.0` 会允许局域网访问，请自行评估风险。
+- WebDAV 与自定义 S3 Endpoint 的远程地址必须使用 HTTPS；仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
+- 本地路由固定监听 `127.0.0.1`，不会暴露到局域网。
 - 应用接管前保存完整文件快照；关闭路由时恢复快照。路由模式下切换 Provider 只更新路由状态，不反复改写客户端文件。
 - Skill 覆盖、更新和删除前写入插件数据目录中的结构化备份；恢复路径与备份 ID 均经过边界校验。
 - Workspace 文件仅允许上游定义的九个名称，Daily Memory 必须是有效的 `YYYY-MM-DD.md`；删除先进入插件回收站。
 - 环境诊断只自动修改用户 Home 下已识别的 Shell 配置，进程环境和 Windows 系统级变量只提示手动处理；所有值在进入前端前脱敏。
 - 会话用量导入只读取 CLI 已有日志；文件签名与导入状态保存在插件数据目录，不修改原会话文件。
 - Codex 用量重建在 Preload 内完成，Web UI 只接收移除/导入数量和备份份数，不接收日志内容或本机备份路径。
-- 热更新失败不会阻止插件启动，始终回退到本地或内置规则。
 - 删除 Provider 不会回滚已经写入客户端的当前配置；请选择另一个 Provider 切换即可覆盖。
 
 ## 架构说明与范围
