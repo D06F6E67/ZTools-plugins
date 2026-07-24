@@ -71,6 +71,7 @@ const settingsInitialTab = ref<"general" | "privacy" | "sync">("general");
 const editor = ref<{
   mode: "create" | "edit" | "rename";
   itemId?: string;
+  pinboardId?: string;
   title: string;
   text: string;
 }>();
@@ -185,7 +186,12 @@ async function copySelection(plainText = false): Promise<void> {
 }
 
 function createTextItem(): void {
-  window.pasteboardPro?.openPanel("editor", { mode: "create" });
+  window.pasteboardPro?.openPanel("editor", {
+    mode: "create",
+    ...(activePinboardId.value === undefined
+      ? {}
+      : { pinboardId: activePinboardId.value }),
+  });
 }
 
 function editItem(itemId: string): void {
@@ -206,7 +212,11 @@ async function saveEditor(value: { title: string; text: string }): Promise<void>
   editorSaving.value = true;
   try {
     if (current.mode === "create") {
-      await window.pasteboardPro?.createTextItem(value.text, value.title || undefined);
+      await window.pasteboardPro?.createTextItem(
+        value.text,
+        value.title || undefined,
+        current.pinboardId,
+      );
     } else if (current.mode === "edit" && current.itemId !== undefined) {
       await window.pasteboardPro?.updateTextItem(
         current.itemId,
@@ -593,7 +603,14 @@ onMounted(async () => {
     const mode = params.get("mode");
     const itemId = params.get("itemId") ?? undefined;
     if (mode === "create") {
-      editor.value = { mode, title: "", text: "" };
+      editor.value = {
+        mode,
+        title: "",
+        text: "",
+        ...(params.get("pinboardId") === null
+          ? {}
+          : { pinboardId: params.get("pinboardId")! }),
+      };
       return;
     }
     if ((mode === "edit" || mode === "rename") && itemId !== undefined) {
