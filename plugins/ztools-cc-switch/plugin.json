@@ -7,6 +7,7 @@
   "main": "index.html",
   "preload": "preload/index.js",
   "logo": "logo.svg",
+  "platform": ["darwin"],
   "development": {
     "main": "http://127.0.0.1:5179/"
   },

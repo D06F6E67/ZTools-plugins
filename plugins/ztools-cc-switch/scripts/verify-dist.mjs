@@ -33,6 +33,13 @@ const required = [
   'preload/package.json', 'preload/package-lock.json'
 ]
 
+if (process.platform === 'darwin') {
+  required.push(
+    'preload/bin/cc-switch-sidecar-darwin-arm64',
+    'preload/bin/cc-switch-sidecar-darwin-x64'
+  )
+}
+
 for (const relative of required) await access(path.resolve('dist', relative))
 const preloadRequire = createRequire(path.resolve('dist/preload/index.js'))
 for (const dependency of ['adm-zip', 'json5', 'node-fetch', 'proxy-agent', 'proxy-from-env', 'tar', 'yaml']) {

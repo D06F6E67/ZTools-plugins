@@ -6,12 +6,12 @@
   "description": "在 ZTools 中统一管理 AI CLI Provider、Skills、本地路由、用量与日志",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "npm run build:sidecar && vite build && node scripts/verify-dist.mjs",
+    "build": "npm run install:preload && npm run build:sidecar && vite build && node scripts/verify-dist.mjs",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "preview": "vite preview",
     "test": "node --test tests/*.test.cjs",
     "test:sidecar": "npm run build:sidecar && node --test tests/sidecar.integration.test.cjs",
-    "install:preload": "npm install --prefix preload"
+    "install:preload": "npm ci --omit=dev --prefix preload"
   },
   "dependencies": {
     "vue": "^3.5.22"

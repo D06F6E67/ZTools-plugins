@@ -12,6 +12,8 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 
 生产构建会保留可审核的 CommonJS Preload 源码，并把 `preload/node_modules` 原始模块结构复制到发布产物；ZTools 运行态无需临时联网安装依赖。
 
+1.52.0 首发版限定 macOS，发布包同时包含 Apple Silicon 与 Intel 两种 Rust sidecar；Windows 与 Linux 代码保留为后续发布适配，不在本版市场支持范围内。
+
 ## 功能
 
 - Claude Code、Claude Desktop、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、GrokBuild 八客户端切换与现有配置导入
@@ -187,11 +189,12 @@ dist/
     ├── activityStore.js
     ├── sidecarClient.js
     ├── bin/
-    │   └── cc-switch-sidecar-<platform>-<arch>
+    │   ├── cc-switch-sidecar-darwin-arm64
+    │   └── cc-switch-sidecar-darwin-x64
     └── package.json
 ```
 
-Preload 与 Rust 源码按 ZTools 审核要求保持可读，没有混淆。`npm run build` 会先为当前系统构建 release sidecar，再复制进 `dist/preload/bin/`。`tar`、`json5`、`yaml` 声明在 `preload/package.json`，发布工具会按 Preload 依赖结构处理。若手工运行 `dist`，请在 `dist/preload` 安装生产依赖：
+Preload 与 Rust 源码按 ZTools 审核要求保持可读，没有混淆。`npm run build` 会先按 `preload/package-lock.json` 安装 Preload 依赖；在 macOS 上继续构建 Apple Silicon 与 Intel 两种 release sidecar，再复制进 `dist/preload/bin/`。`tar`、`json5`、`yaml` 声明在 `preload/package.json`，发布工具会按 Preload 依赖结构处理。若手工运行 `dist`，请在 `dist/preload` 安装生产依赖：
 
 ```bash
 npm install --omit=dev --prefix dist/preload
@@ -209,6 +212,8 @@ ztools publish
 ```
 
 首次发布会在 fork 的 `plugin/ztools-cc-switch` 分支创建 Draft PR；后续发布在同一分支追加提交。审核者在 PR 分支直接修改后，先运行 `ztools pull-contributions` 三方合并回本地，再继续发布。不要 force-push 发布分支。
+
+首发 PR 标题使用 `Add plugin AI Provider Switch v1.52.0`，并保持 Draft 状态，直到 macOS 双架构产物、安全说明和界面截图审核完成。
 
 ## 安全边界
 
@@ -231,12 +236,7 @@ ztools publish
 
 上游 cc-switch 是 Tauri/Rust 桌面应用，不能把其窗口运行时直接嵌入 ZTools Webview。本项目对照上游公开源码独立实现配置兼容层，并通过 CommonJS Preload 暴露最小业务接口。当前版本覆盖八客户端 Provider、Claude/Codex/Gemini Universal Provider、Skills 仓库发现/搜索/ZIP 批量安装/更新/备份恢复、Claude/Codex 项目 Profiles、OpenCode OMO/OMO Slim Profiles、全局 HTTP(S)/SOCKS5 出站代理、MCP/Prompts、本地路由/接管、故障转移、Thinking 整流、四类 API 协议及逐 Token SSE 转换、Codex/xAI/Copilot OAuth 账户池、Claude/Codex/Gemini 官方额度、七类 Provider Coding Plan、Provider 测速、七客户端 Sessions 与文件/SQLite 精确回收站、四客户端历史用量导入、OpenClaw Workspace/Daily Memory/Agents/Tools/Env/Health/模型目录、Hermes Memory/模型状态/Web Dashboard、环境冲突诊断、用量日志、本地备份、WebDAV 与 S3 云同步；其余上游边缘模块仍在后续迁移清单中。
 
-当前构建脚本生成宿主平台产物。正式发布多平台插件时，应在对应 CI runner 上分别执行 `npm run build:sidecar`，收集以下文件后再统一打包：
-
-- `cc-switch-sidecar-darwin-arm64`
-- `cc-switch-sidecar-darwin-x64`
-- `cc-switch-sidecar-win32-x64.exe`
-- `cc-switch-sidecar-linux-x64`
+ZTools 市场依 `plugin.json` 的 `platform` 把插件分配到单一操作系统 runner。本版声明 `darwin`，macOS runner 会交叉构建 `aarch64-apple-darwin` 与 `x86_64-apple-darwin`，使同一审核包同时适用 Apple Silicon 和 Intel Mac。扩展 Windows/Linux 时需先解决 ZTools 单 runner 分发与多平台原生产物聚合，不应只修改 `platform` 声明。
 
 ## License
 
