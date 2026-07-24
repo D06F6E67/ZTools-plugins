@@ -176,8 +176,13 @@ def verify(page, width, height, screenshot):
     page.locator('.profile-manage-modal .modal-header .icon-button').click()
 
 with sync_playwright() as p:
-    installed = Path.home() / "Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell"
-    browser = p.chromium.launch(headless=True, executable_path=str(installed) if installed.exists() else None)
+    browser_candidates = [
+        Path.home() / "Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+    ]
+    installed = next((candidate for candidate in browser_candidates if candidate.exists()), None)
+    browser = p.chromium.launch(headless=True, executable_path=str(installed) if installed else None)
     page = browser.new_page()
     page.add_init_script(MOCK)
     verify(page, 1440, 900, "/tmp/ztools-cc-switch-wide.png")
