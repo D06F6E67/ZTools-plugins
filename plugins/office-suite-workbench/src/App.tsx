@@ -40,6 +40,7 @@ import {
   normalizeFilePayload,
   type QuickActionId
 } from "./lib/commands";
+import { OFFICE_AI_TOOL, normalizeOfficeAiToolInput } from "./lib/ai";
 import { parseStoredHistory, type HistoryItem } from "./lib/history";
 import type {
   ApiResult,
@@ -48,7 +49,9 @@ import type {
   OfficeCliRunOutput,
   OfficeCliStatus,
   OfficeFormat,
-  ViewId
+  ViewId,
+  ZToolsAiModel,
+  ZToolsAiRequest
 } from "./types";
 
 type StatusPhase = "checking" | "ready" | "missing";
@@ -59,6 +62,13 @@ interface LastExecution {
   label: string;
   command: string;
   result: ApiResult<OfficeCliRunOutput>;
+}
+
+interface AiChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  reasoning?: string;
 }
 
 const FORMAT_META: Record<OfficeFormat, {
@@ -101,6 +111,7 @@ const FORMAT_META: Record<OfficeFormat, {
 
 const NAV_ITEMS: Array<{ id: ViewId; label: string; icon: typeof Home }> = [
   { id: "home", label: "总览", icon: Home },
+  { id: "ai", label: "AI 助手", icon: Sparkles },
   { id: "word", label: "Word", icon: FileText },
   { id: "excel", label: "Excel", icon: Table2 },
   { id: "powerpoint", label: "PowerPoint", icon: Presentation },
@@ -193,21 +204,37 @@ export default function App() {
   const [mcpClient, setMcpClient] = useState<ClientId>("generic");
   const [mcpTransport, setMcpTransport] = useState<McpTransport>("ztools");
   const [toast, setToast] = useState("");
+  const [aiModels, setAiModels] = useState<ZToolsAiModel[]>([]);
+  const [aiModel, setAiModel] = useState("");
+  const [aiModelsLoading, setAiModelsLoading] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [allowAiWrite, setAllowAiWrite] = useState(false);
   const activeOperationRef = useRef<{ token: symbol; label: string } | null>(null);
   const statusRequestRef = useRef(0);
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const aiRequestRef = useRef<ZToolsAiRequest | null>(null);
+  const allowAiWriteRef = useRef(false);
+  const selectedFileRef = useRef("");
 
   const selectedFormat = selectedFile ? detectFormat(selectedFile) : null;
   const resultText = useMemo(() => executionText(lastExecution), [lastExecution]);
 
-  const addFiles = useCallback((incoming: string[]) => {
+  const addFiles = useCallback((
+    incoming: string[],
+    options: { navigate?: boolean; selectFirst?: boolean } = {}
+  ) => {
     const supported = incoming.filter(path => detectFormat(path));
     if (!supported.length) return;
     setFiles(previous => [...new Set([...previous, ...supported])]);
-    setSelectedFile(previous => previous || supported[0]);
-    const firstFormat = detectFormat(supported[0]);
-    if (firstFormat) setView(FORMAT_META[firstFormat].view);
+    setSelectedFile(previous => options.selectFirst ? supported[0] : previous || supported[0]);
+    if (options.navigate !== false) {
+      const firstFormat = detectFormat(supported[0]);
+      if (firstFormat) setView(FORMAT_META[firstFormat].view);
+    }
   }, []);
 
   const refreshStatus = useCallback(async () => {
@@ -254,6 +281,75 @@ export default function App() {
     setMcpProbe(null);
     setMcpStatus(null);
   }, [statusPhase]);
+
+  useEffect(() => {
+    allowAiWriteRef.current = allowAiWrite;
+  }, [allowAiWrite]);
+
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+
+  useEffect(() => {
+    if (view !== "ai") return;
+    if (!window.ztools?.allAiModels) {
+      setAiModels([]);
+      setAiError("当前 ZTools 版本未提供原生 AI API。");
+      return;
+    }
+    let active = true;
+    setAiModelsLoading(true);
+    setAiError("");
+    void window.ztools.allAiModels().then(models => {
+      if (!active) return;
+      setAiModels(models);
+      setAiModel(previous => previous && models.some(model => model.id === previous)
+        ? previous
+        : models[0]?.id ?? "");
+      if (!models.length) setAiError("请先在 ZTools 设置中添加 AI 模型。");
+    }).catch(error => {
+      if (!active) return;
+      setAiModels([]);
+      setAiError(error instanceof Error ? error.message : "读取 ZTools AI 模型失败。");
+    }).finally(() => {
+      if (active) setAiModelsLoading(false);
+    });
+    return () => { active = false; };
+  }, [view]);
+
+  useEffect(() => {
+    const officeDocument = async (input: Record<string, unknown>) => {
+      if (!window.officeSuite) {
+        return { ok: false, error: { code: "BRIDGE_UNAVAILABLE", message: "OfficeCLI bridge unavailable." } };
+      }
+      let command: string | string[];
+      try {
+        command = normalizeOfficeAiToolInput(input, selectedFileRef.current);
+      } catch (error) {
+        const failure: ApiResult<OfficeCliRunOutput> = {
+          ok: false,
+          error: {
+            code: "AI_TOOL_INPUT_INVALID",
+            message: error instanceof Error ? error.message : "Invalid office_document input."
+          }
+        };
+        setLastExecution({ label: "AI 工具调用", command: "参数校验失败", result: failure });
+        return failure;
+      }
+      const result = await window.officeSuite.runForAi(command, {
+        allowWrite: allowAiWriteRef.current
+      });
+      const printable = Array.isArray(command) ? formatCommand(command) : command;
+      setLastExecution({ label: "AI 工具调用", command: printable, result });
+      if (!result.ok) return result;
+      const { previewImages: _previewImages, ...safeOutput } = result.data;
+      return { ok: true, ...safeOutput };
+    };
+    window.office_document = officeDocument;
+    return () => {
+      if (window.office_document === officeDocument) delete window.office_document;
+    };
+  }, []);
 
   useEffect(() => {
     if (view !== "mcp" || !window.officeSuite || statusPhase !== "ready") return;
@@ -314,18 +410,18 @@ export default function App() {
     setBusyLabel("");
   };
 
-  const chooseFiles = async () => {
+  const chooseFiles = async (options: { navigate?: boolean; selectFirst?: boolean } = {}) => {
     if (window.ztools?.showOpenDialog) {
       const result = await window.ztools.showOpenDialog({
         title: "选择 Office 文档",
         properties: ["openFile", "multiSelections"],
         filters: [{ name: "Office Open XML", extensions: ["docx", "xlsx", "pptx"] }]
       });
-      addFiles(normalizeFilePayload(result));
+      addFiles(normalizeFilePayload(result), options);
       return;
     }
     const manual = window.prompt("输入 Office 文件的绝对路径");
-    if (manual) addFiles([manual]);
+    if (manual) addFiles([manual], options);
   };
 
   const chooseOutputPath = async (format: OfficeFormat): Promise<string> => {
@@ -398,6 +494,100 @@ export default function App() {
     if (!filePath) return;
     const item = QUICK_ACTIONS.find(candidate => candidate.id === action);
     await runCommand(buildQuickCommand(action, filePath), item?.label ?? action);
+  };
+
+  const sendAiMessage = async () => {
+    const prompt = aiPrompt.trim();
+    if (!prompt || aiBusy) return;
+    if (!window.ztools?.ai) {
+      setAiError("当前 ZTools 版本未提供原生 AI API。");
+      return;
+    }
+    if (!aiModel) {
+      setAiError("请先在 ZTools 设置中添加并选择 AI 模型。");
+      return;
+    }
+
+    const userMessage: AiChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: prompt
+    };
+    const assistantId = `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const assistantMessage: AiChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: ""
+    };
+    const conversation = [...aiMessages, userMessage];
+    setAiMessages([...conversation, assistantMessage]);
+    setAiPrompt("");
+    setAiError("");
+    setAiBusy(true);
+
+    const selectedContext = selectedFile
+      ? `The currently selected document is: ${selectedFile}`
+      : "No document is currently selected. Ask for an absolute path when one is required.";
+    const systemPrompt = [
+      "You are the native Office assistant inside ZTools.",
+      "Use the office_document function for factual document inspection and every claimed file operation.",
+      "Call office_document with operation, filePath, and args. To read content use operation=view and args=[\"text\"]; never use read as an operation.",
+      "Use absolute paths and read operations before edits.",
+      "Use help or load_skill when OfficeCLI syntax is uncertain.",
+      "If a tool returns AI_WRITE_APPROVAL_REQUIRED, explain that the user must enable the modification switch; never claim the file changed.",
+      "Summarize successful changes and report tool errors honestly.",
+      selectedContext
+    ].join(" ");
+
+    let request: ZToolsAiRequest;
+    try {
+      request = window.ztools.ai({
+        model: aiModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...conversation.map(message => ({ role: message.role, content: message.content }))
+        ],
+        tools: [OFFICE_AI_TOOL]
+      }, chunk => {
+        const content = typeof chunk.content === "string" ? chunk.content : "";
+        const reasoning = chunk.reasoning_content ?? "";
+        if (!content && !reasoning) return;
+        setAiMessages(previous => previous.map(message => message.id === assistantId
+          ? {
+              ...message,
+              content: message.content + content,
+              reasoning: (message.reasoning ?? "") + reasoning
+            }
+          : message));
+      });
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "ZTools AI 请求启动失败。");
+      setAiBusy(false);
+      setAllowAiWrite(false);
+      allowAiWriteRef.current = false;
+      return;
+    }
+    aiRequestRef.current = request;
+
+    try {
+      await request;
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "ZTools AI 请求失败。");
+    } finally {
+      if (aiRequestRef.current === request) aiRequestRef.current = null;
+      setAiBusy(false);
+      setAllowAiWrite(false);
+      allowAiWriteRef.current = false;
+    }
+  };
+
+  const stopAiMessage = () => {
+    aiRequestRef.current?.abort();
+    aiRequestRef.current = null;
+    setAiBusy(false);
+    setAllowAiWrite(false);
+    allowAiWriteRef.current = false;
+    setAiError("已停止本次生成。");
   };
 
   const createDocument = async (format: OfficeFormat) => {
@@ -717,6 +907,121 @@ export default function App() {
     </div>
   );
 
+  const renderAi = () => (
+    <div className="view-stack ai-view">
+      <section className="ai-hero reveal">
+        <div>
+          <span className="section-index">ZTOOLS NATIVE AI / OFFICE TOOLS</span>
+          <h1>使用你已经配置的 AI。</h1>
+          <p>模型请求由 ZTools 宿主发送，插件不会读取或保存提供商 API Key。</p>
+        </div>
+        <label className="ai-model-picker">
+          <span>当前模型</span>
+          <select
+            aria-label="ZTools AI 模型"
+            value={aiModel}
+            disabled={aiModelsLoading || !aiModels.length}
+            onChange={event => setAiModel(event.target.value)}
+          >
+            {!aiModels.length && <option value="">{aiModelsLoading ? "正在读取…" : "暂无模型"}</option>}
+            {aiModels.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}
+          </select>
+          <small>{aiModels.find(model => model.id === aiModel)?.description || "来自 ZTools 设置"}</small>
+        </label>
+      </section>
+
+      <div className="ai-workspace reveal delay-1">
+        <section className="ai-chat-panel">
+          <div className="ai-chat-header">
+            <span><Sparkles size={16} /><strong>Office AI 助手</strong></span>
+            <button
+              disabled={!aiMessages.length || aiBusy}
+              onClick={() => { setAiMessages([]); setAiError(""); }}
+            >清空对话</button>
+          </div>
+          <div className="ai-transcript" aria-live="polite">
+            {aiMessages.length ? aiMessages.map(message => (
+              <article className={`ai-message ${message.role}`} key={message.id}>
+                <span>{message.role === "user" ? "YOU" : "AI"}</span>
+                <div>
+                  {message.reasoning && <details><summary>思考过程</summary><p>{message.reasoning}</p></details>}
+                  <p>{message.content || (message.role === "assistant" && aiBusy
+                    ? "正在调用 ZTools AI…"
+                    : "未返回文本。")}</p>
+                </div>
+              </article>
+            )) : (
+              <div className="ai-empty-state">
+                <span><Sparkles size={28} /></span>
+                <strong>让 AI 阅读、检查或修改 Office 文档</strong>
+                <p>例如：“检查当前 Word 文档的格式问题，并给出修复建议。”</p>
+              </div>
+            )}
+          </div>
+          {aiError && <div className="ai-error"><CircleAlert size={15} />{aiError}</div>}
+          <label className={`ai-write-toggle ai-write-inline ${allowAiWrite ? "enabled" : ""}`}>
+            <input
+              type="checkbox"
+              checked={allowAiWrite}
+              disabled={aiBusy}
+              onChange={event => setAllowAiWrite(event.target.checked)}
+            />
+            <span><ShieldCheck size={18} /></span>
+            <div>
+              <strong>{allowAiWrite ? "已允许修改文件" : "需要 AI 修改文件？先开启写入授权"}</strong>
+              <small>仅下一次发送有效；关闭时只允许读取、检查和预览。</small>
+            </div>
+          </label>
+          <div className="ai-composer">
+            <textarea
+              aria-label="向 Office AI 提问"
+              placeholder="描述你要检查、创建或修改的内容…"
+              value={aiPrompt}
+              disabled={aiBusy}
+              onChange={event => setAiPrompt(event.target.value)}
+              onKeyDown={event => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void sendAiMessage();
+                }
+              }}
+            />
+            {aiBusy ? (
+              <button className="ai-send stop" onClick={stopAiMessage}><X size={16} />停止</button>
+            ) : (
+              <button
+                className="ai-send"
+                disabled={!aiPrompt.trim() || !aiModel || statusPhase !== "ready"}
+                onClick={() => void sendAiMessage()}
+              ><ArrowUpRight size={16} />发送</button>
+            )}
+          </div>
+          <div className="ai-composer-hint">⌘ / Ctrl + Enter 发送 · 工具调用经过 OfficeCLI 安全策略</div>
+        </section>
+
+        <aside className="ai-context-panel">
+          <div className="panel-title"><span>ACTIVE CONTEXT</span><strong>本轮上下文</strong></div>
+          <div className="ai-context-file">
+            <span><FileText size={18} /></span>
+            <div>
+              <strong>{selectedFile ? basename(selectedFile) : "尚未选择文档"}</strong>
+              <small title={selectedFile}>{selectedFile || "AI 会在需要时询问绝对路径"}</small>
+            </div>
+            <button onClick={() => void chooseFiles({ navigate: false, selectFirst: true })}>
+              {selectedFile ? "更换" : "选择"}
+            </button>
+          </div>
+          <div className="ai-capability-list">
+            <div><Check size={15} /><span><strong>ZTools 内置 AI</strong><small>复用设置中的模型与凭据</small></span></div>
+            <div><Check size={15} /><span><strong>OfficeCLI Function Tool</strong><small>自动执行受控文档命令</small></span></div>
+            <div><Check size={15} /><span><strong>ZTools MCP</strong><small>外部客户端入口保持可用</small></span></div>
+          </div>
+          <p className="ai-privacy-note">提示词、所选文件路径及工具结果会发送给当前 AI 提供商；原始 Office 文件不会被自动上传。</p>
+        </aside>
+      </div>
+    </div>
+  );
+
   const renderMcp = () => {
     const configuration = mcpTransport === "ztools"
       ? ZTOOLS_MCP_CONFIGS[mcpClient]
@@ -827,7 +1132,7 @@ export default function App() {
           <img src="./logo.svg" alt="" />
           <span><strong>OFFICE / SUITE</strong><small>powered by OfficeCLI</small></span>
         </button>
-        <div className="topbar-center"><span>LOCAL DOCUMENT OPERATIONS</span><i /><span>MCP READY</span></div>
+        <div className="topbar-center"><span>LOCAL DOCUMENT OPERATIONS</span><i /><span>NATIVE AI + MCP</span></div>
         <button className={`runtime-status ${statusPhase}`} onClick={openSettings}>
           {statusPhase === "checking" && <LoaderCircle className="spin" size={15} />}
           {statusPhase === "ready" && <Check size={15} />}
@@ -856,6 +1161,7 @@ export default function App() {
 
       <main className="main-canvas">
         {view === "home" && renderHome()}
+        {view === "ai" && renderAi()}
         {view === "word" && renderFormatView("word")}
         {view === "excel" && renderFormatView("excel")}
         {view === "powerpoint" && renderFormatView("powerpoint")}

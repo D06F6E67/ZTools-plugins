@@ -19,6 +19,19 @@ const RUN_OPTION_FIELDS = new Set(['timeoutMs'])
 const MAX_PREVIEW_IMAGE_BYTES = 12 * 1024 * 1024
 const MAX_PREVIEW_TOTAL_BYTES = 24 * 1024 * 1024
 const MAX_PREVIEW_IMAGES = 8
+const AI_TOOL_TIMEOUT_MS = 120_000
+const AI_WRITE_COMMANDS = new Set([
+  'add',
+  'batch',
+  'close',
+  'create',
+  'move',
+  'refresh',
+  'remove',
+  'save',
+  'set',
+  'swap'
+])
 const EXTERNAL_MCP_BLOCKED_OPTIONS = new Set(['-o', '--out', '--output', '--save', '--browser'])
 const EXTERNAL_MCP_BLOCKED_PROPERTY_KEYS = new Set([
   'fallback',
@@ -164,6 +177,36 @@ async function safeUiRun(runner, command, options) {
   return withPreviewImages(result)
 }
 
+async function safeAiRun(runner, command, options) {
+  try {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new OfficeCliRunnerError('INVALID_OPTIONS', 'AI tool options must be an object.')
+    }
+    const optionKeys = Object.keys(options)
+    if (optionKeys.some((key) => key !== 'allowWrite') || typeof options.allowWrite !== 'boolean') {
+      throw new OfficeCliRunnerError(
+        'INVALID_OPTIONS',
+        'AI tool options accept only the boolean allowWrite field.'
+      )
+    }
+    const parsed = validateExternalToolCommand(command)
+    if (AI_WRITE_COMMANDS.has(parsed.command) && !options.allowWrite) {
+      throw new OfficeCliRunnerError(
+        'AI_WRITE_APPROVAL_REQUIRED',
+        `OfficeCLI command "${parsed.command}" requires the user to enable file modifications for this AI turn.`,
+        { command: parsed.command }
+      )
+    }
+    const result = await safeInvoke(runner, 'run', [parsed.argv, {
+      timeoutMs: AI_TOOL_TIMEOUT_MS,
+      env: { OFFICECLI_NO_AUTO_RESIDENT: '1' }
+    }])
+    return withPreviewImages(result)
+  } catch (error) {
+    return failure(error, 'OFFICE_SUITE_AI_TOOL_ERROR')
+  }
+}
+
 function createOfficeSuiteServices(runner = createOfficeCliRunner()) {
   return Object.freeze({
     getStatus(options) {
@@ -171,6 +214,9 @@ function createOfficeSuiteServices(runner = createOfficeCliRunner()) {
     },
     run(command, options) {
       return safeUiRun(runner, command, options)
+    },
+    runForAi(command, options) {
+      return safeAiRun(runner, command, options)
     },
     getMcpStatus(options) {
       return safeUiInvoke(runner, 'getMcpStatus', [], options, STATUS_OPTION_FIELDS)
@@ -440,6 +486,7 @@ if (typeof window !== 'undefined') {
 
 module.exports = {
   MCP_TOOL_TIMEOUT_MS,
+  AI_TOOL_TIMEOUT_MS,
   OFFICE_DOCUMENT_TOOL,
   attachOfficeSuite,
   collectPreviewImages,

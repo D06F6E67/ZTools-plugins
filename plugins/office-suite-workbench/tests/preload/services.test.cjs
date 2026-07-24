@@ -7,6 +7,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 const {
+  AI_TOOL_TIMEOUT_MS,
   MCP_TOOL_TIMEOUT_MS,
   attachOfficeSuite
 } = require('../../preload/services.cjs')
@@ -42,8 +43,50 @@ test('attachOfficeSuite exposes only the fixed narrow UI methods', () => {
     'probeMcp',
     'registerMcp',
     'run',
+    'runForAi',
     'unregisterMcp'
   ])
+})
+
+test('native AI bridge enforces per-turn write approval without weakening MCP policy', async () => {
+  const mock = runnerMock()
+  const target = {}
+  attachOfficeSuite(target, mock.runner)
+
+  const read = await target.officeSuite.runForAi(
+    ['get', '/tmp/report.docx', '/body'],
+    { allowWrite: false }
+  )
+  assert.equal(read.ok, true)
+  assert.deepEqual(mock.calls[0], {
+    name: 'run',
+    args: [
+      ['get', '/tmp/report.docx', '/body'],
+      {
+        timeoutMs: AI_TOOL_TIMEOUT_MS,
+        env: { OFFICECLI_NO_AUTO_RESIDENT: '1' }
+      }
+    ]
+  })
+
+  const blockedWrite = await target.officeSuite.runForAi(
+    ['set', '/tmp/report.docx', '/body/p[1]', '--prop', 'bold=true'],
+    { allowWrite: false }
+  )
+  assert.equal(blockedWrite.ok, false)
+  assert.equal(blockedWrite.error.code, 'AI_WRITE_APPROVAL_REQUIRED')
+  assert.equal(mock.calls.length, 1)
+
+  const allowedWrite = await target.officeSuite.runForAi(
+    ['set', '/tmp/report.docx', '/body/p[1]', '--prop', 'bold=true'],
+    { allowWrite: true }
+  )
+  assert.equal(allowedWrite.ok, true)
+  assert.equal(mock.calls.length, 2)
+
+  const invalidOptions = await target.officeSuite.runForAi('help', { allowWrite: true, env: {} })
+  assert.equal(invalidOptions.ok, false)
+  assert.equal(invalidOptions.error.code, 'INVALID_OPTIONS')
 })
 
 test('renderer bridge rejects hidden runner options before invocation', async () => {

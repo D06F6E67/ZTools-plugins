@@ -36,6 +36,7 @@ window.officeSuite = {
       }
     };
   },
+  async runForAi(command) { return this.run(command); },
   async getMcpStatus() {
     return { ok: true, data: { raw: 'Claude registered\nCursor not registered', targets: { claude: true, cursor: false } } };
   },
@@ -69,8 +70,27 @@ window.ztools = {
   async showSaveDialog() { return '/tmp/Untitled.docx'; },
   copyText(text) { window.__copiedText = text; },
   async shellOpenExternal() {},
-  async shellOpenPath() {}
-
+  async shellOpenPath() {},
+  async allAiModels() {
+    return [
+      { id: 'deepseek-chat', label: 'DeepSeek Chat', description: 'ZTools configured model' },
+      { id: 'qwen-plus', label: 'Qwen Plus', description: 'Backup model' }
+    ];
+  },
+  ai(options, onChunk) {
+    window.__lastAiOptions = options;
+    const request = Promise.resolve().then(async () => {
+      const toolResult = await window.office_document({
+        operation: 'get',
+        filePath: '/tmp/Annual Report.docx',
+        args: ['/body']
+      });
+      window.__lastAiToolResult = toolResult;
+      onChunk({ role: 'assistant', content: '已通过 ZTools AI 检查当前文档。' });
+    });
+    request.abort = () => { window.__aiAborted = true; };
+    return request;
+  }
 };
 """
 
@@ -131,6 +151,26 @@ def main() -> None:
         assert "Executive summary" in page.locator(".result-drawer pre").inner_text()
         assert page.locator(".result-drawer .result-previews img").is_visible()
         page.locator('.result-drawer button[title="关闭"]').click()
+
+        page.get_by_title("AI 助手").click()
+        page.get_by_role("heading", name="使用你已经配置的 AI。").wait_for()
+        assert page.get_by_role("combobox", name="ZTools AI 模型").input_value() == "deepseek-chat"
+        page.evaluate("window.ztools.showOpenDialog = async () => ['/tmp/Replacement.docx']")
+        page.get_by_role("button", name="更换").click()
+        page.get_by_role("heading", name="使用你已经配置的 AI。").wait_for()
+        page.get_by_text("Replacement.docx", exact=True).wait_for()
+        write_toggle = page.locator(".ai-write-inline input[type='checkbox']")
+        write_toggle.check()
+        assert write_toggle.is_checked()
+        ai_prompt = page.get_by_role("textbox", name="向 Office AI 提问")
+        ai_prompt.fill("检查当前文档")
+        page.get_by_role("button", name="发送").click()
+        page.get_by_text("已通过 ZTools AI 检查当前文档。").wait_for()
+        assert page.evaluate("window.__lastAiOptions.model") == "deepseek-chat"
+        assert page.evaluate("window.__lastAiOptions.tools[0].function.name") == "office_document"
+        assert page.evaluate("window.__lastAiOptions.tools[0].function.parameters.properties.operation.enum.includes('view')") is True
+        assert page.evaluate("window.__lastAiToolResult.ok") is True
+        assert write_toggle.is_checked() is False
 
         page.get_by_title("MCP 接入").click()
         page.get_by_role("heading", name="让 AI 直接操作 Office。").wait_for()
