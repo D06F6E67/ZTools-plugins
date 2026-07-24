@@ -126,10 +126,20 @@ function changeClientVisibility(ids) {
   try {
     const saved = bridge.setVisibleClients(ids)
     visibleClientIds.value = saved
-    if (!saved.includes(selectedClient.value)) selectedClient.value = saved[0]
+    if (!saved.includes(selectedClient.value)) {
+      selectedClient.value = saved[0]
+      if (selectedClient.value === 'claude-desktop' && currentView.value === 'router') currentView.value = 'providers'
+    }
     toast(saved.length === 1 ? `左侧菜单现在只显示 ${clients.value.find((client) => client.id === saved[0])?.name || saved[0]}` : `已显示 ${saved.length} 个 AI 客户端菜单`)
   } catch (error) {
     toast(error.message || '保存客户端菜单失败', 'error')
+  }
+}
+
+function updateClientRouting({ client, enabled }) {
+  clientStatus.value = {
+    ...clientStatus.value,
+    [client]: { ...(clientStatus.value[client] || {}), routed: enabled }
   }
 }
 
@@ -292,7 +302,12 @@ async function openDesktopLibrary() {
 function handlePluginEntry(event) {
   if (event.detail?.code === 'provider-settings') openSettings('appearance')
   if (event.detail?.code === 'provider-skills') currentView.value = 'skills'
-  if (event.detail?.code === 'provider-router') currentView.value = 'router'
+  if (event.detail?.code === 'provider-router') {
+    if (selectedClient.value === 'claude-desktop') {
+      selectedClient.value = visibleClients.value.find((client) => client.id !== 'claude-desktop')?.id || 'claude'
+    }
+    currentView.value = 'router'
+  }
   if (event.detail?.code === 'provider-usage') currentView.value = 'usage'
   if (event.detail?.code === 'provider-extensions') currentView.value = 'extensions'
   if (event.detail?.code === 'provider-webdav') openSettings('sync')
@@ -350,7 +365,7 @@ onBeforeUnmount(() => {
           v-for="client in visibleClients"
           :key="client.id"
           class="client-node"
-          :class="{ active: selectedClient === client.id && currentView === 'providers' }"
+          :class="{ active: selectedClient === client.id }"
           :style="{ '--client-accent': client.accent }"
           :title="client.name"
           @click="selectedClient = client.id; currentView = 'providers'"
@@ -370,7 +385,6 @@ onBeforeUnmount(() => {
         <button :class="{ active: currentView === 'workspace' }" title="OpenClaw Workspace" @click="currentView = 'workspace'"><span>W</span><em>Workspace</em></button>
         <button :class="{ active: currentView === 'agent-config' }" title="Agent 配置中心" @click="currentView = 'agent-config'"><span>N</span><em>Agent 配置</em></button>
         <button :class="{ active: currentView === 'env' }" title="环境诊断" @click="currentView = 'env'"><span>D</span><em>环境诊断</em></button>
-        <button v-if="selectedClient !== 'claude-desktop'" :class="{ active: currentView === 'router' }" :title="`${selectedClientInfo.name} 路由`" @click="currentView = 'router'"><span>R</span><em>{{ selectedClientInfo.name }} 路由</em></button>
         <button :class="{ active: currentView === 'usage' }" title="用量与日志" @click="currentView = 'usage'"><span>U</span><em>用量与日志</em></button>
       </nav>
 
@@ -386,7 +400,10 @@ onBeforeUnmount(() => {
           :client="selectedClientInfo"
           :active-provider="activeProvider"
           :provider-count="filteredProviders.length"
+          :routable="selectedClient !== 'claude-desktop'"
+          :route-enabled="clientStatus[selectedClient]?.routed"
           @add="openCreate"
+          @route="currentView = 'router'"
           @settings="openSettings('appearance')"
           @profile-applied="loadData"
           @toast="toast"
@@ -454,7 +471,7 @@ onBeforeUnmount(() => {
       <SkillsView v-else-if="currentView === 'skills'" :clients="clients" @back="currentView = 'providers'" @toast="toast" />
       <ExtensionsView v-else-if="currentView === 'extensions'" :clients="clients" @back="currentView = 'providers'" @toast="toast" />
       <UniversalProvidersView v-else-if="currentView === 'universal'" @back="currentView = 'providers'" @toast="toast" @reload="loadData" />
-      <RouterView v-else-if="currentView === 'router'" :client="selectedClientInfo" :clients="clients" @back="currentView = 'providers'" @toast="toast" />
+      <RouterView v-else-if="currentView === 'router'" :client="selectedClientInfo" :clients="clients" @back="currentView = 'providers'" @toast="toast" @routing-change="updateClientRouting" />
       <UsageView v-else-if="currentView === 'usage'" @back="currentView = 'providers'" @toast="toast" />
       <AuthCenterView v-else-if="currentView === 'auth'" @back="currentView = 'providers'" @toast="toast" @changed="loadData" />
       <SessionsView v-else-if="currentView === 'sessions'" @back="currentView = 'providers'" @toast="toast" />

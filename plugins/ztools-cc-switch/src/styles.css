@@ -88,6 +88,13 @@ h1, h2, p { margin-top: 0; }
 .status-copy strong { color: #dce6f2; font-weight: 600; }
 .inline-divider { display: inline-block; width: 1px; height: 12px; margin: 0 10px -2px; background: #343e4a; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
+.provider-action-stack { display: grid; gap: 6px; }
+.route-entry-button { min-height: 27px; padding: 0 9px; display: grid; grid-template-columns: 6px minmax(0,1fr) auto; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 8px; text-align: left; cursor: pointer; transition: color .16s,border-color .16s,background .16s; }
+.route-entry-button:hover { color: var(--text); border-color: color-mix(in srgb,var(--client-accent) 34%,var(--line)); background: color-mix(in srgb,var(--client-accent) 5%,var(--panel)); }
+.route-entry-button > i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.route-entry-button > span { color: var(--client-accent); font-size: 10px; }
+.route-entry-button.active { color: var(--text); border-color: color-mix(in srgb,var(--client-accent) 38%,var(--line)); }
+.route-entry-button.active > i { background: var(--teal); box-shadow: 0 0 8px color-mix(in srgb,var(--teal) 55%,transparent); }
 .provider-count { min-width: 52px; text-align: center; }
 .provider-count strong { display: block; font: 600 17px 'JetBrains Mono', monospace; }
 .provider-count span { color: var(--dim); font: 500 9px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .1em; }

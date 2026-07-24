@@ -3,9 +3,11 @@ import ProfileSwitcher from './ProfileSwitcher.vue'
 defineProps({
   client: { type: Object, required: true },
   activeProvider: { type: Object, default: null },
-  providerCount: { type: Number, default: 0 }
+  providerCount: { type: Number, default: 0 },
+  routable: { type: Boolean, default: true },
+  routeEnabled: { type: Boolean, default: false }
 })
-defineEmits(['add', 'profile-applied', 'toast'])
+defineEmits(['add', 'route', 'profile-applied', 'toast'])
 </script>
 
 <template>
@@ -27,10 +29,15 @@ defineEmits(['add', 'profile-applied', 'toast'])
     <div class="header-actions">
       <ProfileSwitcher :client="client" @applied="$emit('profile-applied')" @toast="(...args) => $emit('toast', ...args)" />
       <div class="provider-count"><strong>{{ providerCount }}</strong><span>routes</span></div>
-      <button class="primary-button" @click="$emit('add')">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 3h2v6h6v2h-6v6H9v-6H3V9h6V3Z"/></svg>
-        添加 Provider
-      </button>
+      <div class="provider-action-stack">
+        <button class="primary-button" @click="$emit('add')">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 3h2v6h6v2h-6v6H9v-6H3V9h6V3Z"/></svg>
+          添加 Provider
+        </button>
+        <button v-if="routable" class="route-entry-button" :class="{ active: routeEnabled }" @click="$emit('route')">
+          <i />{{ routeEnabled ? '路由已接管' : '本地路由' }}<span>→</span>
+        </button>
+      </div>
     </div>
   </header>
 </template>

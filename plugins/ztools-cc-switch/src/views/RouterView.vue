@@ -5,7 +5,7 @@ const props = defineProps({
   client: { type: Object, required: true },
   clients: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['back', 'toast'])
+const emit = defineEmits(['back', 'toast', 'routing-change'])
 const bridge = window.ccSwitch
 const status = ref({ running: false, config: { routes: {}, rectifier: {}, optimizer: {}, copilotOptimizer: {} } })
 const busy = ref(false)
@@ -74,6 +74,7 @@ async function toggleRoute(client, enabled) {
     await bridge.setClientRouting(client, enabled, status.value.url)
     const config = await bridge.saveRouterConfig({ routes: { [client]: enabled } })
     status.value = { ...status.value, config }
+    emit('routing-change', { client, enabled })
     emit('toast', `${client} 路由接管已${enabled ? '启用' : '关闭并恢复配置'}`)
   } catch (error) { emit('toast', error.message, 'error') }
 }
