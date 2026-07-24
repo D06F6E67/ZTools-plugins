@@ -70,3 +70,16 @@ test('全部客户端恢复成功后清空路由并停止共享引擎', async ()
   assert.deepEqual(ctx.status.config.routes, { claude: false, codex: false })
   assert.deepEqual(result.restoredClients.sort(), ['claude', 'codex'])
 })
+
+test('关闭标记保存失败时不修改客户端配置并保留原路由状态', async () => {
+  const ctx = setup({ codex: true }, true)
+  const originalSave = ctx.routerManager.saveConfig
+  ctx.routerManager.saveConfig = async ({ routes }) => {
+    if (routes.codex === false) { ctx.calls.push('save:failed'); throw new Error('disk full') }
+    return originalSave({ routes })
+  }
+  await assert.rejects(() => ctx.manager.stopAll(), /保存路由状态失败|disk full/)
+  assert.equal(ctx.status.config.routes.codex, true)
+  assert.equal(ctx.calls.some((item) => item.startsWith('client:codex')), false)
+  assert.equal(ctx.status.running, true)
+})

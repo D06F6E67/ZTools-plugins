@@ -43,24 +43,35 @@ function createRouteLifecycleManager({ routerManager, configManager }) {
 
   async function stopAllAndRestore() {
     const status = await routerManager.status()
-    const succeeded = {}
+    const succeeded = []
     const errors = []
     for (const [client, enabled] of Object.entries(status.config?.routes || {})) {
       if (!enabled) continue
-      if (client === 'claude-desktop') { succeeded[client] = false; continue }
+      if (client === 'claude-desktop') {
+        try { await routerManager.saveConfig({ routes: { [client]: false } }); succeeded.push(client) }
+        catch (error) { errors.push({ client, message: `保存路由状态失败: ${error.message}` }) }
+        continue
+      }
       try {
+        // 先落盘关闭标记；若客户端恢复失败，再把该标记补偿回开启状态。
+        await routerManager.saveConfig({ routes: { [client]: false } })
         await configManager.setClientRouting(client, false, status.url)
-        succeeded[client] = false
-      } catch (error) { errors.push({ client, message: error.message }) }
+        succeeded.push(client)
+      } catch (error) {
+        let rollbackMessage = ''
+        try { await routerManager.saveConfig({ routes: { [client]: true } }) }
+        catch (rollbackError) { rollbackMessage = `；路由状态回滚失败: ${rollbackError.message}` }
+        errors.push({ client, message: `${error.message}${rollbackMessage}` })
+      }
     }
-    const config = Object.keys(succeeded).length ? await routerManager.saveConfig({ routes: succeeded }) : status.config
     if (errors.length) {
       const error = new Error(`部分客户端配置恢复失败，路由引擎保持运行：${errors.map((item) => `${item.client}: ${item.message}`).join('；')}`)
       error.failures = errors
       throw error
     }
+    const config = (await routerManager.status()).config
     const next = Object.values(config.routes || {}).some(Boolean) ? await routerManager.status() : await routerManager.stop()
-    return { ...next, restoredClients: Object.keys(succeeded) }
+    return { ...next, restoredClients: succeeded }
   }
 
   function setRoute(client, enabled) {
