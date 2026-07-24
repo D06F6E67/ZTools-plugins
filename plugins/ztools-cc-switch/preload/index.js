@@ -42,6 +42,7 @@ const { createUsageScriptManager } = require('./usageScriptManager')
 const { createLogManager } = require('./logManager')
 const { createFailoverManager } = require('./failoverManager')
 const { createClientVisibilityManager } = require('./clientVisibility')
+const { createRouteLifecycleManager } = require('./routeLifecycleManager')
 
 function resolveDataDir() {
   try {
@@ -147,6 +148,7 @@ routerManager = createRouterManager({
     : null
 })
 const failoverManager = createFailoverManager({ configManager, routerManager })
+const routeLifecycleManager = createRouteLifecycleManager({ configManager, routerManager })
 const profileManager = createProfileManager({
   dataDir, configManager, extensionManager, skillManager,
   applyProvider: (client, providerId) => switchProviderWithManagedAuth(client, providerId),
@@ -555,6 +557,7 @@ window.ccSwitch = Object.freeze({
   getRouterStatus: () => routerManager.status(),
   startRouter: () => routerManager.start(),
   stopRouter: () => stopRouterAndRestore(),
+  setRouterRoute: (client, enabled) => routeLifecycleManager.setRoute(String(client || ''), Boolean(enabled)),
   saveRouterConfig: (patch) => routerManager.saveConfig(patch || {}),
   getCircuitBreakerStats: (client, providerId) => routerManager.getCircuitBreakerStats(String(client || ''), String(providerId || '')),
   resetCircuitBreaker: (client, providerId) => routerManager.resetCircuitBreaker(String(client || ''), String(providerId || '')),
