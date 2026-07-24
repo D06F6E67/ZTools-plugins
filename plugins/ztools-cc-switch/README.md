@@ -38,6 +38,7 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 - Provider 编辑器可从服务端读取模型列表，支持搜索后一键回填；普通 API Key Provider 自动推导 `/models`，并可覆盖 Models URL、Custom User-Agent 与 Full URL 模式
 - 模型端点兼容 `/vN`、OpenAI 兼容子路径及常见 Claude Coding Plan 后缀；404/405 时尝试下一候选，其他 HTTP 错误保留服务端摘要供排障
 - Codex OAuth、xAI OAuth 与 GitHub Copilot 托管账号使用各自官方模型端点，访问令牌仅在 Preload 内参与请求，不返回 Web UI
+- Gemini 官方订阅额度查询沿用 [Gemini CLI 官方源码](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/oauth2.ts)公开发布的 installed-app OAuth Client ID/Secret，仅在 Preload 内为本机已有 Gemini CLI 会话刷新 Access Token；这些常量不作为桥接 API 导出，用户 Token 也不会返回 Web UI、写入 Provider、备份或日志
 - API 连通性、鉴权响应与延迟测试
 - 写入前自动生成 `.bak`，临时文件完成后原子替换
 - 保留客户端配置文件中的未知字段与 Codex 既有登录材料

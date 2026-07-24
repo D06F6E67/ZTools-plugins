@@ -6,6 +6,10 @@ const { execFile: execFileCallback } = require('node:child_process')
 const { promisify } = require('node:util')
 const execFile = promisify(execFileCallback)
 
+// Public installed-app OAuth credentials published in the official Gemini CLI.
+// They are used only to refresh an existing local Gemini CLI session before a quota query;
+// they are not user credentials and are intentionally kept private to this module.
+// Source: https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/oauth2.ts
 const GEMINI_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com'
 const GEMINI_CLIENT_SECRET = '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'
 const MAX_RESPONSE_BYTES = 1024 * 1024
@@ -174,4 +178,4 @@ function createSubscriptionManager(options = {}) {
   return { queryQuota, queryAll, testEndpoints, clearCache: () => cache.clear() }
 }
 
-module.exports = { GEMINI_CLIENT_ID, GEMINI_CLIENT_SECRET, timestampExpired, parseClaudeCredentials, parseCodexCredentials, parseGeminiCredentials, windowName, classifyGemini, createSubscriptionManager }
+module.exports = { timestampExpired, parseClaudeCredentials, parseCodexCredentials, parseGeminiCredentials, windowName, classifyGemini, createSubscriptionManager }
