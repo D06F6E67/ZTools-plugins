@@ -1,6 +1,7 @@
 'use strict'
 
 const crypto = require('node:crypto')
+const { requireSecureHttpUrl } = require('./networkSecurity')
 
 const APPS = new Set(['claude', 'codex', 'gemini', 'grokbuild', 'opencode', 'openclaw', 'hermes'])
 const MCP_APPS = new Set(['claude', 'codex', 'gemini', 'grokbuild', 'opencode', 'hermes'])
@@ -27,6 +28,50 @@ function validateHttpUrl(value, label, httpsOnly = false) {
   if (parsed.username || parsed.password) throw new Error(`${label} 不允许包含 URL 凭据`)
   if (httpsOnly ? parsed.protocol !== 'https:' : !['http:', 'https:'].includes(parsed.protocol)) throw new Error(`${label} 协议不受支持`)
   return parsed.href.replace(/\/$/, '')
+}
+
+function validateProviderEndpoint(value, label) {
+  const parsed = requireSecureHttpUrl(validateHttpUrl(value, label), label)
+  return parsed.href.replace(/\/$/, '')
+}
+
+function safeMcpId(value) {
+  const id = String(value || '').trim()
+  if (!id || id.length > 120 || !/^[A-Za-z0-9._-]+$/.test(id)) throw new Error('MCP Server ID 无效')
+  return id
+}
+
+function uniqueMcpId(value, used) {
+  const id = safeMcpId(value)
+  if (!used.has(id)) { used.add(id); return id }
+  for (let index = 1; index <= 999; index += 1) {
+    const suffix = index === 1 ? '-imported' : `-imported-${index}`
+    const candidate = `${id.slice(0, 120 - suffix.length)}${suffix}`
+    if (!used.has(candidate)) { used.add(candidate); return candidate }
+  }
+  throw new Error(`无法为 MCP Server ${id} 分配安全 ID`)
+}
+
+function maskMcpArgs(argsInput) {
+  const args = Array.isArray(argsInput) ? argsInput.map((value) => String(value).slice(0, 512)) : []
+  const output = []
+  const sensitive = /(?:api[-_]?key|token|password|secret|authorization|auth)/i
+  for (let index = 0; index < Math.min(args.length, 128); index += 1) {
+    const value = args[index]
+    const pair = /^(--?[^=]+)=(.*)$/.exec(value)
+    if (pair && sensitive.test(pair[1])) { output.push(`${pair[1]}=••••`); continue }
+    output.push(value)
+    if (sensitive.test(value) && index + 1 < args.length) { output.push('••••'); index += 1 }
+  }
+  if (args.length > 128) output.push(`… 另有 ${args.length - 128} 项`)
+  return output
+}
+
+function maskMcpUrl(value) {
+  const parsed = new URL(String(value || ''))
+  const sensitive = /(?:api[-_]?key|token|password|secret|authorization|auth)/i
+  for (const key of [...parsed.searchParams.keys()]) if (sensitive.test(key)) parsed.searchParams.set(key, '••••')
+  return parsed.href
 }
 
 function decodeBase64(value, label) {
@@ -65,14 +110,14 @@ function parseDeepLink(input) {
     if (usageFields.some((name) => params.has(name))) throw new Error('外部链接不支持用量脚本；请先导入 Provider，再在用量管理中手动配置')
     const app = required(params, 'app')
     if (!APPS.has(app)) throw new Error(`不支持的 Provider 应用: ${app}`)
-    const endpoint = params.get('endpoint')?.split(',').map((item, index) => validateHttpUrl(item.trim(), `endpoint[${index}]`)).filter(Boolean) || []
+    const endpoint = params.get('endpoint')?.split(',').map((item, index) => validateProviderEndpoint(item.trim(), `endpoint[${index}]`)).filter(Boolean) || []
     const homepage = params.get('homepage') ? validateHttpUrl(params.get('homepage'), 'homepage') : ''
-    const configUrl = params.get('configUrl') ? validateHttpUrl(params.get('configUrl'), 'configUrl', true) : ''
+    if (params.has('configUrl')) throw new Error('外部 Deep Link 不支持远程 configUrl；请改用内联 Base64 config')
     return {
       resource, app, enabled, name: safeName(required(params, 'name')), homepage, endpoint,
       apiKey: String(params.get('apiKey') || ''), model: String(params.get('model') || '').trim(), notes: String(params.get('notes') || '').slice(0, 4000),
       haikuModel: String(params.get('haikuModel') || '').trim(), sonnetModel: String(params.get('sonnetModel') || '').trim(), opusModel: String(params.get('opusModel') || '').trim(),
-      icon: String(params.get('icon') || '').trim().slice(0, 80), config: String(params.get('config') || ''), configFormat: String(params.get('configFormat') || '').trim(), configUrl
+      icon: String(params.get('icon') || '').trim().slice(0, 80), config: String(params.get('config') || ''), configFormat: String(params.get('configFormat') || '').trim()
     }
   }
   if (resource === 'prompt') {
@@ -123,25 +168,14 @@ function createDeepLinkManager(options = {}) {
   const configManager = options.configManager
   const extensionManager = options.extensionManager
   const skillManager = options.skillManager
-  const fetchImpl = options.fetchImpl || globalThis.fetch
   const pending = new Map()
 
   function purge() { const now = Date.now(); for (const [id, item] of pending) if (item.expiresAt <= now) pending.delete(id) }
-  async function fetchConfig(url) {
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10000)
-    try {
-      const response = await fetchImpl(url, { signal: controller.signal, redirect: 'error', headers: { accept: 'application/json, text/plain' } })
-      if (!response.ok) throw new Error(`配置下载失败: HTTP ${response.status}`)
-      const length = Number(response.headers?.get?.('content-length') || 0); if (length > MAX_DECODED_BYTES) throw new Error('远端配置过大')
-      const text = await response.text(); if (Buffer.byteLength(text) > MAX_DECODED_BYTES) throw new Error('远端配置过大')
-      return text
-    } finally { clearTimeout(timer) }
-  }
   async function prepare(url) {
     purge()
     let request = parseDeepLink(url)
-    if (request.resource === 'provider' && (request.config || request.configUrl)) {
-      const content = request.config ? decodeBase64(request.config, 'config') : await fetchConfig(request.configUrl)
+    if (request.resource === 'provider' && request.config) {
+      const content = decodeBase64(request.config, 'config')
       let parsed
       try { parsed = JSON.parse(content) } catch { throw new Error('Provider config 目前必须是 JSON') }
       request = inferProviderConfig(request, parsed)
@@ -149,27 +183,42 @@ function createDeepLinkManager(options = {}) {
     if (request.resource === 'provider') {
       if (!request.apiKey) throw new Error('Provider API Key 不能为空')
       if (!request.endpoint.length) throw new Error('Provider endpoint 不能为空')
-      request.endpoint = request.endpoint.map((item, index) => validateHttpUrl(item, `endpoint[${index}]`))
+      request.endpoint = request.endpoint.map((item, index) => validateProviderEndpoint(item, `endpoint[${index}]`))
+    }
+    let existingMcpIds = new Set()
+    if (request.resource === 'mcp') {
+      const store = await extensionManager.listExtensions()
+      existingMcpIds = new Set((store.mcpServers || []).map((item) => item.id))
+      for (const [id, spec] of Object.entries(request.mcpServers)) {
+        safeMcpId(id)
+        if (typeof spec?.url === 'string') spec.url = validateProviderEndpoint(spec.url, `MCP Server ${id} URL`)
+      }
     }
     const pendingId = crypto.randomUUID(); pending.set(pendingId, { request, expiresAt: Date.now() + PENDING_TTL_MS })
     const preview = request.resource === 'provider'
       ? { resource: request.resource, app: request.app, name: request.name, endpoint: request.endpoint, homepage: request.homepage, model: request.model, notes: request.notes, enabled: request.enabled, maskedApiKey: `${request.apiKey.slice(0, 4)}${'*'.repeat(12)}` }
       : request.resource === 'prompt' ? { resource: request.resource, app: request.app, name: request.name, description: request.description, contentPreview: request.content.slice(0, 240), enabled: request.enabled }
-        : request.resource === 'mcp' ? {
-            resource: request.resource,
-            apps: request.apps,
-            enabled: false,
-            requestedEnabled: request.requestedEnabled,
-            servers: Object.entries(request.mcpServers).map(([id, spec]) => ({
-              id,
-              type: typeof spec?.url === 'string' ? 'http' : 'command',
-              url: typeof spec?.url === 'string' ? spec.url : '',
-              command: typeof spec?.command === 'string' ? spec.command : '',
-              args: Array.isArray(spec?.args) ? spec.args.map(String) : [],
-              envKeys: spec?.env && typeof spec.env === 'object' && !Array.isArray(spec.env) ? Object.keys(spec.env) : [],
-              headerKeys: (spec?.headers || spec?.http_headers) && typeof (spec.headers || spec.http_headers) === 'object' ? Object.keys(spec.headers || spec.http_headers) : []
-            }))
-          }
+        : request.resource === 'mcp' ? (() => {
+            const used = new Set(existingMcpIds)
+            return {
+              resource: request.resource,
+              apps: request.apps,
+              enabled: false,
+              requestedEnabled: request.requestedEnabled,
+              servers: Object.entries(request.mcpServers).map(([id, spec]) => {
+                const targetId = uniqueMcpId(id, used)
+                return {
+                  id, targetId, conflict: targetId !== id,
+                  type: typeof spec?.url === 'string' ? 'http' : 'command',
+                  url: typeof spec?.url === 'string' ? maskMcpUrl(spec.url) : '',
+                  command: typeof spec?.command === 'string' ? spec.command : '',
+                  args: maskMcpArgs(spec?.args),
+                  envKeys: spec?.env && typeof spec.env === 'object' && !Array.isArray(spec.env) ? Object.keys(spec.env) : [],
+                  headerKeys: (spec?.headers || spec?.http_headers) && typeof (spec.headers || spec.http_headers) === 'object' ? Object.keys(spec.headers || spec.http_headers) : []
+                }
+              })
+            }
+          })()
           : { resource: request.resource, repo: request.repo, directory: request.directory, branch: request.branch, enabled: request.enabled }
     return { pendingId, expiresAt: Date.now() + PENDING_TTL_MS, preview }
   }
@@ -189,10 +238,13 @@ function createDeepLinkManager(options = {}) {
     }
     if (request.resource === 'mcp') {
       const importedIds = []; const failed = []
+      const store = await extensionManager.listExtensions()
+      const used = new Set((store.mcpServers || []).map((item) => item.id))
       for (const [id, spec] of Object.entries(request.mcpServers)) {
         try {
           const isHttp = typeof spec?.url === 'string'
-          const saved = await extensionManager.saveMcp({ id, name: id, type: isHttp ? 'http' : 'command', url: spec?.url || '', headers: spec?.headers || spec?.http_headers || {}, command: spec?.command || '', args: spec?.args || [], env: spec?.env || {}, apps: {} })
+          const targetId = uniqueMcpId(id, used)
+          const saved = await extensionManager.saveMcp({ id: targetId, name: id, type: isHttp ? 'http' : 'command', url: spec?.url || '', headers: spec?.headers || spec?.http_headers || {}, command: spec?.command || '', args: spec?.args || [], env: spec?.env || {}, apps: {} }, { createOnly: true })
           importedIds.push(saved.id)
         } catch (error) { failed.push({ id, error: error.message }) }
       }
@@ -205,4 +257,4 @@ function createDeepLinkManager(options = {}) {
   return { prepare, confirm, cancel }
 }
 
-module.exports = { APPS, MCP_APPS, parseDeepLink, decodeBase64, createDeepLinkManager }
+module.exports = { APPS, MCP_APPS, parseDeepLink, decodeBase64, maskMcpArgs, maskMcpUrl, uniqueMcpId, createDeepLinkManager }

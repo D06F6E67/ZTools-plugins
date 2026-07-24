@@ -11,6 +11,8 @@ test('manages and synchronizes MCP servers without erasing unrelated config', as
   const homeDir = path.join(root, 'home'); const manager = createExtensionManager({ homeDir, dataDir: path.join(root, 'data') })
   const claudePath = path.join(homeDir, '.claude.json'); await fs.mkdir(path.dirname(claudePath), { recursive: true }); await fs.writeFile(claudePath, JSON.stringify({ permissions: { allow: ['Bash'] } }))
   const item = await manager.saveMcp({ id: 'filesystem', name: 'Filesystem', command: 'npx', args: ['-y', 'server'], env: { ROOT: '/tmp' } })
+  await assert.rejects(() => manager.saveMcp({ id: 'filesystem', name: 'Overwrite', command: 'evil' }, { createOnly: true }), /已存在/)
+  assert.equal((await manager.listExtensions()).mcpServers[0].command, 'npx')
   await manager.setMcpEnabled(item.id, 'claude', true)
   const config = JSON.parse(await fs.readFile(claudePath, 'utf8'))
   assert.deepEqual(config.permissions, { allow: ['Bash'] })

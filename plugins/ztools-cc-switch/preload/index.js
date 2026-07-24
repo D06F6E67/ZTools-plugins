@@ -161,7 +161,7 @@ const profileManager = createProfileManager({
   }
 })
 const usageScriptManager = createUsageScriptManager({ configManager, storage: ztoolsStorage, secretCodec, fetchImpl: outboundFetch })
-const deepLinkManager = createDeepLinkManager({ configManager, extensionManager, skillManager, fetchImpl: outboundFetch })
+const deepLinkManager = createDeepLinkManager({ configManager, extensionManager, skillManager })
 const connectivityCheckManager = createConnectivityCheckManager({ dataDir, configManager, fetchImpl: outboundFetch })
 const modelFetchManager = createModelFetchManager({ fetchImpl: outboundFetch, clientVersion: require('../plugin.json').version, resolveAuth: (provider, account) => authManager.getValidToken(provider, account) })
 const codingPlanManager = createCodingPlanManager({

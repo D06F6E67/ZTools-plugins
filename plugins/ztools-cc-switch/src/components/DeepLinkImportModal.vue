@@ -36,7 +36,7 @@ async function confirm() {
             <dl class="deeplink-fields"><div><dt>目标应用</dt><dd>{{ preview.apps?.join(', ') }}</dd></div><div><dt>Server 数量</dt><dd>{{ preview.servers?.length }}</dd></div><div class="wide"><dt>导入策略</dt><dd>全部保持禁用，审核后手动启用</dd></div></dl>
             <div class="deeplink-mcp-list">
               <article v-for="server in preview.servers" :key="server.id">
-                <header><strong>{{ server.id }}</strong><span>{{ server.type }}</span></header>
+                <header><strong>{{ server.id }}<template v-if="server.conflict"> → {{ server.targetId }}</template></strong><span>{{ server.conflict ? '安全副本' : server.type }}</span></header>
                 <dl><div v-if="server.url"><dt>URL</dt><dd>{{ server.url }}</dd></div><div v-if="server.command"><dt>Command</dt><dd>{{ server.command }}</dd></div><div v-if="server.args?.length"><dt>Args</dt><dd>{{ server.args.join(' ') }}</dd></div><div v-if="server.envKeys?.length"><dt>Env keys</dt><dd>{{ server.envKeys.join(', ') }}</dd></div><div v-if="server.headerKeys?.length"><dt>Header keys</dt><dd>{{ server.headerKeys.join(', ') }}</dd></div></dl>
               </article>
             </div>

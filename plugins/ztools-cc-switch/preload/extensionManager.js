@@ -111,8 +111,9 @@ function createExtensionManager(options = {}) {
   }
 
   async function listExtensions() { return readStore() }
-  async function saveMcp(input) {
+  async function saveMcp(input, options = {}) {
     const item = validateMcp(input); const store = await readStore(); const index = store.mcpServers.findIndex((v) => v.id === item.id)
+    if (index >= 0 && options.createOnly) throw new Error(`MCP Server ID 已存在: ${item.id}`)
     if (index >= 0) store.mcpServers.splice(index, 1, item); else store.mcpServers.push(item)
     await writeStore(store); return item
   }
