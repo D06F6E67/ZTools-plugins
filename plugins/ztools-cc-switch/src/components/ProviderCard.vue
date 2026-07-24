@@ -5,6 +5,7 @@ const props = defineProps({
   provider: { type: Object, required: true },
   client: { type: Object, required: true },
   active: Boolean,
+  routed: Boolean,
   inLiveConfig: Boolean,
   busy: Boolean,
   dragging: Boolean,
@@ -39,7 +40,7 @@ const canSwitch = computed(() => isOfficialDesktop.value || Boolean(props.provid
 <template>
   <article
     class="provider-card"
-    :class="{ active, dragging, 'drop-target': dropTarget }"
+    :class="{ active, 'route-active': active && routed, dragging, 'drop-target': dropTarget }"
     :style="{ '--provider-color': provider.color || client.accent }"
     draggable="true"
     :aria-grabbed="dragging"
@@ -64,7 +65,7 @@ const canSwitch = computed(() => isOfficialDesktop.value || Boolean(props.provid
           <span v-if="isDesktop && !isOfficialDesktop" class="desktop-mode-badge">{{ provider.claudeDesktopMode === 'proxy' ? 'LOCAL GATEWAY' : 'DIRECT 3P' }}</span>
         </div>
       </div>
-      <div class="provider-state-badges"><span v-if="inLiveConfig && isAdditive" class="live-config-badge"><i /> Live</span><span v-if="active" class="active-badge"><i /> Active</span><span class="drag-grip" aria-hidden="true"><i/><i/><i/><i/><i/><i/></span></div>
+      <div class="provider-state-badges"><span v-if="inLiveConfig && isAdditive" class="live-config-badge"><i /> Live</span><span v-if="active" class="active-badge"><i /> {{ routed ? 'Routed' : 'Active' }}</span><span class="drag-grip" aria-hidden="true"><i/><i/><i/><i/><i/><i/></span></div>
     </div>
 
     <dl class="provider-meta">
@@ -88,7 +89,7 @@ const canSwitch = computed(() => isOfficialDesktop.value || Boolean(props.provid
     <footer class="card-actions">
       <button class="switch-button" :disabled="active || busy || !canSwitch" @click="$emit('switch')">
         <span v-if="busy" class="spinner" />
-        <template v-else>{{ active ? '正在使用' : canSwitch ? (isOfficialDesktop ? '恢复官方模式' : '切换到此路由') : '配置后切换' }}</template>
+        <template v-else>{{ active ? (routed ? '路由正在使用' : '当前直连') : canSwitch ? (isOfficialDesktop ? '恢复官方模式' : routed ? '切换路由目标' : '切换到此 Provider') : '配置后切换' }}</template>
       </button>
       <button v-if="!isOfficialDesktop" class="icon-button" :disabled="(!provider.apiKey && !provider.authProvider) || testResult?.loading" title="测试连接" @click="$emit('test')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L11 9h7V2l-2.34 2.34A7.96 7.96 0 0 0 10 2Z"/></svg>

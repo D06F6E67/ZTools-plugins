@@ -41,6 +41,8 @@ const commonConfigClient = ref('claude')
 const commonConfigText = ref('')
 const commonConfigBusy = ref('')
 const hostStartup = ref({ autoStartRouter: false, restoreOnPluginEnter: true })
+const routerEngine = ref({ running: false, config: { routes: {} }, activeConnections: 0 })
+const routerBusy = ref(false)
 const codexHistory = ref({ enabled: false, migrateExisting: false, hasBackup: false, liveUnified: false, codexDir: '' })
 const codexHistoryBusy = ref(false)
 const logConfig = ref({ enabled: true, level: 'info', retentionDays: 30, maxFileSizeMb: 20, maxRequestEntries: 50000 })
@@ -57,6 +59,7 @@ const settingsTabs = [
 watch(() => props.initialTab, (value) => { if (settingsTabs.some((tab) => tab.id === value)) settingsTab.value = value })
 const commonConfigPlaceholder = computed(() => commonConfigClient.value === 'codex' ? '# TOML shared preferences' : '{\n  "sharedPreference": true\n}')
 const visibleClientSet = computed(() => new Set(props.visibleClientIds))
+const activeRouteCount = computed(() => Object.values(routerEngine.value.config?.routes || {}).filter(Boolean).length)
 function clientGlyph(client) { return ({ claude: 'C', 'claude-desktop': 'CD', codex: 'X', gemini: 'G', opencode: 'O', openclaw: 'W', hermes: 'H', grokbuild: 'K' })[client] || '?' }
 function toggleClientVisibility(clientId) {
   const next = visibleClientSet.value.has(clientId)
@@ -88,6 +91,7 @@ onMounted(async () => {
   }
   if (window.ccSwitch.getCommonConfigSnippet) await loadCommonConfig()
   if (window.ccSwitch.getHostStartupSettings) hostStartup.value = window.ccSwitch.getHostStartupSettings()
+  if (window.ccSwitch.getRouterStatus) routerEngine.value = await window.ccSwitch.getRouterStatus()
   if (window.ccSwitch.getCodexHistoryUnifyStatus) codexHistory.value = await window.ccSwitch.getCodexHistoryUnifyStatus()
   if (window.ccSwitch.getLogConfig) { logConfig.value = await window.ccSwitch.getLogConfig(); logFiles.value = await window.ccSwitch.listLogFiles() }
 })
@@ -193,6 +197,17 @@ async function saveCommonConfig() {
 async function saveHostStartup() {
   try { hostStartup.value = window.ccSwitch.saveHostStartupSettings(hostStartup.value); emit('toast', hostStartup.value.autoStartRouter ? '本地路由将随 ZTools 插件恢复' : '已关闭宿主启动路由恢复') }
   catch (error) { emit('toast', error.message, 'error') }
+}
+async function emergencyStopRouter() {
+  const count = activeRouteCount.value
+  if (!window.confirm(`停止共享路由引擎并恢复 ${count} 个客户端的接管前配置？\n\n正在进行的请求会中断；Provider 与故障转移配置不会删除。`)) return
+  routerBusy.value = true
+  try {
+    routerEngine.value = await window.ccSwitch.stopRouter()
+    emit('toast', '全部客户端已恢复直连，路由引擎已停止', 'warning')
+    emit('reload')
+  } catch (error) { emit('toast', error.message, 'error') }
+  finally { routerBusy.value = false }
 }
 async function saveLogConfig() {
   logBusy.value = 'save'
@@ -382,6 +397,12 @@ async function runToolAction(tool, action) {
         <p>ZTools 负责操作系统级登录启动；插件不重复创建 Login Item。启用后，Preload 建立或再次进入插件时恢复配置中已开启的本地路由。</p>
         <div class="onboarding-control"><div><strong>随 ZTools 插件启动恢复本地路由</strong><small>仅在至少一个应用路由已启用时启动，不会修改客户端配置。</small></div><button class="toggle-switch" :class="{ on: hostStartup.autoStartRouter }" role="switch" :aria-checked="hostStartup.autoStartRouter" @click="hostStartup.autoStartRouter = !hostStartup.autoStartRouter; saveHostStartup()"><i /></button></div>
         <div class="onboarding-control"><div><strong>每次进入插件检查恢复</strong><small>适用于 ZTools 回收后台 Webview 后重新进入的场景。</small></div><button class="toggle-switch" :class="{ on: hostStartup.restoreOnPluginEnter }" role="switch" :aria-checked="hostStartup.restoreOnPluginEnter" @click="hostStartup.restoreOnPluginEnter = !hostStartup.restoreOnPluginEnter; saveHostStartup()"><i /></button></div>
+      </article>
+
+      <article v-show="settingsTab === 'system'" class="settings-card router-emergency-card">
+        <div class="settings-card-header"><div class="router-emergency-glyph">R</div><div><span class="card-label">SHARED ROUTER ENGINE</span><h2>路由引擎应急控制</h2></div><span class="secure-badge" :class="{ warning: !routerEngine.running }">{{ routerEngine.running ? '运行中' : '已停止' }}</span></div>
+        <p>日常启停请使用各客户端的独立接管开关。这里只用于一次恢复全部客户端配置并停止共享引擎。</p>
+        <div class="router-engine-summary"><div><span>ACTIVE ROUTES</span><strong>{{ activeRouteCount }}</strong></div><div><span>CONNECTIONS</span><strong>{{ routerEngine.activeConnections || 0 }}</strong></div><div><span>LISTEN</span><code>{{ routerEngine.url || `http://${routerEngine.config?.host || '127.0.0.1'}:${routerEngine.config?.port || 15721}` }}</code></div><button class="secondary-button danger-outline" :disabled="routerBusy || !routerEngine.running" @click="emergencyStopRouter">{{ routerBusy ? '正在恢复…' : '停止并恢复全部路由' }}</button></div>
       </article>
 
       <article v-show="settingsTab === 'system'" class="settings-card codex-history-card">

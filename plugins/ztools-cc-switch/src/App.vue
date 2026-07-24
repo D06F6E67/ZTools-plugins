@@ -38,6 +38,7 @@ const loading = ref(true)
 const modalOpen = ref(false)
 const editingProvider = ref(null)
 const busyProviderId = ref('')
+const routeBusyClient = ref('')
 const draggedProviderId = ref('')
 const dragTargetProviderId = ref('')
 const testResults = ref({})
@@ -141,6 +142,26 @@ function updateClientRouting({ client, enabled }) {
   clientStatus.value = {
     ...clientStatus.value,
     [client]: { ...(clientStatus.value[client] || {}), routed: enabled }
+  }
+}
+
+async function toggleClientRouting(enabled) {
+  const client = selectedClient.value
+  if (client === 'claude-desktop' || routeBusyClient.value) return
+  const clientInfo = clients.value.find((item) => item.id === client)
+  routeBusyClient.value = client
+  try {
+    const result = await bridge.setRouterRoute(client, enabled)
+    updateClientRouting({ client, enabled: result.enabled })
+    clientStatus.value = await bridge.getClientStatus()
+    toast(result.enabled
+      ? `${clientInfo?.name || client} 已接管${result.autoStarted ? '，共享路由引擎已自动启动' : ''}`
+      : `${clientInfo?.name || client} 已恢复直连${result.autoStopped ? '，共享路由引擎已自动停止' : ''}`)
+  } catch (error) {
+    toast(error.message || '切换路由失败', 'error')
+    try { clientStatus.value = await bridge.getClientStatus() } catch {}
+  } finally {
+    routeBusyClient.value = ''
   }
 }
 
@@ -366,7 +387,7 @@ onBeforeUnmount(() => {
           @click="selectedClient = client.id; currentView = 'providers'"
         >
           <span class="node-glyph">{{ clientGlyph(client.id) }}</span><span class="nav-label">{{ client.name }}</span>
-          <span class="node-status" :class="{ configured: active[client.id] }" />
+          <span class="node-status" :class="{ routed: clientStatus[client.id]?.routed }" />
         </button>
       </div>
 
@@ -397,8 +418,10 @@ onBeforeUnmount(() => {
           :provider-count="filteredProviders.length"
           :routable="selectedClient !== 'claude-desktop'"
           :route-enabled="clientStatus[selectedClient]?.routed"
+          :route-busy="routeBusyClient === selectedClient"
           @add="openCreate"
-          @route="currentView = 'router'"
+          @route-toggle="toggleClientRouting"
+          @route-settings="currentView = 'router'"
           @settings="openSettings('appearance')"
           @profile-applied="loadData"
           @toast="toast"
@@ -422,6 +445,7 @@ onBeforeUnmount(() => {
               :provider="provider"
               :client="selectedClientInfo"
               :active="active[selectedClient] === provider.id"
+              :routed="Boolean(clientStatus[selectedClient]?.routed)"
               :in-live-config="selectedLiveProviderIds.has(provider.id)"
               :busy="busyProviderId === provider.id"
               :dragging="draggedProviderId === provider.id"

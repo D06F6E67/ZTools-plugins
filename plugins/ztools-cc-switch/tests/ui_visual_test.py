@@ -3,6 +3,7 @@ from playwright.sync_api import sync_playwright
 
 MOCK = r"""
 window.ccSwitch = {
+  _routes:{},
   getThemePreference:()=> 'light',setThemePreference:x=>x,
   _visibleClients:['claude','codex','gemini','opencode','openclaw','hermes','grokbuild','claude-desktop'],
   getVisibleClients(){return [...this._visibleClients]},setVisibleClients(ids){if(!ids.length)throw new Error('请至少保留一个 AI 客户端菜单');this._visibleClients=[...ids];return [...ids]},
@@ -21,7 +22,7 @@ window.ccSwitch = {
       ,{id:'claude-desktop-official',name:'Claude Desktop Official',apiKey:'',baseUrl:'',model:'',clients:['claude-desktop'],color:'#D97757',source:'preset',apiType:'anthropic',claudeDesktopMode:'direct',claudeDesktopRoutes:[]}
     ]
   }),
-  getClientStatus: async () => ({opencode:{liveProviderIds:['openrouter']},openclaw:{liveProviderIds:['openrouter']},hermes:{liveProviderIds:['openrouter']},'claude-desktop':{desktopStatus:{supported:true,configured:false,appliedId:null,actualBaseUrl:null,proxyRunning:false,profilePath:'/Users/demo/Library/Application Support/Claude-3p/configLibrary/profile.json'}}}), getRuntimeInfo: async () => ({sidecar:{available:true},dataDir:'/Users/demo/Library/Application Support/ztools/ztools-cc-switch'}),
+  getClientStatus: async function() { return {...(this._routes.claude?{claude:{routed:true}}:{}),...(this._routes.codex?{codex:{routed:true}}:{}),...(this._routes.gemini?{gemini:{routed:true}}:{}),...(this._routes.grokbuild?{grokbuild:{routed:true}}:{}),opencode:{routed:!!this._routes.opencode,liveProviderIds:['openrouter']},openclaw:{routed:!!this._routes.openclaw,liveProviderIds:['openrouter']},hermes:{routed:!!this._routes.hermes,liveProviderIds:['openrouter']},'claude-desktop':{desktopStatus:{supported:true,configured:false,appliedId:null,actualBaseUrl:null,proxyRunning:false,profilePath:'/Users/demo/Library/Application Support/Claude-3p/configLibrary/profile.json'}}} }, getRuntimeInfo: async () => ({sidecar:{available:true},dataDir:'/Users/demo/Library/Application Support/ztools/ztools-cc-switch'}),
   removeProviderFromLiveConfig:async(client,id)=>({client,id,removed:true}),
   getHostStartupSettings:()=>({autoStartRouter:true,restoreOnPluginEnter:true}),saveHostStartupSettings:x=>x,
   getLogConfig:async()=>({enabled:true,level:'info',retentionDays:30,maxFileSizeMb:20,maxRequestEntries:50000}),saveLogConfig:async x=>x,maintainLogs:async()=>({changed:false,kept:128}),listLogFiles:async()=>[{name:'plugin.log.jsonl',sizeBytes:18420,modifiedAt:new Date().toISOString()},{name:'request-logs.jsonl',sizeBytes:92010,modifiedAt:new Date(Date.now()-60000).toISOString()}],clearAllLogs:async()=>({cleared:2,backups:[]}),openLogDirectory:async()=>true,
@@ -60,7 +61,7 @@ window.ccSwitch = {
   setSkillEnabled:async()=>({}),updateSkillSettings:async()=>({skills:[],storage:'plugin',syncMode:'symlink',storePath:'/tmp/skills'}),
   removeSkill:async()=>({}),updateSkill:async()=>({}),restoreSkillBackup:async()=>({name:'PDF'}),deleteSkillBackup:async()=>true,
   getRouterStatus: async () => ({running:false,url:'http://127.0.0.1:15721',circuitBreakers:[{client:'claude',providerId:'anthropic',state:'open',totalRequests:12,failedRequests:5,errorRate:.42,consecutiveFailures:4,openedAt:Date.now()-10000,retryAt:Date.now()+50000},{client:'codex',providerId:'openrouter',state:'open',totalRequests:8,failedRequests:4,errorRate:.5,consecutiveFailures:3,openedAt:Date.now()-8000,retryAt:Date.now()+52000}],config:{host:'127.0.0.1',port:15721,routes:{},rectifier:{},optimizer:{enabled:true,thinkingOptimizer:true,cacheInjection:true},copilotOptimizer:{enabled:true,requestClassification:true,toolResultMerging:true,compactDetection:true,deterministicRequestId:true,subagentDetection:true,warmupDowngrade:true,warmupModel:'gpt-5-mini',stripThinking:true},failover:{enabled:{claude:true,codex:true,gemini:true,opencode:true,openclaw:true,hermes:true,grokbuild:true},circuitBreaker:{failureThreshold:4,successThreshold:2,timeoutSeconds:60,errorRateThreshold:.6,minRequests:10}}}}),
-  startRouter:async()=>({running:true,url:'http://127.0.0.1:15721',activeConnections:0,requestCount:0,uptimeMs:10,config:{host:'127.0.0.1',port:15721,routes:{},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}}),stopRouter:async()=>({running:false,url:'http://127.0.0.1:15721',config:{host:'127.0.0.1',port:15721,routes:{},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}}),saveRouterConfig:async patch=>({host:'127.0.0.1',port:15721,routes:{...(patch.routes||{})},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}),setClientRouting:async()=>({}),
+  startRouter:async()=>({running:true,url:'http://127.0.0.1:15721',activeConnections:0,requestCount:0,uptimeMs:10,config:{host:'127.0.0.1',port:15721,routes:{},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}}),stopRouter:async()=>({running:false,url:'http://127.0.0.1:15721',config:{host:'127.0.0.1',port:15721,routes:{},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}}),setRouterRoute:async function(client,enabled){this._routes[client]=enabled;return {client,enabled,autoStarted:enabled,autoStopped:!enabled,status:{running:enabled,url:'http://127.0.0.1:15721',config:{host:'127.0.0.1',port:15721,routes:{...this._routes},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}}}},saveRouterConfig:async patch=>({host:'127.0.0.1',port:15721,routes:{...(patch.routes||{})},rectifier:{},optimizer:{},copilotOptimizer:{},failover:{enabled:{},circuitBreaker:{}}}),setClientRouting:async()=>({}),
   getFailoverQueue:async client=>client==='claude'?[{providerId:'anthropic',name:'Anthropic API',client,priority:1,model:'claude-sonnet-4-5',color:'#E69B62',authConfigured:true}]:client==='codex'?[{providerId:'openrouter',name:'OpenRouter',client,priority:1,model:'openai/gpt-5',color:'#9B8AFB',authConfigured:true}]:[],getAvailableProvidersForFailover:async()=>[{providerId:'kimi',name:'Kimi for Claude',model:'kimi-k2.5',color:'#F4B55F',authConfigured:true}],addToFailoverQueue:async()=>[],removeFromFailoverQueue:async()=>[],setAutoFailoverEnabled:async(client,enabled)=>({client,enabled,queue:[],config:(await window.ccSwitch.getRouterStatus()).config}),getAutoFailoverEnabled:async()=>true,
   resetCircuitBreaker:async()=>true,
   getUsageSummary: async () => ({requests:24,totalRequests:24,totalCost:'1.2845',realTotalTokens:842000,successRate:.958,cacheHitRate:.42,averageLatencyMs:612}),
@@ -148,6 +149,7 @@ def verify(page, width, height, screenshot):
     page.wait_for_load_state("networkidle")
     assert page.evaluate("document.documentElement.dataset.theme") == "light"
     assert page.locator(".rail-brand").is_visible()
+    assert page.locator('.client-node .node-status.routed').count() == 0
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     page.screenshot(path=screenshot.replace(".png", "-main.png"), full_page=True)
     page.locator('.provider-card .terminal-button').first.click()
@@ -316,6 +318,8 @@ with sync_playwright() as p:
     page.get_by_role('tab', name='高级 宿主与网络').click()
     page.wait_for_selector("text=宿主启动策略", state='visible')
     page.wait_for_selector("text=Codex History Unify", state='visible')
+    page.wait_for_selector("text=路由引擎应急控制", state='visible')
+    assert page.get_by_role('button', name='停止并恢复全部路由').is_disabled()
     page.get_by_role('tab', name='数据 日志与备份').click()
     page.wait_for_selector("text=日志级别与保留", state='visible')
     assert page.locator('.log-policy-grid input').count() == 3
@@ -329,10 +333,25 @@ with sync_playwright() as p:
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     page.screenshot(path="/tmp/ztools-cc-switch-s3-settings-narrow.png", full_page=True)
     page.set_viewport_size({"width": 1440, "height": 900})
-    page.locator('.rail-tools button[title="Codex 路由"]').click()
+    page.locator('.client-node[title="Codex"]').click()
+    route_control = page.locator('.client-route-control')
+    assert route_control.is_visible()
+    route_control_box = route_control.bounding_box()
+    assert route_control_box and route_control_box['width'] >= 210 and route_control_box['height'] >= 46, route_control_box
+    route_control.locator('input[type="checkbox"]').check()
+    page.wait_for_selector('.client-route-control.active')
+    assert page.locator('.client-node[title="Codex"] .node-status.routed').count() == 1
+    assert 'local route active' in page.locator('.status-copy .eyebrow').inner_text().lower()
+    assert page.locator('.provider-card.route-active').count() == 1
+    assert 'routed' in page.locator('.provider-card.route-active .active-badge').inner_text().lower()
+    page.get_by_role('button', name='打开路由设置').click()
     page.wait_for_selector("h1:has-text('Codex 路由')")
-    assert page.locator('.client-route-card').count() == 1
-    assert 'codex' in page.locator('.client-route-card').inner_text().lower()
+    assert page.get_by_role('button', name='停止路由引擎').count() == 0
+    assert page.get_by_role('button', name='启动路由引擎').count() == 0
+    assert page.locator('.router-engine-state').is_visible()
+    assert page.locator('.client-route-card').count() == 0
+    assert page.locator('.router-client-toggle').is_visible()
+    assert 'codex' in page.locator('.router-client-toggle').inner_text().lower()
     assert page.locator('.breaker-config-card input').count() == 5
     assert page.locator('.breaker-health-list em.open').count() == 1
     assert page.locator('.failover-queue-row').count() == 1

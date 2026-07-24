@@ -8,7 +8,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'toast', 'routing-change'])
 const bridge = window.ccSwitch
 const status = ref({ running: false, config: { routes: {}, rectifier: {}, optimizer: {}, copilotOptimizer: {} } })
-const busy = ref(false)
+const routeBusy = ref(false)
 const providers = ref([])
 const routerClients = ['claude', 'codex', 'gemini', 'opencode', 'openclaw', 'hermes', 'grokbuild']
 const selectedClientId = computed(() => routerClients.includes(props.client.id) ? props.client.id : 'claude')
@@ -51,14 +51,6 @@ async function removeFailoverProvider(providerId) {
   try { await bridge.removeFromFailoverQueue(failoverClient.value, providerId); await loadFailoverQueue(); emit('toast', 'Provider 已移出故障转移队列') }
   catch (error) { emit('toast', error.message, 'error') }
 }
-async function toggleService() {
-  busy.value = true
-  try {
-    status.value = status.value.running ? await bridge.stopRouter() : await bridge.startRouter()
-    emit('toast', status.value.running ? '本地路由已启动' : '本地路由已停止')
-  } catch (error) { emit('toast', error.message, 'error') }
-  finally { busy.value = false }
-}
 async function save(patch) {
   try {
     const config = await bridge.saveRouterConfig(patch)
@@ -67,16 +59,16 @@ async function save(patch) {
   } catch (error) { emit('toast', error.message, 'error') }
 }
 async function toggleRoute(client, enabled) {
-  if (enabled && !status.value.running) {
-    status.value = await bridge.startRouter()
-  }
+  routeBusy.value = true
   try {
-    await bridge.setClientRouting(client, enabled, status.value.url)
-    const config = await bridge.saveRouterConfig({ routes: { [client]: enabled } })
-    status.value = { ...status.value, config }
+    const result = await bridge.setRouterRoute(client, enabled)
+    status.value = result.status
     emit('routing-change', { client, enabled })
-    emit('toast', `${client} 路由接管已${enabled ? '启用' : '关闭并恢复配置'}`)
+    emit('toast', enabled
+      ? `${selectedClient.value.name} 已接管${result.autoStarted ? '，路由引擎已自动启动' : ''}`
+      : `${selectedClient.value.name} 已恢复直连${result.autoStopped ? '，没有其他路由后引擎已自动停止' : ''}`)
   } catch (error) { emit('toast', error.message, 'error') }
+  finally { routeBusy.value = false }
 }
 async function resetBreaker(providerId) {
   try { await bridge.resetCircuitBreaker(selectedClientId.value, providerId); await load(); emit('toast', 'Provider 熔断器已复位') }
@@ -92,13 +84,19 @@ onMounted(load)
     <header class="settings-heading">
       <button class="back-button" @click="$emit('back')">←</button>
       <div><span class="eyebrow">{{ selectedClient.name.toUpperCase() }} / LOCAL ROUTE</span><h1>{{ selectedClient.name }} 路由</h1><p>当前客户端独立接管、故障转移与请求整流。</p></div>
-      <button class="primary-button heading-action" :class="{ running: status.running }" :disabled="busy" @click="toggleService">
-        {{ status.running ? '停止路由引擎' : '启动路由引擎' }}
-      </button>
+      <span class="router-engine-state" :class="{ running: status.running }"><i />{{ status.running ? '共享引擎运行中' : '按需自动启动' }}</span>
     </header>
     <div class="router-hero" :class="{ running: status.running }">
       <i /><div><span>{{ routeEnabled ? `${selectedClient.name.toUpperCase()} ROUTE ONLINE` : status.running ? 'ENGINE READY / ROUTE OFF' : 'ROUTER OFFLINE' }}</span><strong>{{ routeUrl }}</strong></div>
       <dl><div><dt>连接</dt><dd>{{ status.activeConnections || 0 }}</dd></div><div><dt>请求</dt><dd>{{ status.requestCount || 0 }}</dd></div><div><dt>运行</dt><dd>{{ Math.round((status.uptimeMs || 0) / 1000) }}s</dd></div></dl>
+      <label
+        class="router-client-toggle"
+        :class="{ active: routeEnabled, busy: routeBusy }"
+        :title="routeEnabled ? `关闭 ${selectedClient.name} 接管` : `开启 ${selectedClient.name} 接管`"
+      >
+        <span><strong>{{ routeEnabled ? '已接管' : '开启接管' }}</strong><small>{{ selectedClient.name }}</small></span>
+        <input type="checkbox" :checked="routeEnabled" :disabled="routeBusy" @change="toggleRoute(selectedClientId, $event.target.checked)" />
+      </label>
     </div>
     <div class="settings-grid">
       <article class="settings-card">
@@ -108,12 +106,6 @@ onMounted(load)
           <label>端口<input type="number" :value="status.config.port" :disabled="status.running" @change="save({ port: Number($event.target.value) })" /></label>
         </div>
         <label class="toggle-row"><span><strong>请求日志</strong><small>记录 Token、延迟与状态码</small></span><input type="checkbox" :checked="status.config.logging" @change="save({ logging: $event.target.checked })" /></label>
-      </article>
-      <article class="settings-card client-route-card" :style="{ '--client-accent': selectedClient.accent }">
-        <span class="card-label">CLIENT ROUTE / {{ selectedClientId.toUpperCase() }}</span><h2>{{ selectedClient.name }} 独立路由</h2>
-        <p>只接管 {{ selectedClient.name }} 的配置文件；其他六个客户端保持各自状态。</p>
-        <div class="client-route-endpoint"><span>{{ routeEnabled ? 'ROUTED' : 'DIRECT' }}</span><code>{{ routeEnabled ? routeUrl : '当前 Provider 直连地址' }}</code></div>
-        <label class="toggle-row route-master-toggle"><span><strong>接管 {{ selectedClient.name }}</strong><small>{{ routeEnabled ? '关闭时恢复接管前的完整配置快照' : '开启时自动启动路由引擎并写入独立入口' }}</small></span><input type="checkbox" :checked="routeEnabled" @change="toggleRoute(selectedClientId, $event.target.checked)" /></label>
       </article>
       <article class="settings-card rectifier-card">
         <span class="card-label">THINKING RECTIFIER</span><h2>思考预算整流器</h2>
