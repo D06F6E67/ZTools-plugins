@@ -33,3 +33,16 @@ test('本地数据快照支持策略、重命名、恢复安全备份与删除',
   assert.ok(!(await manager.listLocalBackups()).some((item) => item.filename === renamed))
   await assert.rejects(() => manager.deleteLocalBackup('../bad.snapshot.json'), /无效/)
 })
+
+test('导入后半程失败时回滚所有已修改文件并删除本次新建文件', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-backup-rollback-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir)
+  await fs.writeFile(path.join(dataDir, 'providers.json'), '{"before":true}\n')
+  const source = path.join(root, 'backup.json')
+  await fs.writeFile(source, JSON.stringify({ format: 'ztools-cc-switch-backup', version: 1, files: { 'providers.json': '{"after":true}\n', 'profiles.json': '{"new":true}\n', 'skills-state.json': '{"fail":true}\n' } }))
+  const manager = createBackupManager({ dataDir, beforeImportWrite: ({ index }) => { if (index === 2) throw new Error('simulated disk failure') } })
+  await assert.rejects(() => manager.importBackup(source), /已恢复原数据/)
+  assert.equal(await fs.readFile(path.join(dataDir, 'providers.json'), 'utf8'), '{"before":true}\n')
+  await assert.rejects(fs.access(path.join(dataDir, 'profiles.json')))
+  await assert.rejects(fs.access(path.join(dataDir, 'skills-state.json')))
+})

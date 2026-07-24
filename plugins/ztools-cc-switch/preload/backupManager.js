@@ -12,8 +12,13 @@ function createBackupManager(options = {}) {
   async function atomicWrite(filePath, content) {
     await fsp.mkdir(path.dirname(filePath), { recursive: true })
     if (fs.existsSync(filePath)) await fsp.copyFile(filePath, `${filePath}.pre-import-${Date.now()}.bak`)
+    await atomicReplace(filePath, content)
+  }
+  async function atomicReplace(filePath, content) {
+    await fsp.mkdir(path.dirname(filePath), { recursive: true })
     const temp = `${filePath}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.tmp`
-    await fsp.writeFile(temp, content, { mode: 0o600 }); await fsp.rename(temp, filePath)
+    try { await fsp.writeFile(temp, content, { mode: 0o600 }); await fsp.rename(temp, filePath) }
+    finally { await fsp.rm(temp, { force: true }).catch(() => {}) }
   }
   function redact(value) {
     if (Array.isArray(value)) return value.map(redact)
@@ -41,13 +46,38 @@ function createBackupManager(options = {}) {
   async function importBackup(source) {
     const sourcePath = path.resolve(String(source || '')); const bundle = JSON.parse(await fsp.readFile(sourcePath, 'utf8'))
     if (bundle.format !== 'ztools-cc-switch-backup' || bundle.version !== 1 || !bundle.files || typeof bundle.files !== 'object') throw new Error('不是有效的 AI Provider Switch 备份')
-    let imported = 0
+    const candidates = []
     for (const [filename, content] of Object.entries(bundle.files)) {
       if (!DATA_FILES.includes(filename) || typeof content !== 'string') continue
       if (filename.endsWith('.json')) JSON.parse(content)
-      await atomicWrite(path.join(dataDir, filename), content); imported += 1
+      candidates.push({ filename, content, target: path.join(dataDir, filename) })
     }
-    return { imported, source: sourcePath }
+    const snapshots = new Map()
+    for (const candidate of candidates) {
+      try { snapshots.set(candidate.target, { existed: true, content: await fsp.readFile(candidate.target) }) }
+      catch (error) { if (error.code === 'ENOENT') snapshots.set(candidate.target, { existed: false, content: null }); else throw error }
+    }
+    const modified = []
+    try {
+      for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index]
+        await options.beforeImportWrite?.({ ...candidate, index })
+        await atomicWrite(candidate.target, candidate.content)
+        modified.push(candidate.target)
+      }
+    } catch (error) {
+      const rollbackErrors = []
+      for (const target of modified.reverse()) {
+        const snapshot = snapshots.get(target)
+        try {
+          if (snapshot.existed) await atomicReplace(target, snapshot.content)
+          else await fsp.rm(target, { force: true })
+        } catch (rollbackError) { rollbackErrors.push(`${path.basename(target)}: ${rollbackError.message}`) }
+      }
+      if (rollbackErrors.length) throw new Error(`备份导入失败且回滚不完整：${error.message}；${rollbackErrors.join('；')}`)
+      throw new Error(`备份导入失败，已恢复原数据：${error.message}`)
+    }
+    return { imported: candidates.length, source: sourcePath }
   }
   function validateFilename(filename) {
     const value = String(filename || '')

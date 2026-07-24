@@ -73,6 +73,12 @@ function createSessionManager(options = {}) {
     grokbuild: [path.join(options.grokHome || path.join(homeDir, '.grok'), 'sessions'), path.join(options.grokHome || path.join(homeDir, '.grok'), 'archived_sessions')]
   }
 
+  async function atomicWrite(filePath, content) {
+    const temp = `${filePath}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.tmp`
+    try { await fsp.writeFile(temp, content, { mode: 0o600 }); await fsp.rename(temp, filePath) }
+    finally { await fsp.rm(temp, { force: true }).catch(() => {}) }
+  }
+
   async function collectFiles(root, predicate, maxDepth = 6, output = [], depth = 0) {
     if (depth > maxDepth || output.length >= MAX_SESSIONS) return output
     let entries; try { entries = await fsp.readdir(root, { withFileTypes: true }) } catch { return output }
@@ -305,7 +311,19 @@ function createSessionManager(options = {}) {
       for (const file of messageFiles) { try { const msg = await readJsonLimited(file); const part = path.join(storage, 'part', msg.id); if (msg.id && fs.existsSync(part)) moved.push(await moveToTrash(part)) } catch {} }
       const diff = path.join(storage, 'session_diff', `${sessionId}.json`); if (fs.existsSync(diff)) moved.push(await moveToTrash(diff)); const metaFiles = await collectFiles(path.join(storage, 'session'), (file) => path.basename(file, '.json') === sessionId, 4); for (const file of metaFiles) moved.push(await moveToTrash(file))
     }
-    if (providerId === 'openclaw') { const indexPath = path.join(path.dirname(sourcePath), 'sessions.json'); try { const index = JSON.parse(await fsp.readFile(indexPath, 'utf8')); const removed = {}; for (const [key, value] of Object.entries(index)) if (value?.sessionId === sessionId || value?.sessionFile === sourcePath) { removed[key] = value; delete index[key] } await fsp.copyFile(indexPath, `${indexPath}.bak`); await fsp.writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`); session.indexRestore = { indexPath, removed } } catch {} }
+    if (providerId === 'openclaw') {
+      const indexPath = path.join(path.dirname(sourcePath), 'sessions.json')
+      try {
+        const index = JSON.parse(await fsp.readFile(indexPath, 'utf8'))
+        const removed = {}
+        for (const [key, value] of Object.entries(index)) if (value?.sessionId === sessionId || value?.sessionFile === sourcePath) { removed[key] = value; delete index[key] }
+        await fsp.copyFile(indexPath, `${indexPath}.bak`)
+        await atomicWrite(indexPath, `${JSON.stringify(index, null, 2)}\n`)
+        session.indexRestore = { indexPath, removed }
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw new Error(`更新 OpenClaw 会话索引失败，未删除会话：${error.message}`)
+      }
+    }
     if (providerId === 'grokbuild') {
       const value = await readJsonLimited(sourcePath); const sessionDir = path.dirname(sourcePath)
       if (path.basename(sourcePath) !== 'summary.json' || value.info?.id !== sessionId || path.basename(sessionDir) !== sessionId || !roots.grokbuild.some((root) => path.resolve(sessionDir).startsWith(`${path.resolve(root)}${path.sep}`))) throw new Error('GrokBuild 会话目录校验失败')

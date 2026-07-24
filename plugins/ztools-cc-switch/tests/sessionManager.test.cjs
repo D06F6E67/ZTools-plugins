@@ -101,3 +101,14 @@ test('GrokBuild 目录删除进入回收站并可整体恢复，Hermes SQLite �
   assert.equal((await execFile('sqlite3', [hermesDb, 'SELECT count(*) FROM sessions;'])).stdout.trim(), '2')
   assert.equal((await execFile('sqlite3', [hermesDb, "SELECT content FROM messages WHERE session_id='h1';"])).stdout.trim(), 'hello')
 })
+
+test('OpenClaw 索引损坏时中止删除并保留会话文件', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-openclaw-index-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const home = path.join(root, 'home'); const data = path.join(root, 'data')
+  const source = path.join(home, '.openclaw/agents/main/sessions/openclaw-bad.jsonl')
+  await write(source, line({ type: 'session', id: 'openclaw-bad', cwd: '/work', timestamp: '2026-07-20T13:00:00Z' }) + line({ type: 'message', timestamp: '2026-07-20T13:01:00Z', message: { role: 'user', content: 'keep me' } }))
+  await write(path.join(path.dirname(source), 'sessions.json'), '{broken json')
+  const manager = createSessionManager({ homeDir: home, dataDir: data })
+  await assert.rejects(() => manager.deleteSession('openclaw', 'openclaw-bad', source), /索引失败/)
+  assert.equal((await fs.stat(source)).isFile(), true)
+})
