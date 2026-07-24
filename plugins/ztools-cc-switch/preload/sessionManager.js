@@ -305,6 +305,7 @@ function createSessionManager(options = {}) {
       return { success: true, recoverable: true, trashId, backupPath: backup }
     }
     const moved = []
+    let openClawIndexSnapshot = null
     if (providerId === 'claude') { const sidecar = sourcePath.slice(0, -path.extname(sourcePath).length); if (fs.existsSync(sidecar)) moved.push(await moveToTrash(sidecar)) }
     if (providerId === 'opencode') {
       const storage = path.dirname(path.dirname(sourcePath)); const messageFiles = await collectFiles(sourcePath, (_p, name) => name.endsWith('.json'), 2)
@@ -314,22 +315,42 @@ function createSessionManager(options = {}) {
     if (providerId === 'openclaw') {
       const indexPath = path.join(path.dirname(sourcePath), 'sessions.json')
       try {
-        const index = JSON.parse(await fsp.readFile(indexPath, 'utf8'))
+        const original = await fsp.readFile(indexPath, 'utf8')
+        const index = JSON.parse(original)
         const removed = {}
         for (const [key, value] of Object.entries(index)) if (value?.sessionId === sessionId || value?.sessionFile === sourcePath) { removed[key] = value; delete index[key] }
         await fsp.copyFile(indexPath, `${indexPath}.bak`)
         await atomicWrite(indexPath, `${JSON.stringify(index, null, 2)}\n`)
+        openClawIndexSnapshot = { indexPath, original }
         session.indexRestore = { indexPath, removed }
       } catch (error) {
         if (error.code !== 'ENOENT') throw new Error(`更新 OpenClaw 会话索引失败，未删除会话：${error.message}`)
       }
     }
-    if (providerId === 'grokbuild') {
-      const value = await readJsonLimited(sourcePath); const sessionDir = path.dirname(sourcePath)
-      if (path.basename(sourcePath) !== 'summary.json' || value.info?.id !== sessionId || path.basename(sessionDir) !== sessionId || !roots.grokbuild.some((root) => path.resolve(sessionDir).startsWith(`${path.resolve(root)}${path.sep}`))) throw new Error('GrokBuild 会话目录校验失败')
-      moved.push(await moveToTrash(sessionDir))
-    } else moved.push(await moveToTrash(sourcePath))
-    const manifest = { id: crypto.randomUUID(), providerId, sessionId, title: session.title || null, deletedAt: Date.now(), moved, indexRestore: session.indexRestore || null }; await fsp.writeFile(path.join(trashDir, `${manifest.id}.json`), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 }); return { success: true, recoverable: true, trashId: manifest.id }
+    try {
+      if (providerId === 'grokbuild') {
+        const value = await readJsonLimited(sourcePath); const sessionDir = path.dirname(sourcePath)
+        if (path.basename(sourcePath) !== 'summary.json' || value.info?.id !== sessionId || path.basename(sessionDir) !== sessionId || !roots.grokbuild.some((root) => path.resolve(sessionDir).startsWith(`${path.resolve(root)}${path.sep}`))) throw new Error('GrokBuild 会话目录校验失败')
+        moved.push(await moveToTrash(sessionDir))
+      } else moved.push(await moveToTrash(sourcePath))
+      const manifest = { id: crypto.randomUUID(), providerId, sessionId, title: session.title || null, deletedAt: Date.now(), moved, indexRestore: session.indexRestore || null }
+      await options.beforeTrashManifestWrite?.(manifest)
+      await atomicWrite(path.join(trashDir, `${manifest.id}.json`), `${JSON.stringify(manifest, null, 2)}\n`)
+      return { success: true, recoverable: true, trashId: manifest.id }
+    } catch (error) {
+      const rollbackErrors = []
+      for (const item of moved.reverse()) {
+        try {
+          if (fs.existsSync(item.trashed) && !fs.existsSync(item.original)) { await fsp.mkdir(path.dirname(item.original), { recursive: true }); await fsp.rename(item.trashed, item.original) }
+        } catch (rollbackError) { rollbackErrors.push(`会话文件: ${rollbackError.message}`) }
+      }
+      if (openClawIndexSnapshot) {
+        try { await atomicWrite(openClawIndexSnapshot.indexPath, openClawIndexSnapshot.original) }
+        catch (rollbackError) { rollbackErrors.push(`OpenClaw 索引: ${rollbackError.message}`) }
+      }
+      if (rollbackErrors.length) throw new Error(`删除会话失败且回滚不完整：${error.message}；${rollbackErrors.join('；')}`)
+      throw new Error(`删除会话失败，已恢复原状态：${error.message}`)
+    }
   }
   async function deleteSessions(items) { const results = []; for (const item of Array.isArray(items) ? items : []) { try { const value = await deleteSession(item.providerId, item.sessionId, item.sourcePath); results.push({ ...item, ...value }) } catch (error) { results.push({ ...item, success: false, error: error.message }) } } return results }
   async function launchSession(providerId, sessionId, sourcePath) {

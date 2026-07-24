@@ -112,3 +112,16 @@ test('OpenClaw 索引损坏时中止删除并保留会话文件', async (t) => {
   await assert.rejects(() => manager.deleteSession('openclaw', 'openclaw-bad', source), /索引失败/)
   assert.equal((await fs.stat(source)).isFile(), true)
 })
+
+test('OpenClaw 回收站清单写入失败时恢复索引和会话文件', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-openclaw-rollback-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const home = path.join(root, 'home'); const data = path.join(root, 'data')
+  const source = path.join(home, '.openclaw/agents/main/sessions/openclaw-rollback.jsonl'); const indexPath = path.join(path.dirname(source), 'sessions.json')
+  await write(source, line({ type: 'session', id: 'openclaw-rollback', cwd: '/work', timestamp: '2026-07-20T13:00:00Z' }) + line({ type: 'message', timestamp: '2026-07-20T13:01:00Z', message: { role: 'user', content: 'keep me' } }))
+  await write(indexPath, JSON.stringify({ key: { sessionId: 'openclaw-rollback', sessionFile: source } }))
+  const manager = createSessionManager({ homeDir: home, dataDir: data, beforeTrashManifestWrite: async () => { throw new Error('disk full') } })
+  await assert.rejects(() => manager.deleteSession('openclaw', 'openclaw-rollback', source), /已恢复原状态/)
+  assert.equal((await fs.stat(source)).isFile(), true)
+  assert.equal(JSON.parse(await fs.readFile(indexPath, 'utf8')).key.sessionId, 'openclaw-rollback')
+  assert.equal((await manager.listTrash()).length, 0)
+})
