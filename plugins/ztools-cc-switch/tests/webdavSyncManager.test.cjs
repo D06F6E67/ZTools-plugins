@@ -39,3 +39,13 @@ test('WebDAV 拒绝远程 HTTP、允许回环 HTTP，并限制下载体积', asy
   response = new Response('{}', { status: 200, headers: { 'content-length': String(100 * 1024 * 1024 + 1) } })
   await assert.rejects(() => manager.download(), /超过 100 MB/)
 })
+
+test('WebDAV 请求超时后释放操作并返回可诊断错误', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-webdav-timeout-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir); await fs.writeFile(path.join(dataDir, 'providers.json'), '{}')
+  const storage = createMemoryStorage(); const codec = { secure: true, encode: v => v, decode: v => v }
+  const hangingFetch = async (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => { const error = new Error('aborted'); error.name = 'AbortError'; reject(error) }, { once: true }))
+  const manager = createWebdavSyncManager({ backupManager: createBackupManager({ dataDir }), storage, secretCodec: codec, fetchImpl: hangingFetch, requestTimeoutMs: 100 })
+  await manager.saveConfig({ url: 'https://dav.example.com', username: 'u', password: 'p' })
+  await assert.rejects(() => manager.download(), /请求超时/)
+})
