@@ -16,6 +16,7 @@ import EnvDiagnosticsView from './views/EnvDiagnosticsView.vue'
 import AgentConfigView from './views/AgentConfigView.vue'
 import UniversalProvidersView from './views/UniversalProvidersView.vue'
 import DeepLinkImportModal from './components/DeepLinkImportModal.vue'
+import { moveProviderToTarget } from './providerOrder.js'
 
 const bridge = window.ccSwitch
 const themePreference = ref(bridge?.getThemePreference?.() || 'light')
@@ -255,15 +256,9 @@ function endProviderDrag() {
 
 async function dropProvider(provider, event) {
   const sourceId = draggedProviderId.value || event.dataTransfer.getData('text/plain')
-  const ids = filteredProviders.value.map((item) => item.id)
-  const sourceIndex = ids.indexOf(sourceId)
-  const targetIndex = ids.indexOf(provider.id)
-  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) { endProviderDrag(); return }
-  ids.splice(sourceIndex, 1)
-  const rect = event.currentTarget.getBoundingClientRect()
-  const insertAfter = event.clientY > rect.top + rect.height / 2
-  const adjustedTarget = ids.indexOf(provider.id)
-  ids.splice(adjustedTarget + (insertAfter ? 1 : 0), 0, sourceId)
+  const currentIds = filteredProviders.value.map((item) => item.id)
+  const ids = moveProviderToTarget(currentIds, sourceId, provider.id)
+  if (ids.every((id, index) => id === currentIds[index])) { endProviderDrag(); return }
   try {
     const order = await bridge.updateProviderSortOrder(selectedClient.value, ids)
     sortOrders.value = { ...sortOrders.value, [selectedClient.value]: order }
