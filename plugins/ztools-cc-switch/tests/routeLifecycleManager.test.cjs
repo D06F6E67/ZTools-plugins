@@ -49,3 +49,24 @@ test('并发切换按调用顺序串行执行', async () => {
   await Promise.all([ctx.manager.setRoute('claude', true), ctx.manager.setRoute('codex', true)])
   assert.deepEqual(ctx.calls.slice(0, 5), ['start', 'client:claude:true', 'save:{"claude":true}', 'client:codex:true', 'save:{"codex":true}'])
 })
+
+test('停止全部路由时只清除成功恢复项，失败项保持路由且引擎继续运行', async () => {
+  const ctx = setup({ claude: true, codex: true }, true)
+  ctx.configManager.setClientRouting = async (client, enabled) => {
+    ctx.calls.push(`client:${client}:${enabled}`)
+    if (client === 'codex' && !enabled) throw new Error('config locked')
+  }
+  const manager = createRouteLifecycleManager({ routerManager: ctx.routerManager, configManager: ctx.configManager })
+  await assert.rejects(() => manager.stopAll(), (error) => error.failures?.[0]?.client === 'codex')
+  assert.deepEqual(ctx.status.config.routes, { claude: false, codex: true })
+  assert.equal(ctx.status.running, true)
+  assert.equal(ctx.calls.includes('stop'), false)
+})
+
+test('全部客户端恢复成功后清空路由并停止共享引擎', async () => {
+  const ctx = setup({ claude: true, codex: true }, true)
+  const result = await ctx.manager.stopAll()
+  assert.equal(result.running, false)
+  assert.deepEqual(ctx.status.config.routes, { claude: false, codex: false })
+  assert.deepEqual(result.restoredClients.sort(), ['claude', 'codex'])
+})

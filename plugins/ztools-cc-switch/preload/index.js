@@ -198,16 +198,7 @@ async function stopRouterAndRestore() {
     const desktopProvider = await configManager.getActiveProvider('claude-desktop')
     if (desktopProvider?.claudeDesktopMode === 'proxy') throw new Error('Claude Desktop 正在使用 Local Gateway；请先切换到 Direct Provider 或官方模式')
   }
-  const errors = []
-  for (const [client, enabled] of Object.entries(status.config.routes || {})) {
-    if (!enabled) continue
-    if (client === 'claude-desktop') continue
-    try { await configManager.setClientRouting(client, false, status.url) } catch (error) { errors.push(`${client}: ${error.message}`) }
-  }
-  await routerManager.saveConfig({ routes: { claude: false, 'claude-desktop': false, codex: false, gemini: false, opencode: false, openclaw: false, hermes: false, grokbuild: false } })
-  const stopped = await routerManager.stop()
-  if (errors.length) throw new Error(`路由已停止，但部分配置恢复失败：${errors.join('；')}`)
-  return stopped
+  return routeLifecycleManager.stopAll()
 }
 async function openDirectoryWithHost(targetInput) {
   const target = path.resolve(String(targetInput || ''))
@@ -555,13 +546,11 @@ window.ccSwitch = Object.freeze({
     return true
   },
   getRouterStatus: () => routerManager.status(),
-  startRouter: () => routerManager.start(),
   stopRouter: () => stopRouterAndRestore(),
   setRouterRoute: (client, enabled) => routeLifecycleManager.setRoute(String(client || ''), Boolean(enabled)),
   saveRouterConfig: (patch) => routerManager.saveConfig(patch || {}),
   getCircuitBreakerStats: (client, providerId) => routerManager.getCircuitBreakerStats(String(client || ''), String(providerId || '')),
   resetCircuitBreaker: (client, providerId) => routerManager.resetCircuitBreaker(String(client || ''), String(providerId || '')),
-  setClientRouting: (client, enabled, routerUrl) => configManager.setClientRouting(String(client || ''), Boolean(enabled), String(routerUrl || '')),
   getUsageSummary: (filters) => activityStore.summary(filters || {}),
   getRequestLogs: (filters) => activityStore.query(filters || {}),
   getPaginatedRequestLogs: (filters, page, pageSize) => activityStore.paginated(filters || {}, page, pageSize),

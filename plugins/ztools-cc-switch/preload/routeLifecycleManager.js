@@ -41,13 +41,41 @@ function createRouteLifecycleManager({ routerManager, configManager }) {
     }
   }
 
+  async function stopAllAndRestore() {
+    const status = await routerManager.status()
+    const succeeded = {}
+    const errors = []
+    for (const [client, enabled] of Object.entries(status.config?.routes || {})) {
+      if (!enabled) continue
+      if (client === 'claude-desktop') { succeeded[client] = false; continue }
+      try {
+        await configManager.setClientRouting(client, false, status.url)
+        succeeded[client] = false
+      } catch (error) { errors.push({ client, message: error.message }) }
+    }
+    const config = Object.keys(succeeded).length ? await routerManager.saveConfig({ routes: succeeded }) : status.config
+    if (errors.length) {
+      const error = new Error(`部分客户端配置恢复失败，路由引擎保持运行：${errors.map((item) => `${item.client}: ${item.message}`).join('；')}`)
+      error.failures = errors
+      throw error
+    }
+    const next = Object.values(config.routes || {}).some(Boolean) ? await routerManager.status() : await routerManager.stop()
+    return { ...next, restoredClients: Object.keys(succeeded) }
+  }
+
   function setRoute(client, enabled) {
     const task = queue.then(() => apply(client, enabled))
     queue = task.catch(() => {})
     return task
   }
 
-  return { setRoute }
+  function stopAll() {
+    const task = queue.then(() => stopAllAndRestore())
+    queue = task.catch(() => {})
+    return task
+  }
+
+  return { setRoute, stopAll }
 }
 
 module.exports = { createRouteLifecycleManager }
