@@ -2,6 +2,9 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs/promises')
+const os = require('node:os')
+const path = require('node:path')
 
 const {
   MCP_TOOL_TIMEOUT_MS,
@@ -69,6 +72,34 @@ test('renderer bridge rejects hidden runner options before invocation', async ()
     'help',
     { timeoutMs: 5_000 }
   ])
+})
+
+test('renderer bridge embeds standalone OfficeCLI image paths as safe previews', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'office-suite-preview-'))
+  const imagePath = path.join(directory, 'page 1.png')
+  const textPath = path.join(directory, 'not-an-image.png')
+  await fs.writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB', 'base64'))
+  await fs.writeFile(textPath, 'not really an image')
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+
+  const mock = runnerMock()
+  mock.runner.run = async () => ({
+    ok: true,
+    data: {
+      exitCode: 0,
+      stdout: `${imagePath}\n${imagePath}\n${textPath}\ncreated at ${imagePath}\n`,
+      stderr: ''
+    }
+  })
+  const target = {}
+  attachOfficeSuite(target, mock.runner)
+
+  const result = await target.officeSuite.run(['view', '/tmp/report.docx', 'screenshot'])
+  assert.equal(result.ok, true)
+  assert.equal(result.data.previewImages.length, 1)
+  assert.equal(result.data.previewImages[0].path, await fs.realpath(imagePath))
+  assert.equal(result.data.previewImages[0].mimeType, 'image/png')
+  assert.match(result.data.previewImages[0].dataUrl, /^data:image\/png;base64,/u)
 })
 
 test('native office_document tool registers once and reuses the same runner', async () => {

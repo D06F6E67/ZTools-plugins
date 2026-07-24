@@ -1349,8 +1349,54 @@ pre {
   white-space: nowrap;
 }
 
+.result-previews {
+  display: grid;
+  max-height: 280px;
+  overflow: auto;
+  padding: 14px;
+  border-bottom: 1px solid #263335;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 25%, transparent 25%) 0 0 / 16px 16px,
+    #0d1416;
+}
+
+.result-previews figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.result-previews button {
+  display: grid;
+  width: 100%;
+  min-height: 120px;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #354244;
+  background: #f5f3ed;
+  cursor: zoom-in;
+}
+
+.result-previews img {
+  display: block;
+  max-width: 100%;
+  max-height: 230px;
+  object-fit: contain;
+}
+
+.result-previews figcaption {
+  overflow: hidden;
+  margin-top: 8px;
+  color: #91a09f;
+  font: 8px "JetBrains Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .result-panel pre {
   flex: 1;
+  min-height: 72px;
   max-height: 340px;
   margin: 0;
   overflow: auto;

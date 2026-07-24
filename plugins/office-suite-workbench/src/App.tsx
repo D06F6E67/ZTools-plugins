@@ -996,6 +996,22 @@ function ResultPanel({
         {onClose && <button onClick={onClose} title="关闭"><X size={15} /></button>}
       </div>
       {execution && <code className="executed-command">$ officecli {execution.command}</code>}
+      {execution?.result.ok && Boolean(execution.result.data.previewImages?.length) && (
+        <div className="result-previews" aria-label="视觉预览">
+          {execution.result.data.previewImages?.map(preview => (
+            <figure key={preview.path}>
+              <button
+                type="button"
+                title="用系统默认应用打开图片"
+                onClick={() => void window.ztools?.shellOpenPath?.(preview.path)}
+              >
+                <img src={preview.dataUrl} alt={`OfficeCLI 视觉预览：${basename(preview.path)}`} />
+              </button>
+              <figcaption title={preview.path}>{basename(preview.path)}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
       <pre>{text}</pre>
     </section>
   );

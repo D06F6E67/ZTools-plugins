@@ -1,5 +1,6 @@
 'use strict'
 
+const fs = require('node:fs')
 const path = require('node:path')
 const { parseCommand } = require('./command-parser.cjs')
 const {
@@ -15,6 +16,9 @@ const EXTERNAL_MCP_BLOCKED_COMMANDS = new Set(['add-part', 'import', 'merge', 'o
 const EXTERNAL_MCP_NON_FILE_COMMANDS = new Set(['help', 'load_skill'])
 const STATUS_OPTION_FIELDS = new Set()
 const RUN_OPTION_FIELDS = new Set(['timeoutMs'])
+const MAX_PREVIEW_IMAGE_BYTES = 12 * 1024 * 1024
+const MAX_PREVIEW_TOTAL_BYTES = 24 * 1024 * 1024
+const MAX_PREVIEW_IMAGES = 8
 const EXTERNAL_MCP_BLOCKED_OPTIONS = new Set(['-o', '--out', '--output', '--save', '--browser'])
 const EXTERNAL_MCP_BLOCKED_PROPERTY_KEYS = new Set([
   'fallback',
@@ -69,13 +73,104 @@ function safeUiInvoke(runner, method, args, options, allowedFields) {
   }
 }
 
+function previewMimeType(buffer) {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return 'image/png'
+  }
+  if (buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255) {
+    return 'image/jpeg'
+  }
+  if (buffer.length >= 6) {
+    const signature = buffer.subarray(0, 6).toString('ascii')
+    if (signature === 'GIF87a' || signature === 'GIF89a') return 'image/gif'
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+  return null
+}
+
+function previewPathCandidates(stdout) {
+  const candidates = []
+  for (const line of String(stdout || '').split(/\r?\n/u)) {
+    const candidate = line.trim().replace(/^(['"])(.*)\1$/u, '$2')
+    if (!candidate || !path.isAbsolute(candidate)) continue
+    candidates.push(candidate)
+  }
+  return candidates
+}
+
+function collectPreviewImages(output) {
+  if (!output || typeof output !== 'object') return []
+  const previews = []
+  const seen = new Set()
+  let totalBytes = 0
+
+  for (const candidate of previewPathCandidates(output.stdout)) {
+    if (previews.length >= MAX_PREVIEW_IMAGES) break
+    try {
+      const sourceStat = fs.lstatSync(candidate)
+      if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) continue
+      if (sourceStat.size <= 0 || sourceStat.size > MAX_PREVIEW_IMAGE_BYTES) continue
+      if (totalBytes + sourceStat.size > MAX_PREVIEW_TOTAL_BYTES) continue
+
+      const resolvedPath = fs.realpathSync(candidate)
+      if (seen.has(resolvedPath)) continue
+      const buffer = fs.readFileSync(resolvedPath)
+      const mimeType = previewMimeType(buffer)
+      if (!mimeType) continue
+
+      seen.add(resolvedPath)
+      totalBytes += buffer.length
+      previews.push({
+        path: resolvedPath,
+        mimeType,
+        size: buffer.length,
+        dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`
+      })
+    } catch {
+      // Command output remains available even when a transient preview file disappears.
+    }
+  }
+  return previews
+}
+
+function withPreviewImages(result) {
+  if (!result?.ok || !result.data || typeof result.data !== 'object') return result
+  const previewImages = collectPreviewImages(result.data)
+  if (!previewImages.length) return result
+  return {
+    ...result,
+    data: {
+      ...result.data,
+      previewImages
+    }
+  }
+}
+
+async function safeUiRun(runner, command, options) {
+  let sanitizedOptions
+  try {
+    sanitizedOptions = sanitizeUiOptions(options, RUN_OPTION_FIELDS)
+  } catch (error) {
+    return failure(error, 'OFFICE_SUITE_BRIDGE_ERROR')
+  }
+
+  const result = await safeInvoke(runner, 'run', [command, sanitizedOptions])
+  return withPreviewImages(result)
+}
+
 function createOfficeSuiteServices(runner = createOfficeCliRunner()) {
   return Object.freeze({
     getStatus(options) {
       return safeUiInvoke(runner, 'getStatus', [], options, STATUS_OPTION_FIELDS)
     },
     run(command, options) {
-      return safeUiInvoke(runner, 'run', [command], options, RUN_OPTION_FIELDS)
+      return safeUiRun(runner, command, options)
     },
     getMcpStatus(options) {
       return safeUiInvoke(runner, 'getMcpStatus', [], options, STATUS_OPTION_FIELDS)
@@ -347,6 +442,7 @@ module.exports = {
   MCP_TOOL_TIMEOUT_MS,
   OFFICE_DOCUMENT_TOOL,
   attachOfficeSuite,
+  collectPreviewImages,
   createOfficeSuiteServices,
   defaultServices,
   registerOfficeDocumentTool,

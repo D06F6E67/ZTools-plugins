@@ -26,7 +26,13 @@ window.officeSuite = {
         stdout: JSON.stringify({ success: true, data: { Results: [{ path: '/body/p[1]', text: 'Executive summary' }] } }, null, 2),
         stderr: '',
         json: { success: true, data: { Results: [{ path: '/body/p[1]', text: 'Executive summary' }] } },
-        durationMs: 84
+        durationMs: 84,
+        previewImages: [{
+          path: '/tmp/officecli-preview.png',
+          mimeType: 'image/png',
+          size: 68,
+          dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+        }]
       }
     };
   },
@@ -64,6 +70,7 @@ window.ztools = {
   copyText(text) { window.__copiedText = text; },
   async shellOpenExternal() {},
   async shellOpenPath() {}
+
 };
 """
 
@@ -122,6 +129,7 @@ def main() -> None:
         page.get_by_role("button", name="结构速览 读取文档层级与关键节点").click()
         page.get_by_text("COMMAND OUTPUT").wait_for()
         assert "Executive summary" in page.locator(".result-drawer pre").inner_text()
+        assert page.locator(".result-drawer .result-previews img").is_visible()
         page.locator('.result-drawer button[title="关闭"]').click()
 
         page.get_by_title("MCP 接入").click()

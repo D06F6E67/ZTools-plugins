@@ -25,6 +25,14 @@ export interface OfficeCliRunOutput {
   stderr: string;
   json?: unknown;
   durationMs?: number;
+  previewImages?: OfficeCliPreviewImage[];
+}
+
+export interface OfficeCliPreviewImage {
+  path: string;
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  size: number;
+  dataUrl: string;
 }
 
 export interface McpProbe {
