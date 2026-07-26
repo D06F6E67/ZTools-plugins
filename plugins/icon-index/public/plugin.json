@@ -3,7 +3,7 @@
   "name": "icon-index",
   "title": "图标检索",
   "description": "搜索开源图标库，复制或保存 SVG 与 PNG 图标",
-  "author": "ZTools Community",
+  "author": "serfend",
   "version": "1.0.0",
   "main": "index.html",
   "preload": "preload/services.js",
