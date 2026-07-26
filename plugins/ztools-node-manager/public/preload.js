@@ -48,6 +48,14 @@ function decodeOutput(buffer) {
   return buffer.toString('utf-8');
 }
 
+function wrapNvmCmd(cmd) {
+  if (isWin) {
+    return cmd;
+  }
+  const loadCmd = `for p in "$HOME/.nvm/nvm.sh" "$NVM_DIR/nvm.sh" "/opt/homebrew/opt/nvm/nvm.sh" "/usr/local/opt/nvm/nvm.sh"; do [ -s "$p" ] && . "$p" && break; done`;
+  return `${loadCmd} && ${cmd}`;
+}
+
 // 辅助函数：异步执行命令并解码
 function runCommand(cmd) {
   return new Promise((resolve) => {
@@ -81,7 +89,7 @@ window.nodeManager = {
   // --- Node 版本管理 ---
   getInstalledVersions: () => {
     return new Promise((resolve) => {
-      exec("nvm list", { shell: true }, (error, stdout) => {
+      exec(wrapNvmCmd("nvm list"), { shell: true }, (error, stdout) => {
         if (error) {
           resolve([]);
           return;
@@ -106,7 +114,7 @@ window.nodeManager = {
 
   getAvailableVersions: () => {
     return new Promise((resolve) => {
-      const cmd = isWin ? "nvm list available" : "nvm ls-remote --lts";
+      const cmd = isWin ? "nvm list available" : wrapNvmCmd("nvm ls-remote --lts");
       exec(cmd, { shell: true }, (error, stdout) => {
         if (error) {
           resolve([]);
@@ -159,7 +167,7 @@ window.nodeManager = {
 
   useVersion: (version) => {
     return new Promise((resolve, reject) => {
-      exec(`nvm use ${version}`, { shell: true }, (error, stdout, stderr) => {
+      exec(wrapNvmCmd(`nvm use ${version}`), { shell: true }, (error, stdout, stderr) => {
         if (error) {
           const errMsg = decodeOutput(Buffer.from(stderr, 'binary'));
           reject(errMsg || error.message);
@@ -172,7 +180,8 @@ window.nodeManager = {
 
   installVersion: (version, onProgress) => {
     return new Promise((resolve, reject) => {
-      const child = spawn("nvm", ["install", version], { 
+      const installCmd = isWin ? `nvm install ${version}` : wrapNvmCmd(`nvm install ${version}`);
+      const child = spawn(installCmd, [], { 
         shell: true,
         env: { ...process.env, LANG: 'en_US.UTF-8' } 
       });
@@ -213,7 +222,7 @@ window.nodeManager = {
 
   uninstallVersion: (version) => {
     return new Promise((resolve, reject) => {
-      exec(`nvm uninstall ${version}`, { shell: true }, (error, stdout, stderr) => {
+      exec(wrapNvmCmd(`nvm uninstall ${version}`), { shell: true }, (error, stdout, stderr) => {
         if (error) reject(decodeOutput(Buffer.from(stderr, 'binary')));
         else resolve(decodeOutput(Buffer.from(stdout, 'binary')));
       });
@@ -234,7 +243,7 @@ window.nodeManager = {
         });
       } else {
         // Unix 下查找版本路径的简单尝试
-        exec(`nvm which ${version}`, { shell: true }, (error, stdout) => {
+        exec(wrapNvmCmd(`nvm which ${version}`), { shell: true }, (error, stdout) => {
           if (error) return reject("无法定位该版本路径");
           const binPath = stdout.trim();
           const versionDir = path.dirname(path.dirname(binPath));
@@ -294,7 +303,9 @@ window.nodeManager = {
         const env = { ...process.env, NODE_OPTIONS: '', LANG: 'zh_CN.UTF-8' };
         
         // 跨平台执行方案：使用 shell: true 让系统自动选择 shell (cmd 或 sh)
-        const cmdPrefix = nodeVersion ? `nvm use ${nodeVersion} && ` : "";
+        const cmdPrefix = nodeVersion 
+          ? (isWin ? `nvm use ${nodeVersion} && ` : wrapNvmCmd(`nvm use ${nodeVersion}`) + " && ")
+          : "";
         const fullCmd = `${cmdPrefix}npm run ${script}`;
         
         const child = spawn(fullCmd, [], { 
