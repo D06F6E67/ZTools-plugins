@@ -57,6 +57,7 @@ import type {
 type StatusPhase = "checking" | "ready" | "missing";
 type ClientId = "generic" | "codex" | "claude" | "cursor" | "vscode";
 type McpTransport = "ztools" | "stdio";
+type AiPermissionMode = "read" | "once" | "always";
 
 interface LastExecution {
   label: string;
@@ -199,6 +200,7 @@ export default function App() {
   const [busyLabel, setBusyLabel] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>(loadStoredHistory);
   const [lastExecution, setLastExecution] = useState<LastExecution | null>(null);
+  const [resultExpanded, setResultExpanded] = useState(false);
   const [consoleCommand, setConsoleCommand] = useState("help");
   const [mcpConfigs, setMcpConfigs] = useState<ApiResult<McpConfigurations> | null>(null);
   const [mcpProbe, setMcpProbe] = useState<ApiResult<McpProbe> | null>(null);
@@ -213,17 +215,20 @@ export default function App() {
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [allowAiWrite, setAllowAiWrite] = useState(false);
+  const [aiPermissionMode, setAiPermissionMode] = useState<AiPermissionMode>("read");
+  const [showAiPermissionMenu, setShowAiPermissionMenu] = useState(false);
   const activeOperationRef = useRef<{ token: symbol; label: string } | null>(null);
   const statusRequestRef = useRef(0);
   const settingsDialogRef = useRef<HTMLDialogElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const aiRequestRef = useRef<ZToolsAiRequest | null>(null);
+  const aiPermissionRef = useRef<HTMLDivElement>(null);
   const allowAiWriteRef = useRef(false);
   const selectedFileRef = useRef("");
 
   const selectedFormat = selectedFile ? detectFormat(selectedFile) : null;
   const resultText = useMemo(() => executionText(lastExecution), [lastExecution]);
+  const allowAiWrite = aiPermissionMode !== "read";
 
   const addFiles = useCallback((
     incoming: string[],
@@ -289,8 +294,28 @@ export default function App() {
   }, [allowAiWrite]);
 
   useEffect(() => {
+    if (!showAiPermissionMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!aiPermissionRef.current?.contains(event.target as Node)) setShowAiPermissionMenu(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowAiPermissionMenu(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showAiPermissionMenu]);
+
+  useEffect(() => {
     selectedFileRef.current = selectedFile;
   }, [selectedFile]);
+
+  useEffect(() => {
+    setResultExpanded(false);
+  }, [lastExecution]);
 
   useEffect(() => {
     if (view !== "ai") return;
@@ -500,6 +525,7 @@ export default function App() {
 
   const sendAiMessage = async () => {
     const prompt = aiPrompt.trim();
+    const permissionModeForRequest = aiPermissionMode;
     if (!prompt || aiBusy) return;
     if (!window.ztools?.ai) {
       setAiError("当前 ZTools 版本未提供原生 AI API。");
@@ -526,6 +552,7 @@ export default function App() {
     setAiPrompt("");
     setAiError("");
     setAiBusy(true);
+    setShowAiPermissionMenu(false);
 
     const selectedContext = selectedFile
       ? `The currently selected document is: ${selectedFile}`
@@ -536,7 +563,7 @@ export default function App() {
       "Call office_document with operation, filePath, and args. To read content use operation=view and args=[\"text\"]; never use read as an operation.",
       "Use absolute paths and read operations before edits.",
       "Use help or load_skill when OfficeCLI syntax is uncertain.",
-      "If a tool returns AI_WRITE_APPROVAL_REQUIRED, explain that the user must enable the modification switch; never claim the file changed.",
+      "If a tool returns AI_WRITE_APPROVAL_REQUIRED, explain that the user must choose a modification permission mode below the prompt; never claim the file changed.",
       "Summarize successful changes and report tool errors honestly.",
       selectedContext
     ].join(" ");
@@ -565,8 +592,10 @@ export default function App() {
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "ZTools AI 请求启动失败。");
       setAiBusy(false);
-      setAllowAiWrite(false);
-      allowAiWriteRef.current = false;
+      if (permissionModeForRequest === "once") {
+        setAiPermissionMode("read");
+        allowAiWriteRef.current = false;
+      }
       return;
     }
     aiRequestRef.current = request;
@@ -578,8 +607,10 @@ export default function App() {
     } finally {
       if (aiRequestRef.current === request) aiRequestRef.current = null;
       setAiBusy(false);
-      setAllowAiWrite(false);
-      allowAiWriteRef.current = false;
+      if (permissionModeForRequest === "once") {
+        setAiPermissionMode("read");
+        allowAiWriteRef.current = false;
+      }
     }
   };
 
@@ -587,8 +618,11 @@ export default function App() {
     aiRequestRef.current?.abort();
     aiRequestRef.current = null;
     setAiBusy(false);
-    setAllowAiWrite(false);
-    allowAiWriteRef.current = false;
+    setShowAiPermissionMenu(false);
+    if (aiPermissionMode === "once") {
+      setAiPermissionMode("read");
+      allowAiWriteRef.current = false;
+    }
     setAiError("已停止本次生成。");
   };
 
@@ -944,7 +978,7 @@ export default function App() {
   const renderAi = () => (
     <div className="view-stack ai-view">
       <section className="ai-hero reveal">
-        <div>
+        <div className="ai-intro">
           <span className="section-index">ZTOOLS NATIVE AI / OFFICE TOOLS</span>
           <h1>使用你已经配置的 AI。</h1>
           <p>模型请求由 ZTools 宿主发送，插件不会读取或保存提供商 API Key。</p>
@@ -993,19 +1027,6 @@ export default function App() {
             )}
           </div>
           {aiError && <div className="ai-error"><CircleAlert size={15} />{aiError}</div>}
-          <label className={`ai-write-toggle ai-write-inline ${allowAiWrite ? "enabled" : ""}`}>
-            <input
-              type="checkbox"
-              checked={allowAiWrite}
-              disabled={aiBusy}
-              onChange={event => setAllowAiWrite(event.target.checked)}
-            />
-            <span><ShieldCheck size={18} /></span>
-            <div>
-              <strong>{allowAiWrite ? "已允许修改文件" : "需要 AI 修改文件？先开启写入授权"}</strong>
-              <small>仅下一次发送有效；关闭时只允许读取、检查和预览。</small>
-            </div>
-          </label>
           <div className="ai-composer">
             <textarea
               aria-label="向 Office AI 提问"
@@ -1020,15 +1041,72 @@ export default function App() {
                 }
               }}
             />
-            {aiBusy ? (
-              <button className="ai-send stop" onClick={stopAiMessage}><X size={16} />停止</button>
-            ) : (
-              <button
-                className="ai-send"
-                disabled={!aiPrompt.trim() || !aiModel || statusPhase !== "ready"}
-                onClick={() => void sendAiMessage()}
-              ><ArrowUpRight size={16} />发送</button>
-            )}
+            <div className="ai-composer-footer">
+              <div className="ai-permission-control" ref={aiPermissionRef}>
+                <button
+                  type="button"
+                  className={`ai-permission-trigger ${allowAiWrite ? "write-enabled" : ""} ${aiPermissionMode === "always" ? "always-enabled" : ""}`}
+                  aria-haspopup="menu"
+                  aria-expanded={showAiPermissionMenu}
+                  disabled={aiBusy}
+                  onClick={() => setShowAiPermissionMenu(previous => !previous)}
+                >
+                  <ShieldCheck size={15} />
+                  {aiPermissionMode === "always" ? "始终允许修改" : aiPermissionMode === "once" ? "本次允许修改" : "只读模式"}
+                  <ChevronRight size={14} />
+                </button>
+                {showAiPermissionMenu && (
+                  <div className="ai-permission-menu" role="menu" aria-label="AI 文件权限模式">
+                    <div className="ai-permission-heading">
+                      <strong>AI 如何操作文件？</strong>
+                      <small>权限仅影响 OfficeCLI 工具，不会上传原始文件。</small>
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={aiPermissionMode === "read"}
+                      className={aiPermissionMode === "read" ? "selected" : ""}
+                      onClick={() => { setAiPermissionMode("read"); allowAiWriteRef.current = false; setShowAiPermissionMenu(false); }}
+                    >
+                      <FileText size={18} />
+                      <span><strong>只读模式</strong><small>允许读取、检查和预览，不修改文件</small></span>
+                      {aiPermissionMode === "read" && <Check size={17} />}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={aiPermissionMode === "once"}
+                      className={aiPermissionMode === "once" ? "selected write" : "write"}
+                      onClick={() => { setAiPermissionMode("once"); allowAiWriteRef.current = true; setShowAiPermissionMenu(false); }}
+                    >
+                      <ShieldCheck size={18} />
+                      <span><strong>本次允许修改</strong><small>允许下一次发送修改文件，完成后自动恢复只读</small></span>
+                      {aiPermissionMode === "once" && <Check size={17} />}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={aiPermissionMode === "always"}
+                      className={aiPermissionMode === "always" ? "selected always" : "always"}
+                      onClick={() => { setAiPermissionMode("always"); allowAiWriteRef.current = true; setShowAiPermissionMenu(false); }}
+                    >
+                      <CircleAlert size={18} />
+                      <span><strong>始终允许修改</strong><small>当前插件会话内持续允许；关闭或重新加载后失效</small></span>
+                      {aiPermissionMode === "always" && <Check size={17} />}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {aiBusy ? (
+                <button className="ai-send stop" onClick={stopAiMessage}><X size={16} />停止</button>
+              ) : (
+                <button
+                  className="ai-send"
+                  disabled={!aiPrompt.trim() || !aiModel || statusPhase !== "ready"}
+                  onClick={() => void sendAiMessage()}
+                ><ArrowUpRight size={16} />发送</button>
+              )}
+            </div>
           </div>
           <div className="ai-composer-hint">⌘ / Ctrl + Enter 发送 · 工具调用经过 OfficeCLI 安全策略</div>
         </section>
@@ -1204,13 +1282,16 @@ export default function App() {
       </main>
 
       {lastExecution && view !== "console" && (
-        <aside className="result-drawer">
+        <aside className={`result-drawer ${view === "ai" ? `ai-compact ${resultExpanded ? "expanded" : ""}` : ""}`}>
           <ResultPanel
             execution={lastExecution}
             text={resultText}
             busy={Boolean(busyLabel)}
             onCopy={() => void copyText(resultText)}
             onClose={() => setLastExecution(null)}
+            compact={view === "ai"}
+            expanded={resultExpanded}
+            onToggle={() => setResultExpanded(previous => !previous)}
           />
         </aside>
       )}
@@ -1340,25 +1421,39 @@ function ResultPanel({
   text,
   busy,
   onCopy,
-  onClose
+  onClose,
+  compact = false,
+  expanded = false,
+  onToggle
 }: {
   execution: LastExecution | null;
   text: string;
   busy: boolean;
   onCopy: () => void;
   onClose?: () => void;
+  compact?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const ok = execution?.result.ok;
+  const showDetails = !compact || expanded;
   return (
-    <section className="result-panel">
+    <section className={`result-panel ${compact ? "is-compact" : ""} ${expanded ? "is-expanded" : ""}`}>
       <div className="result-title">
         <span className={execution ? (ok ? "success" : "failure") : "idle"}>{busy ? <LoaderCircle className="spin" size={14} /> : ok ? <Check size={14} /> : execution ? <X size={14} /> : <Code2 size={14} />}</span>
         <span><small>COMMAND OUTPUT</small><strong>{execution?.label ?? "等待执行"}</strong></span>
-        <button onClick={onCopy} title="复制结果"><Clipboard size={15} /></button>
-        {onClose && <button onClick={onClose} title="关闭"><X size={15} /></button>}
+        <div className="result-actions">
+          <button onClick={onCopy} title="复制结果"><Clipboard size={15} /></button>
+          {compact && onToggle && (
+            <button className={`result-toggle ${expanded ? "expanded" : ""}`} onClick={onToggle} title={expanded ? "收起详情" : "展开详情"}>
+              <ChevronRight size={15} />
+            </button>
+          )}
+          {onClose && <button onClick={onClose} title="关闭"><X size={15} /></button>}
+        </div>
       </div>
       {execution && <code className="executed-command">$ officecli {execution.command}</code>}
-      {execution?.result.ok && Boolean(execution.result.data.previewImages?.length) && (
+      {showDetails && execution?.result.ok && Boolean(execution.result.data.previewImages?.length) && (
         <div className="result-previews" aria-label="视觉预览">
           {execution.result.data.previewImages?.map(preview => (
             <figure key={preview.path}>
@@ -1374,7 +1469,7 @@ function ResultPanel({
           ))}
         </div>
       )}
-      <pre>{text}</pre>
+      {showDetails && <pre>{text}</pre>}
     </section>
   );
 }

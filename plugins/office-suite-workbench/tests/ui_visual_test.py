@@ -40,7 +40,10 @@ window.officeSuite = {
       }
     };
   },
-  async runForAi(command) { return this.run(command); },
+  async runForAi(command, options) {
+    window.__lastAiAllowWrite = options.allowWrite;
+    return this.run(command);
+  },
   async getMcpStatus() {
     return { ok: true, data: { raw: 'Claude registered\nCursor not registered', targets: { claude: true, cursor: false } } };
   },
@@ -83,6 +86,7 @@ window.ztools = {
   },
   ai(options, onChunk) {
     window.__lastAiOptions = options;
+    window.__aiCallCount = (window.__aiCallCount || 0) + 1;
     const request = Promise.resolve().then(async () => {
       const toolResult = await window.office_document({
         operation: 'get',
@@ -163,10 +167,22 @@ def main() -> None:
         page.get_by_role("button", name="更换").click()
         page.get_by_role("heading", name="使用你已经配置的 AI。").wait_for()
         page.get_by_text("Replacement.docx", exact=True).wait_for()
-        write_toggle = page.locator(".ai-write-inline input[type='checkbox']")
-        write_toggle.check()
-        assert write_toggle.is_checked()
+        permission_trigger = page.get_by_role("button", name=re.compile(r"只读模式"))
+        permission_trigger.click()
+        permission_menu = page.get_by_role("menu", name="AI 文件权限模式")
+        permission_menu.wait_for()
+        assert page.get_by_role("menuitemradio", name=re.compile(r"始终允许修改")).is_visible()
+        page.wait_for_timeout(600)
+        page.screenshot(path=str(OUTPUT_DIR / "office-suite-ai-permission.png"), full_page=True)
+        page.keyboard.press("Escape")
+        permission_menu.wait_for(state="hidden")
+        permission_trigger.click()
+        page.get_by_role("menuitemradio", name=re.compile(r"本次允许修改")).click()
+        page.get_by_role("button", name=re.compile(r"本次允许修改")).wait_for()
         ai_prompt = page.get_by_role("textbox", name="向 Office AI 提问")
+        assert ai_prompt.evaluate("element => getComputedStyle(element).resize") == "none"
+        ai_prompt.fill("\n".join([f"第 {index} 行提示词" for index in range(20)]))
+        assert ai_prompt.evaluate("element => element.scrollHeight > element.clientHeight") is True
         ai_prompt.fill("检查当前文档")
         page.get_by_role("button", name="发送").click()
         page.get_by_text("已通过 ZTools AI 检查当前文档。").wait_for()
@@ -174,7 +190,26 @@ def main() -> None:
         assert page.evaluate("window.__lastAiOptions.tools[0].function.name") == "office_document"
         assert page.evaluate("window.__lastAiOptions.tools[0].function.parameters.properties.operation.enum.includes('view')") is True
         assert page.evaluate("window.__lastAiToolResult.ok") is True
-        assert write_toggle.is_checked() is False
+        assert page.evaluate("window.__lastAiAllowWrite") is True
+        page.get_by_role("button", name=re.compile(r"只读模式")).wait_for()
+        page.get_by_role("button", name=re.compile(r"只读模式")).click()
+        page.get_by_role("menuitemradio", name=re.compile(r"始终允许修改")).click()
+        page.get_by_role("button", name=re.compile(r"始终允许修改")).wait_for()
+        ai_prompt.fill("继续修改当前文档")
+        page.get_by_role("button", name="发送").click()
+        page.wait_for_function("window.__aiCallCount === 2")
+        page.get_by_role("button", name=re.compile(r"始终允许修改")).wait_for()
+        ai_hero_height = page.locator(".ai-hero").bounding_box()["height"]
+        assert ai_hero_height < 100
+        compact_result = page.locator(".result-drawer.ai-compact")
+        compact_result.wait_for()
+        assert compact_result.bounding_box()["height"] < 110
+        page.wait_for_timeout(300)
+        page.screenshot(path=str(OUTPUT_DIR / "office-suite-ai.png"), full_page=True)
+        compact_result.get_by_title("展开详情").click()
+        assert compact_result.get_by_title("收起详情").is_visible()
+        assert compact_result.bounding_box()["height"] < 370
+        compact_result.get_by_title("关闭").click()
 
         page.get_by_title("MCP 接入").click()
         page.get_by_role("heading", name="让 AI 直接操作 Office。").wait_for()
@@ -226,6 +261,8 @@ def main() -> None:
         "screenshots": [
             str(OUTPUT_DIR / "office-suite-home.png"),
             str(OUTPUT_DIR / "office-suite-word.png"),
+            str(OUTPUT_DIR / "office-suite-ai.png"),
+            str(OUTPUT_DIR / "office-suite-ai-permission.png"),
             str(OUTPUT_DIR / "office-suite-mcp.png"),
             str(OUTPUT_DIR / "office-suite-install.png"),
         ],
