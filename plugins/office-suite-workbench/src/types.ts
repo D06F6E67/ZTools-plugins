@@ -17,6 +17,12 @@ export interface OfficeCliStatus {
   version?: string;
 }
 
+export interface OfficeCliInstallResult extends OfficeCliStatus {
+  installed: true;
+  release: string;
+  asset: string;
+}
+
 export interface OfficeCliRunOutput {
   command?: string;
   args?: string[];
@@ -48,6 +54,7 @@ export interface McpConfigurations {
 
 export interface OfficeSuiteApi {
   getStatus(): Promise<ApiResult<OfficeCliStatus>>;
+  installOfficeCli(): Promise<ApiResult<OfficeCliInstallResult>>;
   run(
     command: string | string[],
     options?: { timeoutMs?: number }

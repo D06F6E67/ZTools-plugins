@@ -193,6 +193,8 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState("");
   const [statusPhase, setStatusPhase] = useState<StatusPhase>("checking");
   const [status, setStatus] = useState<OfficeCliStatus>({ installed: false });
+  const [installingOfficeCli, setInstallingOfficeCli] = useState(false);
+  const [installError, setInstallError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>(loadStoredHistory);
@@ -627,6 +629,31 @@ export default function App() {
     void refreshStatus();
   };
 
+  const installOfficeCli = async () => {
+    if (installingOfficeCli) return;
+    if (!window.officeSuite?.installOfficeCli) {
+      setInstallError("当前插件版本未提供一键安装能力。");
+      return;
+    }
+    setInstallingOfficeCli(true);
+    setInstallError("");
+    try {
+      const response = await window.officeSuite.installOfficeCli();
+      if (!response.ok) {
+        setInstallError(response.error.message);
+        return;
+      }
+      setStatus(response.data);
+      setStatusPhase("ready");
+      setShowSettings(false);
+      notify(`OfficeCLI ${response.data.version ?? ""} 安装成功`);
+    } catch (error) {
+      setInstallError(error instanceof Error ? error.message : "OfficeCLI 安装意外中断。");
+    } finally {
+      setInstallingOfficeCli(false);
+    }
+  };
+
   const probeMcp = async () => {
     if (!window.officeSuite) return;
     const token = beginOperation("探测 MCP");
@@ -698,7 +725,14 @@ export default function App() {
         </div>
       </section>
 
-      {statusPhase === "missing" && <DependencyNotice onSettings={openSettings} />}
+      {statusPhase === "missing" && (
+        <DependencyNotice
+          installing={installingOfficeCli}
+          error={installError}
+          onInstall={() => void installOfficeCli()}
+          onSettings={openSettings}
+        />
+      )}
 
       <section className="format-grid reveal delay-1">
         {(Object.keys(FORMAT_META) as OfficeFormat[]).map(format => {
@@ -1195,13 +1229,20 @@ export default function App() {
             <p>插件只使用 PATH、只读环境变量 <code>OFFICECLI_PATH</code> 与官方常见安装目录中发现的 OfficeCLI，不接受页面指定任意可执行文件。</p>
             <div className="runtime-readout">
               <span>{statusPhase === "ready" ? <Check size={16} /> : <CircleAlert size={16} />}</span>
-              <div><strong>{statusPhase === "ready" ? "运行时已连接" : "尚未发现 OfficeCLI"}</strong><small>{status.binaryPath ?? "安装后重启 ZTools，或设置 OFFICECLI_PATH"}</small></div>
+              <div><strong>{statusPhase === "ready" ? "运行时已连接" : "尚未发现 OfficeCLI"}</strong><small>{status.binaryPath ?? "可直接安装到当前用户目录，无需打开终端"}</small></div>
             </div>
+            {installError && <div className="install-error"><CircleAlert size={15} />{installError}</div>}
             <div className="modal-actions">
               <button className="button ghost" onClick={() => void window.ztools?.shellOpenExternal?.("https://github.com/iOfficeAI/OfficeCLI")}>
                 安装说明 <ExternalLink size={15} />
               </button>
-              <button className="button primary" onClick={retryRuntimeDiscovery}>重新探测</button>
+              {statusPhase === "missing" ? (
+                <button className="button primary" disabled={installingOfficeCli} onClick={() => void installOfficeCli()}>
+                  {installingOfficeCli ? <><LoaderCircle className="spin" size={15} /> 正在安装…</> : "一键安装"}
+                </button>
+              ) : (
+                <button className="button primary" onClick={retryRuntimeDiscovery}>重新探测</button>
+              )}
             </div>
           </dialog>
       )}
@@ -1212,13 +1253,28 @@ export default function App() {
   );
 }
 
-function DependencyNotice({ onSettings }: { onSettings: () => void }) {
+function DependencyNotice({
+  installing,
+  error,
+  onInstall,
+  onSettings
+}: {
+  installing: boolean;
+  error: string;
+  onInstall: () => void;
+  onSettings: () => void;
+}) {
   return (
     <section className="dependency-notice reveal">
       <CircleAlert size={22} />
-      <div><strong>还差一个 OfficeCLI 运行时</strong><span>插件不会捆绑或静默安装第三方二进制；安装后即可获得全部文档与 MCP 能力。</span></div>
-      <code>curl -fsSL https://d.officecli.ai/install.sh | bash</code>
-      <button onClick={onSettings}>检查路径 <ChevronRight size={15} /></button>
+      <div>
+        <strong>还差一个 OfficeCLI 运行时</strong>
+        <span>{error || "优先从国内镜像下载，校验 SHA-256 后安装；镜像不可用时自动回退 GitHub。"}</span>
+      </div>
+      <button className="dependency-secondary" onClick={onSettings}>更多选项</button>
+      <button className="dependency-install" disabled={installing} onClick={onInstall}>
+        {installing ? <><LoaderCircle className="spin" size={15} /> 正在安装…</> : <>一键安装 <ChevronRight size={15} /></>}
+      </button>
     </section>
   );
 }

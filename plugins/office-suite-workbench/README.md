@@ -17,7 +17,9 @@
 
 ## 运行依赖
 
-插件首版不捆绑 OfficeCLI 二进制，避免把所有平台资产塞进插件包，也不会静默执行远程安装脚本。请先安装 OfficeCLI：
+插件不捆绑 OfficeCLI 二进制，避免把所有平台资产塞进插件包。首次打开时可直接点击“一键安装”：插件识别当前平台，优先从 OfficeCLI 国内加速镜像 `d.officecli.ai` 下载固定版本资产，镜像不可用时才回退 GitHub；下载后强制校验官方 SHA-256，并安装到当前用户目录。整个过程不会打开终端，也不会执行远程 shell 或 PowerShell 脚本。
+
+如需手动安装，可使用官方命令：
 
 ```bash
 # macOS / Linux
@@ -33,7 +35,7 @@ irm https://d.officecli.ai/install.ps1 | iex
 officecli --version
 ```
 
-插件会依次检查只读环境变量 `OFFICECLI_PATH`、当前 `PATH`、`~/.local/bin`、Homebrew/Scoop 与 Windows 官方 `%LOCALAPPDATA%\OfficeCLI` 等常见目录。renderer 不能指定任意可执行文件。当前开发机实测版本为 `1.0.139`；上游能力与许可审计基线为 `1.0.141`。
+插件会依次检查只读环境变量 `OFFICECLI_PATH`、当前 `PATH`、`~/.local/bin`、Homebrew/Scoop 与 Windows 官方 `%LOCALAPPDATA%\OfficeCLI` 等常见目录。renderer 不能指定任意可执行文件。一键安装链路已使用官方 `1.0.142` macOS ARM64 资产完成真实下载、校验、安装与版本自检。
 
 ## MCP：推荐使用 ZTools 网关
 
@@ -88,6 +90,7 @@ ZTools 2.4.0 起支持当前工具命名和多模态透传；推荐使用 ZTools
 ## 安全边界
 
 - 所有文档命令通过 argv 调用固定 OfficeCLI 二进制，始终 `shell:false`。
+- 一键安装只接受插件内固定的官方地址和平台资产；版本化下载必须通过 `SHA256SUMS` 校验后才会原子写入用户目录。
 - 命令、参数、超时和输出大小均有限制；`install`、`plugins`、`skills`、`mcp` 等管理命令不能从通用执行器调用。
 - ZTools MCP 工具只接收 `command`，不接受二进制路径、工作目录或环境变量覆盖。
 - 外部 MCP 调用禁用隐式 resident，并阻止 `import`、`merge`、`raw-set`、`add-part`、`open`、`--out`、`--save` 和拉起浏览器等高风险路径。

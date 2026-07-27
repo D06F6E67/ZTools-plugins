@@ -3,6 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { parseCommand } = require('./command-parser.cjs')
+const { createOfficeCliInstaller } = require('./officecli-installer.cjs')
 const {
   OfficeCliRunnerError,
   createOfficeCliRunner,
@@ -56,6 +57,17 @@ async function safeInvoke(runner, method, args) {
     return result
   } catch (error) {
     return failure(error, 'OFFICE_SUITE_BRIDGE_ERROR')
+  }
+}
+
+async function safeInstallerInvoke(installer) {
+  try {
+    if (!installer || typeof installer.install !== 'function') {
+      throw new OfficeCliRunnerError('INSTALLER_UNAVAILABLE', 'OfficeCLI installer is unavailable.')
+    }
+    return { ok: true, data: await installer.install() }
+  } catch (error) {
+    return failure(error, 'OFFICECLI_INSTALL_FAILED')
   }
 }
 
@@ -207,10 +219,13 @@ async function safeAiRun(runner, command, options) {
   }
 }
 
-function createOfficeSuiteServices(runner = createOfficeCliRunner()) {
+function createOfficeSuiteServices(runner = createOfficeCliRunner(), installer = createOfficeCliInstaller()) {
   return Object.freeze({
     getStatus(options) {
       return safeUiInvoke(runner, 'getStatus', [], options, STATUS_OPTION_FIELDS)
+    },
+    installOfficeCli() {
+      return safeInstallerInvoke(installer)
     },
     run(command, options) {
       return safeUiRun(runner, command, options)
@@ -469,11 +484,11 @@ function registerOfficeDocumentTool(target, runner) {
   return true
 }
 
-function attachOfficeSuite(target, runner = createOfficeCliRunner()) {
+function attachOfficeSuite(target, runner = createOfficeCliRunner(), installer = createOfficeCliInstaller()) {
   if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
     throw new OfficeCliRunnerError('INVALID_BRIDGE_TARGET', 'A window-like bridge target is required.')
   }
-  const services = createOfficeSuiteServices(runner)
+  const services = createOfficeSuiteServices(runner, installer)
   target.officeSuite = services
   registerOfficeDocumentTool(target, runner)
   return services

@@ -9,6 +9,8 @@ flowchart LR
   UI["React 工作台"] --> Bridge["window.officeSuite 窄接口"]
   HTTP["ZTools HTTP MCP :36579"] --> Tool["registerTool: office_document"]
   Bridge --> Runner["OfficeCLI Runner"]
+  Bridge --> Installer["Verified Runtime Installer"]
+  Installer -->|"HTTPS + SHA-256"| Release["OfficeCLI official release"]
   Tool --> Policy["MCP Policy Guard"] --> Runner
   Runner -->|"spawn / shell:false"| CLI["OfficeCLI binary"]
   CLI --> DOCX[".docx"]
@@ -43,19 +45,17 @@ React 只负责文件选择、命令构建、状态显示和结果可视化。�
 - 解析 `--json` 输出。
 - 探测 OfficeCLI 原生 MCP 的 `initialize` 与 `tools/list`。
 
+### Runtime installer
+
+`preload/officecli-installer.cjs` 提供无参数的一键安装能力。平台和架构由 Node 运行时决定，下载地址、资产名、安装目录均由插件内部生成，renderer 无法传入 URL、文件路径或命令。版本、程序资产和校验清单均按 `d.officecli.ai` 国内镜像 → GitHub 的固定顺序获取。安装器只接受版本化的 OfficeCLI 官方资产，要求 `SHA256SUMS` 精确匹配，并在临时文件通过 `--version` 自检后原子替换目标文件。所有进程调用保持 `shell:false`。
+
 ### ZTools MCP tool
 
 `plugin.json.tools.office_document` 是宿主发现契约；preload 顶层立即注册同名 handler。MCP 可能在 UI 从未打开时后台唤起插件，因此该 handler 不读取 React 状态。`backgroundRunning: true` 避免隐藏 WebContents 节流影响子进程事件和超时。
 
 ## 运行时策略
 
-首版使用系统安装的 OfficeCLI，不重新分发二进制。后续若提供内置 RuntimeManager，应满足：
-
-1. 锁定精确版本和平台资产。
-2. 下载 `SHA256SUMS` 并 fail-closed 校验。
-3. 写入插件数据目录的版本化子目录。
-4. 校验成功后原子替换，保留上一个已验证版本回滚。
-5. 随分发物提供 Apache-2.0 `LICENSE`、`NOTICE` 和第三方声明。
+插件优先发现用户已经安装的 OfficeCLI；缺失时可按需安装到 `~/.local/bin`（macOS/Linux）或 `%LOCALAPPDATA%\OfficeCLI`（Windows）。安装是显式用户操作，不在后台静默触发。插件本身不重新分发 OfficeCLI，OfficeCLI 的 Apache-2.0 来源与许可在第三方声明中列明。
 
 ## 写操作一致性
 

@@ -475,7 +475,7 @@ pre {
 
 .dependency-notice {
   display: grid;
-  grid-template-columns: auto minmax(230px, 1fr) minmax(240px, auto) auto;
+  grid-template-columns: auto minmax(230px, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   margin-top: 22px;
@@ -500,16 +500,6 @@ pre {
   font-size: 10px;
 }
 
-.dependency-notice code {
-  overflow: hidden;
-  padding: 8px 11px;
-  color: #f3ebe1;
-  background: #45251e;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dependency-notice button {
   display: flex;
   align-items: center;
@@ -520,6 +510,22 @@ pre {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.dependency-notice button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.dependency-notice .dependency-secondary {
+  color: #724638;
+}
+
+.dependency-notice .dependency-install {
+  min-height: 34px;
+  padding: 0 13px;
+  color: #f3ebe1;
+  background: #45251e;
 }
 
 .format-grid {
@@ -2279,6 +2285,18 @@ pre {
   white-space: nowrap;
 }
 
+.install-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  color: #8f2f1f;
+  background: #f9d7cd;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -2365,7 +2383,6 @@ pre {
   .hero-copy { padding: 34px 28px; }
   .hero-diagram { display: none; }
   .dependency-notice { grid-template-columns: auto 1fr; }
-  .dependency-notice code { grid-column: 1 / -1; }
   .dependency-notice button { justify-self: end; }
   .workbench-heading { grid-template-columns: auto 1fr; }
   .workbench-heading .format-action { grid-column: 1 / -1; }

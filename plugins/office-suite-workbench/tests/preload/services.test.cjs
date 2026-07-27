@@ -20,6 +20,12 @@ function runnerMock() {
   }
   return {
     calls,
+    installer: {
+      async install() {
+        calls.push({ name: 'install', args: [] })
+        return { installed: true, binaryPath: '/tmp/officecli', version: '1.2.3', release: 'v1.2.3', asset: 'test' }
+      }
+    },
     runner: {
       getStatus: method('getStatus'),
       run: method('run'),
@@ -35,17 +41,29 @@ function runnerMock() {
 test('attachOfficeSuite exposes only the fixed narrow UI methods', () => {
   const mock = runnerMock()
   const target = {}
-  attachOfficeSuite(target, mock.runner)
+  attachOfficeSuite(target, mock.runner, mock.installer)
   assert.deepEqual(Object.keys(target.officeSuite).sort(), [
     'getMcpConfigs',
     'getMcpStatus',
     'getStatus',
+    'installOfficeCli',
     'probeMcp',
     'registerMcp',
     'run',
     'runForAi',
     'unregisterMcp'
   ])
+})
+
+test('one-click installer is exposed as a fixed no-argument bridge method', async () => {
+  const mock = runnerMock()
+  const target = {}
+  attachOfficeSuite(target, mock.runner, mock.installer)
+
+  const result = await target.officeSuite.installOfficeCli({ binaryPath: '/tmp/untrusted' })
+  assert.equal(result.ok, true)
+  assert.equal(result.data.version, '1.2.3')
+  assert.deepEqual(mock.calls, [{ name: 'install', args: [] }])
 })
 
 test('native AI bridge enforces per-turn write approval without weakening MCP policy', async () => {

@@ -15,6 +15,10 @@ window.officeSuite = {
   async getStatus() {
     return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.141' } };
   },
+  async installOfficeCli() {
+    window.__installCalls = (window.__installCalls || 0) + 1;
+    return { ok: true, data: { installed: true, binaryPath: '/Users/test/.local/bin/officecli', version: '1.0.142', release: 'v1.0.142', asset: 'officecli-mac-arm64' } };
+  },
   async run(command) {
     const args = Array.isArray(command) ? command : [command];
     return {
@@ -199,6 +203,23 @@ def main() -> None:
         outline = command_input.evaluate("element => getComputedStyle(element).outlineStyle")
         assert outline != "none"
 
+        missing_context = browser.new_context(viewport={"width": 1280, "height": 780}, device_scale_factor=1)
+        missing_context.add_init_script(MOCK_BRIDGE.replace(
+            "return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.141' } };",
+            "return { ok: true, data: { installed: false } };",
+        ))
+        missing_page = missing_context.new_page()
+        missing_page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        missing_page.on("pageerror", lambda error: page_errors.append(str(error)))
+        missing_page.goto(BASE_URL)
+        missing_page.get_by_role("button", name=re.compile(r"一键安装")).wait_for()
+        missing_page.wait_for_timeout(600)
+        missing_page.screenshot(path=str(OUTPUT_DIR / "office-suite-install.png"), full_page=True)
+        missing_page.get_by_role("button", name=re.compile(r"一键安装")).click()
+        missing_page.get_by_role("button", name=re.compile(r"OfficeCLI 1\.0\.142")).wait_for()
+        assert missing_page.evaluate("window.__installCalls") == 1
+        missing_context.close()
+
         browser.close()
 
     summary = {
@@ -206,6 +227,7 @@ def main() -> None:
             str(OUTPUT_DIR / "office-suite-home.png"),
             str(OUTPUT_DIR / "office-suite-word.png"),
             str(OUTPUT_DIR / "office-suite-mcp.png"),
+            str(OUTPUT_DIR / "office-suite-install.png"),
         ],
         "console_errors": console_errors,
         "page_errors": page_errors,
