@@ -8,7 +8,7 @@ const path = require('node:path')
 const { createConfigManager, getClientPaths } = require('../preload/configManager')
 const { createClaudeDesktopManager, OFFICIAL_PROVIDER_ID } = require('../preload/claudeDesktopManager')
 
-async function fixture() {
+async function fixture(options = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-cc-switch-test-'))
   const homeDir = path.join(root, 'home')
   const dataDir = path.join(root, 'data')
@@ -20,7 +20,7 @@ async function fixture() {
     homeDir,
     dataDir,
     rulesPath,
-    manager: createConfigManager({ homeDir, dataDir, bundledRulesPath: rulesPath })
+    manager: createConfigManager({ homeDir, dataDir, bundledRulesPath: rulesPath, ...options })
   }
 }
 
@@ -176,14 +176,67 @@ test('local routing takeover preserves active Provider and restores exact client
   await ctx.manager.setClientRouting('claude', true, 'http://127.0.0.1:15721')
   let routed = JSON.parse(await fs.readFile(paths.claude.settings, 'utf8'))
   assert.equal(routed.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:15721')
-  const second = await ctx.manager.saveProvider({ ...provider, id: 'second', name: 'Second' })
+  const second = await ctx.manager.saveProvider({ ...provider, id: 'second', name: 'Second', model: 'model-two' })
   const switched = await ctx.manager.switchProvider('claude', second.id)
   assert.equal(switched.routed, true)
   routed = JSON.parse(await fs.readFile(paths.claude.settings, 'utf8'))
   assert.equal(routed.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:15721')
+  assert.equal(routed.env.ANTHROPIC_MODEL, 'model-two')
+  assert.notEqual(routed.env.ANTHROPIC_AUTH_TOKEN, provider.apiKey)
 
   await ctx.manager.setClientRouting('claude', false, 'http://127.0.0.1:15721')
   assert.equal(await fs.readFile(paths.claude.settings, 'utf8'), direct)
+})
+
+test('public Provider APIs redact secrets and blank edits preserve the stored key', async (t) => {
+  const ctx = await fixture(); t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))
+  await ctx.manager.saveProvider(provider)
+  let publicData = await ctx.manager.listPublicProviders()
+  let row = publicData.providers.find((item) => item.id === provider.id)
+  assert.equal(row.apiKey, '')
+  assert.equal(row.hasApiKey, true)
+  assert.doesNotMatch(JSON.stringify(publicData), /sk-test-secret/)
+  const saved = await ctx.manager.savePublicProvider({ ...row, name: 'Renamed', apiKey: '' })
+  assert.equal(saved.apiKey, '')
+  assert.equal((await ctx.manager.getProvider(provider.id)).apiKey, provider.apiKey)
+  await ctx.manager.saveProvider({ ...row, apiKey: '', clearApiKey: true })
+  assert.equal((await ctx.manager.getProvider(provider.id)).apiKey, '')
+})
+
+test('concurrent Provider mutations keep every update', async (t) => {
+  const ctx = await fixture(); t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))
+  await Promise.all(Array.from({ length: 20 }, (_, index) => ctx.manager.saveProvider({ ...provider, id: `parallel-${index}`, name: `Parallel ${index}` })))
+  const ids = new Set((await ctx.manager.listProviders()).providers.map((item) => item.id))
+  for (let index = 0; index < 20; index += 1) assert.equal(ids.has(`parallel-${index}`), true)
+})
+
+test('OAuth routing uses a local gateway credential and refreshes the routed model', async (t) => {
+  const calls = []
+  const sidecar = { isAvailable: () => true, applyClient: async (client, _home, value) => { assert.ok(value.apiKey); calls.push({ client, ...value }) } }
+  const ctx = await fixture({ sidecar }); t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))
+  const first = await ctx.manager.saveProvider({ ...provider, id: 'oauth-one', apiKey: '', authProvider: 'codex_oauth', clients: ['codex'], model: 'gpt-one' })
+  const second = await ctx.manager.saveProvider({ ...provider, id: 'oauth-two', apiKey: '', authProvider: 'codex_oauth', clients: ['codex'], model: 'gpt-two' })
+  await ctx.manager.activateProvider('codex', first.id)
+  await ctx.manager.setClientRouting('codex', true, 'http://127.0.0.1:15721')
+  await ctx.manager.switchProvider('codex', second.id)
+  assert.equal(calls.at(-1).model, 'gpt-two')
+  assert.match(calls.at(-1).baseUrl, /^http:\/\/127\.0\.0\.1:15721\/v1$/)
+  assert.match(calls.at(-1).apiKey, /^ztools-route-/)
+})
+
+test('routing store failures restore the client files and leave route state disabled', async (t) => {
+  let failWrites = false
+  const ctx = await fixture({ beforeStoreWrite: async () => { if (failWrites) throw new Error('disk full') } })
+  t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))
+  await ctx.manager.saveProvider({ ...provider, clients: ['claude'] })
+  await ctx.manager.switchProvider('claude', provider.id)
+  const paths = getClientPaths(ctx.homeDir)
+  const direct = await fs.readFile(paths.claude.settings, 'utf8')
+  failWrites = true
+  await assert.rejects(() => ctx.manager.setClientRouting('claude', true, 'http://127.0.0.1:15721'), /disk full/)
+  assert.equal(await fs.readFile(paths.claude.settings, 'utf8'), direct)
+  failWrites = false
+  assert.equal((await ctx.manager.getClientStatus()).claude.routed, false)
 })
 
 test('OpenCode、OpenClaw 与 Hermes 使用独立路由入口并精确恢复', async (t) => {

@@ -16,9 +16,9 @@ window.ccSwitch = {
     ],
     active: {claude:'anthropic',codex:'openrouter'},
     providers: [
-      {id:'anthropic',name:'Anthropic API',apiKey:'sk-test-123456789',baseUrl:'https://api.anthropic.com',model:'claude-sonnet-4-5',clients:['claude'],color:'#E69B62',source:'preset',apiType:'anthropic',costMultiplier:'1.2',pricingModelSource:'response',limitDailyUsd:'2',limitMonthlyUsd:'40'},
-      {id:'kimi',name:'Kimi for Claude',apiKey:'sk-test-987654321',baseUrl:'https://api.moonshot.cn/anthropic',model:'kimi-k2.5',clients:['claude'],color:'#F4B55F',source:'preset',apiType:'anthropic'},
-      {id:'openrouter',name:'OpenRouter',apiKey:'sk-or-test',baseUrl:'https://openrouter.ai/api/v1',model:'openai/gpt-5',clients:['codex','opencode','openclaw','hermes','grokbuild'],color:'#9B8AFB',source:'preset',failoverPriority:1}
+      {id:'anthropic',name:'Anthropic API',apiKey:'',hasApiKey:true,apiKeyPreview:'sk-t••••6789',baseUrl:'https://api.anthropic.com',model:'claude-sonnet-4-5',clients:['claude'],color:'#E69B62',source:'preset',apiType:'anthropic',costMultiplier:'1.2',pricingModelSource:'response',limitDailyUsd:'2',limitMonthlyUsd:'40'},
+      {id:'kimi',name:'Kimi for Claude',apiKey:'',hasApiKey:true,apiKeyPreview:'sk-t••••4321',baseUrl:'https://api.moonshot.cn/anthropic',model:'kimi-k2.5',clients:['claude'],color:'#F4B55F',source:'preset',apiType:'anthropic'},
+      {id:'openrouter',name:'OpenRouter',apiKey:'',hasApiKey:true,apiKeyPreview:'sk-o••••test',baseUrl:'https://openrouter.ai/api/v1',model:'openai/gpt-5',clients:['codex','opencode','openclaw','hermes','grokbuild'],color:'#9B8AFB',source:'preset',failoverPriority:1}
       ,{id:'claude-desktop-official',name:'Claude Desktop Official',apiKey:'',baseUrl:'',model:'',clients:['claude-desktop'],color:'#D97757',source:'preset',apiType:'anthropic',claudeDesktopMode:'direct',claudeDesktopRoutes:[]}
     ]
   }),
@@ -159,7 +159,13 @@ def verify(page, width, height, screenshot):
     page.get_by_role("button", name="添加 Provider").click()
     modal = page.locator(".provider-modal").bounding_box()
     assert modal and modal["width"] <= width * .95 and modal["height"] <= height * .93
-    assert page.locator(".provider-modal form").evaluate("el => el.scrollHeight >= el.clientHeight")
+    modal_form = page.locator(".provider-config-modal > form")
+    assert modal_form.evaluate("el => el.scrollHeight >= el.clientHeight")
+    modal_form.evaluate("el => { el.scrollTop = el.scrollHeight }")
+    page.wait_for_timeout(100)
+    modal_form_box = modal_form.bounding_box()
+    actions = page.locator(".provider-config-modal > form > .modal-actions").bounding_box()
+    assert actions and modal_form_box and abs((actions['y'] + actions['height']) - (modal_form_box['y'] + modal_form_box['height'])) <= 1, (modal_form_box, actions)
     page.screenshot(path=screenshot, full_page=True)
     page.locator(".modal-close").click()
     page.locator('.profile-trigger').click()

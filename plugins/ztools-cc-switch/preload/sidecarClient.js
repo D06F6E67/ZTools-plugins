@@ -30,33 +30,75 @@ function binaryFilename(platform = process.platform, arch = process.arch) {
   return `cc-switch-sidecar-${platformName}-${archName}${platform === 'win32' ? '.exe' : ''}`
 }
 
+function isAsarPath(value) {
+  return /(^|[\\/])[^\\/]+\.asar([\\/]|$)/i.test(String(value || ''))
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex')
+}
+
 function createSidecarClient(options = {}) {
   const filename = binaryFilename(options.platform, options.arch)
-  const binaryPath = options.binaryPath
+  const bundledBinaryPath = options.binaryPath
     ? path.resolve(options.binaryPath)
     : filename
       ? path.join(__dirname, 'bin', filename)
       : null
+  const extractDir = options.extractDir ? path.resolve(options.extractDir) : null
   const timeoutMs = Number(options.timeoutMs) || 15000
   const maxOutputBytes = Number(options.maxOutputBytes) || 1024 * 1024
+  let executablePath = bundledBinaryPath
+  let preparedAsarBinary = false
+  let availabilityError = ''
+
+  function prepareExecutable() {
+    if (!bundledBinaryPath) return null
+    if (!isAsarPath(bundledBinaryPath)) return bundledBinaryPath
+    if (!extractDir) throw new Error('ASAR 内的 Rust sidecar 需要释放目录')
+    const destination = path.join(extractDir, filename)
+    if (preparedAsarBinary && fs.existsSync(destination)) return destination
+
+    const bytes = fs.readFileSync(bundledBinaryPath)
+    const sourceHash = sha256(bytes)
+    let destinationHash = ''
+    try { destinationHash = sha256(fs.readFileSync(destination)) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    fs.mkdirSync(extractDir, { recursive: true, mode: 0o700 })
+    if (destinationHash !== sourceHash) {
+      const temporary = `${destination}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.tmp`
+      try {
+        fs.writeFileSync(temporary, bytes, { mode: 0o700, flag: 'wx' })
+        fs.renameSync(temporary, destination)
+      } finally {
+        try { fs.rmSync(temporary, { force: true }) } catch {}
+      }
+    }
+    if (process.platform !== 'win32') fs.chmodSync(destination, 0o700)
+    executablePath = destination
+    preparedAsarBinary = true
+    return destination
+  }
 
   function isAvailable() {
-    if (!binaryPath) return false
     try {
-      fs.accessSync(binaryPath, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK)
+      const candidate = prepareExecutable()
+      if (!candidate) return false
+      fs.accessSync(candidate, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK)
+      availabilityError = ''
       return true
-    } catch {
+    } catch (error) {
+      availabilityError = error.message
       return false
     }
   }
 
   function request(method, params = {}) {
     if (!isAvailable()) {
-      return Promise.reject(new Error(`Rust sidecar 不可用：${binaryPath || '当前平台没有构建产物'}`))
+      return Promise.reject(new Error(`Rust sidecar 不可用：${availabilityError || executablePath || '当前平台没有构建产物'}`))
     }
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID()
-      const child = spawn(binaryPath, [], {
+      const child = spawn(executablePath, [], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         shell: false
@@ -112,7 +154,8 @@ function createSidecarClient(options = {}) {
   }
 
   return {
-    binaryPath,
+    get binaryPath() { return executablePath },
+    bundledBinaryPath,
     isAvailable,
     ping: () => request('ping'),
     applyClient: (client, homeDir, provider) => request('applyClient', { client, homeDir, provider }),
@@ -121,14 +164,14 @@ function createSidecarClient(options = {}) {
     updateCodexHistoryToml: (configToml, enabled, bucket = 'ztools_cc_switch') => request('updateCodexHistoryToml', { configToml, enabled, bucket }),
     updateCodexStateProviders: (params) => request('updateCodexStateProviders', params),
     async getStatus() {
-      if (!isAvailable()) return { available: false, binaryPath, error: '当前平台 sidecar 未构建' }
+      if (!isAvailable()) return { available: false, binaryPath: executablePath, error: availabilityError || '当前平台 sidecar 未构建' }
       try {
-        return { available: true, binaryPath, info: await request('ping') }
+        return { available: true, binaryPath: executablePath, bundledBinaryPath, extracted: executablePath !== bundledBinaryPath, info: await request('ping') }
       } catch (error) {
-        return { available: false, binaryPath, error: error.message }
+        return { available: false, binaryPath: executablePath, bundledBinaryPath, extracted: executablePath !== bundledBinaryPath, error: error.message }
       }
     }
   }
 }
 
-module.exports = { binaryFilename, createSidecarClient }
+module.exports = { binaryFilename, isAsarPath, createSidecarClient }

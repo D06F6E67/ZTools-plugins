@@ -33,6 +33,34 @@ test('router config always normalizes listening host to loopback', async (t) => 
   assert.equal(config.host, '127.0.0.1')
 })
 
+test('concurrent router starts share one server and stop releases the port', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-concurrent-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise((resolve) => probe.close(resolve))
+  const router = createRouterManager({ dataDir: root, getActiveProvider: async () => null })
+  await router.saveConfig({ port })
+  const [first, second] = await Promise.all([router.start(), router.start()])
+  assert.equal(first.running, true); assert.equal(second.running, true); assert.equal(first.url, second.url)
+  await router.stop()
+  const replacement = http.createServer(); await new Promise((resolve, reject) => replacement.once('error', reject).listen(port, '127.0.0.1', resolve)); await new Promise((resolve) => replacement.close(resolve))
+})
+
+test('local routes reject requests without the private gateway token', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-auth-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise((resolve) => probe.close(resolve))
+  const router = createRouterManager({
+    dataDir: root,
+    getRouteCredential: async () => 'private-route-token',
+    fetchImpl: async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    getActiveProvider: async () => ({ id: 'upstream', name: 'Upstream', apiKey: 'real-upstream-key', baseUrl: 'https://api.example.com', model: 'gpt', apiType: 'responses' })
+  })
+  await router.saveConfig({ port, routes: { codex: true } }); await router.start(); t.after(() => router.stop())
+  const url = `http://127.0.0.1:${port}/v1/responses`
+  let response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+  assert.equal(response.status, 401)
+  response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer private-route-token' }, body: '{}' })
+  assert.equal(response.status, 200)
+})
+
 test('router rejects self-recursive upstream and forwarded router hops', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-recursion-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
   const probe = http.createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r)); const port = probe.address().port; await new Promise(r => probe.close(r))
