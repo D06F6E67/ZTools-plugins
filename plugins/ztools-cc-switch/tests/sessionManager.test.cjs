@@ -125,3 +125,41 @@ test('OpenClaw 回收站清单写入失败时恢复索引和会话文件', async
   assert.equal(JSON.parse(await fs.readFile(indexPath, 'utf8')).key.sessionId, 'openclaw-rollback')
   assert.equal((await manager.listTrash()).length, 0)
 })
+
+test('session scanning skips symlinks without hiding later valid sessions', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-session-symlink-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const home = path.join(root, 'home'); const data = path.join(root, 'data'); const project = path.join(home, '.claude/projects/p')
+  await write(path.join(project, 'z-valid.jsonl'), line({ sessionId: 'valid-after-link', type: 'user', message: { role: 'user', content: 'valid' } }))
+  await fs.symlink(path.join(root, 'missing-target'), path.join(project, 'a-link'))
+  const sessions = await createSessionManager({ homeDir: home, dataDir: data }).listSessions()
+  assert.equal(sessions.some((item) => item.sessionId === 'valid-after-link'), true)
+})
+
+test('session resume shell-quotes untrusted ids before passing a fixed command to Terminal', { skip: process.platform !== 'darwin' }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-session-launch-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const home = path.join(root, 'home'); const data = path.join(root, 'data'); const source = path.join(home, '.claude/projects/p/session.jsonl')
+  const marker = path.join(root, 'must-not-exist')
+  const maliciousId = `evil; touch ${marker}; $(touch ${marker}) ' quoted`
+  await write(source, line({ sessionId: maliciousId, cwd: home, type: 'user', message: { role: 'user', content: 'unsafe id' } }))
+  const calls = []
+  const manager = createSessionManager({ homeDir: home, dataDir: data, execFile: async (...args) => { calls.push(args); return { stdout: '', stderr: '' } } })
+  const session = (await manager.listSessions()).find((item) => item.sessionId === maliciousId)
+  assert.match(session.resumeCommand, /^claude '--resume' 'evil; touch /)
+  await manager.launchSession('claude', maliciousId, source)
+  assert.equal(calls.at(-1)[0], 'osascript')
+  assert.ok(calls.at(-1)[1][1].includes("claude '--resume' 'evil; touch "))
+  await assert.rejects(fs.access(marker))
+})
+
+test('session resume uses PowerShell on Windows and a terminal emulator on Linux', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-session-platform-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const home = path.join(root, 'home'); const data = path.join(root, 'data'); const source = path.join(home, '.claude/projects/p/session.jsonl')
+  await write(source, line({ sessionId: "safe-but-'quoted", cwd: home, type: 'user', message: { role: 'user', content: 'resume' } }))
+  for (const [platform, executable] of [['win32', 'powershell.exe'], ['linux', 'x-terminal-emulator']]) {
+    const calls = []
+    const manager = createSessionManager({ platform, homeDir: home, dataDir: data, execFile: async (...args) => { calls.push(args); return { stdout: '', stderr: '' } } })
+    await manager.launchSession('claude', "safe-but-'quoted", source)
+    assert.equal(calls.at(-1)[0], executable)
+    assert.match(JSON.stringify(calls.at(-1)), /safe-but-/)
+  }
+})
