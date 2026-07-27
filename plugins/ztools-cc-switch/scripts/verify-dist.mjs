@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 
 const required = [
-  'index.html', 'plugin.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'default-rules.json',
+  'index.html', 'plugin.json', 'README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'default-rules.json',
   'preload/index.js', 'preload/configManager.js', 'preload/sidecarClient.js', 'preload/clientVisibility.js',
   'preload/skillManager.js', 'preload/routerManager.js', 'preload/claudeDesktopManager.js', 'preload/balanceManager.js', 'preload/hostStartupManager.js', 'preload/codexHistoryManager.js', 'preload/usageScriptManager.js', 'preload/logManager.js',
   'preload/failoverManager.js',
@@ -13,6 +13,7 @@ const required = [
   'preload/s3SyncManager.js',
   'preload/subscriptionManager.js',
   'preload/sessionManager.js',
+  'preload/terminalLauncher.js',
   'preload/workspaceManager.js',
   'preload/envManager.js',
   'preload/usageImportManager.js',
@@ -33,11 +34,19 @@ const required = [
   'preload/package.json', 'preload/package-lock.json'
 ]
 
-if (process.platform === 'darwin') {
-  required.push(
-    'preload/bin/cc-switch-sidecar-darwin-arm64',
-    'preload/bin/cc-switch-sidecar-darwin-x64'
-  )
+const sidecarNames = {
+  darwin: ['cc-switch-sidecar-darwin-arm64', 'cc-switch-sidecar-darwin-x64'],
+  win32: [`cc-switch-sidecar-win32-${process.arch}.exe`],
+  linux: [`cc-switch-sidecar-linux-${process.arch}`]
+}
+required.push(...(sidecarNames[process.platform] || []).map((name) => `preload/bin/${name}`))
+if (process.env.CC_SWITCH_UNIVERSAL_BUILD === '1') {
+  required.push(...[
+    'cc-switch-sidecar-darwin-arm64',
+    'cc-switch-sidecar-darwin-x64',
+    'cc-switch-sidecar-win32-x64.exe',
+    'cc-switch-sidecar-linux-x64'
+  ].map((name) => `preload/bin/${name}`))
 }
 
 for (const relative of required) await access(path.resolve('dist', relative))

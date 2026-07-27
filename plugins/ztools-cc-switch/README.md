@@ -1,5 +1,7 @@
 # AI Provider Switch for ZTools
 
+版本变更请参阅 [CHANGELOG.md](CHANGELOG.md)。
+
 一个基于 Vue 3、Vite、TailwindCSS 与 Rust sidecar 的 ZTools AI 客户端管理插件。对照 [cc-switch](https://github.com/farion1231/cc-switch) 的公开配置语义，统一管理 Provider、Skills、本地 API 路由、Thinking 整流、用量与请求日志。
 
 界面采用 Provider Workbench 工作台设计，默认浅色主题，并支持跟随系统或手动切换深色；主题偏好保存到 ZTools 隔离存储。
@@ -12,7 +14,7 @@ Rust sidecar 负责 Claude、Codex、Gemini 的高风险配置写入、备份和
 
 生产构建会保留可审核的 CommonJS Preload 源码，并把 `preload/node_modules` 原始模块结构复制到发布产物；ZTools 运行态无需临时联网安装依赖。
 
-1.52.0 首发版限定 macOS，发布包同时包含 Apple Silicon 与 Intel 两种 Rust sidecar；Windows 与 Linux 代码保留为后续发布适配，不在本版市场支持范围内。
+当前插件声明支持 macOS、Windows 与 Linux。发布流水线分别在三个原生 GitHub Actions runner 上编译并测试 Rust sidecar，再聚合为同一个可审核插件包；macOS 包含 Apple Silicon/Intel，Windows 与 Linux 当前提供 x64 sidecar，其他架构会降级使用 Preload 的 JavaScript 配置写入实现。
 
 ## 功能
 
@@ -153,6 +155,7 @@ npm run dev
 ```bash
 npm test
 npm run test:sidecar
+npm run test:platform
 npm run build
 ```
 
@@ -190,11 +193,13 @@ dist/
     ├── sidecarClient.js
     ├── bin/
     │   ├── cc-switch-sidecar-darwin-arm64
-    │   └── cc-switch-sidecar-darwin-x64
+    │   ├── cc-switch-sidecar-darwin-x64
+    │   ├── cc-switch-sidecar-win32-x64.exe
+    │   └── cc-switch-sidecar-linux-x64
     └── package.json
 ```
 
-Preload 与 Rust 源码按 ZTools 审核要求保持可读，没有混淆。`npm run build` 会先按 `preload/package-lock.json` 安装 Preload 依赖；在 macOS 上继续构建 Apple Silicon 与 Intel 两种 release sidecar，再复制进 `dist/preload/bin/`。`tar`、`json5`、`yaml` 声明在 `preload/package.json`，发布工具会按 Preload 依赖结构处理。若手工运行 `dist`，请在 `dist/preload` 安装生产依赖：
+Preload 与 Rust 源码按 ZTools 审核要求保持可读，没有混淆。`npm run build` 会先按 `preload/package-lock.json` 安装 Preload 依赖，并构建当前系统 sidecar；macOS 会同时构建 Apple Silicon 与 Intel。PR/Release CI 会额外在 Windows、Linux 与 macOS 原生 runner 上执行 `npm run test:platform`，下载三个 runner 的 sidecar 后以 `CC_SWITCH_UNIVERSAL_BUILD=1` 强制校验通用包。`tar`、`json5`、`yaml` 声明在 `preload/package.json`，发布工具会按 Preload 依赖结构处理。若手工运行 `dist`，请在 `dist/preload` 安装生产依赖：
 
 ```bash
 npm install --omit=dev --prefix dist/preload
@@ -211,9 +216,9 @@ npm run build
 ztools publish
 ```
 
-首次发布会在 fork 的 `plugin/ztools-cc-switch` 分支创建 Draft PR；后续发布在同一分支追加提交。审核者在 PR 分支直接修改后，先运行 `ztools pull-contributions` 三方合并回本地，再继续发布。不要 force-push 发布分支。
+首次发布会在 fork 的 `plugin/ztools-cc-switch` 分支创建 Draft PR；后续发布在同一分支追加提交。审核者在 PR 分支直接修改后，先运行 `ztools pull-contributions` 三方合并回本地，再继续发布。不要 force-push 发布分支。由于本地 macOS 无法真实执行 Windows/Linux 二进制，跨平台支持以 PR 的三系统原生 CI 全绿作为合并前置条件，并仍建议各平台进行一次 ZTools 宿主冒烟测试。
 
-首发 PR 标题使用 `Add plugin AI Provider Switch v1.52.0`，并保持 Draft 状态，直到 macOS 双架构产物、安全说明和界面截图审核完成。
+首发 PR 标题使用 `Add plugin AI Provider Switch v1.52.0`，并保持 Draft 状态，直到 macOS、Windows、Linux 原生产物测试、安全说明和界面截图审核完成。
 
 ## 安全边界
 
@@ -224,7 +229,7 @@ ztools publish
 - WebDAV 密码与 S3 Secret Access Key 使用系统 `safeStorage` 加密，设置页只显示“已保存”状态。
 - WebDAV 与自定义 S3 Endpoint 的远程地址必须使用 HTTPS；仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
 - 本地路由固定监听 `127.0.0.1`，不会暴露到局域网。
-- 应用接管前保存完整文件快照；关闭路由时恢复快照。路由模式下切换 Provider 只更新路由状态，不反复改写客户端文件。
+- 应用接管前保存完整文件快照；关闭路由时恢复快照。路由模式下切换 Provider 只更新当前路由所需的受管字段和模型，始终保留最初的直连快照。
 - Skill 覆盖、更新和删除前写入插件数据目录中的结构化备份；恢复路径与备份 ID 均经过边界校验。
 - Workspace 文件仅允许上游定义的九个名称，Daily Memory 必须是有效的 `YYYY-MM-DD.md`；删除先进入插件回收站。
 - 环境诊断只自动修改用户 Home 下已识别的 Shell 配置，进程环境和 Windows 系统级变量只提示手动处理；所有值在进入前端前脱敏。
@@ -236,7 +241,7 @@ ztools publish
 
 上游 cc-switch 是 Tauri/Rust 桌面应用，不能把其窗口运行时直接嵌入 ZTools Webview。本项目对照上游公开源码独立实现配置兼容层，并通过 CommonJS Preload 暴露最小业务接口。当前版本覆盖八客户端 Provider、Claude/Codex/Gemini Universal Provider、Skills 仓库发现/搜索/ZIP 批量安装/更新/备份恢复、Claude/Codex 项目 Profiles、OpenCode OMO/OMO Slim Profiles、全局 HTTP(S)/SOCKS5 出站代理、MCP/Prompts、本地路由/接管、故障转移、Thinking 整流、四类 API 协议及逐 Token SSE 转换、Codex/xAI/Copilot OAuth 账户池、Claude/Codex/Gemini 官方额度、七类 Provider Coding Plan、Provider 测速、七客户端 Sessions 与文件/SQLite 精确回收站、四客户端历史用量导入、OpenClaw Workspace/Daily Memory/Agents/Tools/Env/Health/模型目录、Hermes Memory/模型状态/Web Dashboard、环境冲突诊断、用量日志、本地备份、WebDAV 与 S3 云同步；其余上游边缘模块仍在后续迁移清单中。
 
-ZTools 市场依 `plugin.json` 的 `platform` 把插件分配到单一操作系统 runner。本版声明 `darwin`，macOS runner 会交叉构建 `aarch64-apple-darwin` 与 `x86_64-apple-darwin`，使同一审核包同时适用 Apple Silicon 和 Intel Mac。扩展 Windows/Linux 时需先解决 ZTools 单 runner 分发与多平台原生产物聚合，不应只修改 `platform` 声明。
+ZTools 市场会把多平台插件默认交给 Linux runner 打包。本项目在仓库 PR/Release 工作流中增加独立 sidecar 矩阵：Linux x64、Windows x64 与 macOS 双架构先各自在原生 runner 编译并执行平台回归，再由 Linux 打包任务下载全部产物并生成唯一通用 ZIP。Claude Desktop 3P 配置库只在 macOS/Windows 可用；Linux 仍支持 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 与 GrokBuild。Linux 打开终端时依次尝试 `x-terminal-emulator`、GNOME Terminal、Konsole 和 xterm。
 
 ## License
 

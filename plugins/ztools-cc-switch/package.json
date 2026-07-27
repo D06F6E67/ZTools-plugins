@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "node --test tests/*.test.cjs",
     "test:sidecar": "npm run build:sidecar && node --test tests/sidecar.integration.test.cjs",
+    "test:platform": "npm run install:preload && node --test tests/platformCompatibility.test.cjs tests/providerTerminalManager.test.cjs tests/hermesRuntimeManager.test.cjs tests/sidecar.integration.test.cjs",
     "install:preload": "npm ci --omit=dev --prefix preload"
   },
   "dependencies": {

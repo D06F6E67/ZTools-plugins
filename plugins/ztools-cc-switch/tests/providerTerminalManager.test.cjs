@@ -37,3 +37,15 @@ test('Provider 终端拒绝缺失密钥、非法客户端与无效工作目录',
   await assert.rejects(manager.launch('codex', provider, path.join(root, 'missing')), /不存在/)
   await assert.rejects(manager.launch('codex', provider, `${root}\nmalicious`), /非法字符/)
 })
+
+test('Windows 与 Linux Provider 终端使用受控的平台命令', async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'ztools-terminal-platform-')); t.after(() => fsp.rm(root, { recursive: true, force: true }))
+  for (const [platform, executable] of [['win32', 'powershell.exe'], ['linux', 'x-terminal-emulator']]) {
+    const calls = []
+    const manager = createProviderTerminalManager({ platform, homeDir: root, execFile: async (...args) => { calls.push(args); return { stdout: '', stderr: '' } } })
+    await manager.launch('codex', provider, root)
+    assert.equal(calls[0][0], executable)
+    assert.match(JSON.stringify(calls[0]), /OPENAI_API_KEY/)
+    assert.match(JSON.stringify(calls[0]), /codex/)
+  }
+})

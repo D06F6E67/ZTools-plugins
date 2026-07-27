@@ -4,6 +4,7 @@ const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { execFile: execFileCallback } = require('node:child_process')
 const { promisify } = require('node:util')
+const { launchLinuxTerminal } = require('./terminalLauncher')
 
 const defaultExecFile = promisify(execFileCallback)
 const CLIENT_COMMANDS = Object.freeze({ claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', openclaw: 'openclaw', hermes: 'hermes', grokbuild: 'grok' })
@@ -55,7 +56,7 @@ function createProviderTerminalManager(options = {}) {
       await execFile('powershell.exe', ['-NoProfile', '-Command', `Start-Process powershell.exe -ArgumentList @('-NoExit','-Command',${quotePowerShell(shellCommand)})`], { timeout: 10000 })
     } else {
       const exports = Object.entries(env).map(([key, value]) => `export ${key}=${quotePosix(value)}`).join(' && ')
-      await execFile('x-terminal-emulator', ['-e', 'bash', '-lc', `cd ${quotePosix(cwd)} && ${exports} && exec ${command}`], { timeout: 10000 })
+      await launchLinuxTerminal(execFile, `cd ${quotePosix(cwd)} && ${exports} && exec ${command}`)
     }
     return { launched: true, client, providerId: provider.id, cwd }
   }
