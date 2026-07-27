@@ -21,9 +21,17 @@ function runnerMock() {
   return {
     calls,
     installer: {
+      async check(version) {
+        calls.push({ name: 'check', args: [version] })
+        return { installed: true, currentVersion: version, latestVersion: '1.2.4', updateAvailable: true, checkedAt: '2026-07-27T00:00:00.000Z' }
+      },
       async install() {
         calls.push({ name: 'install', args: [] })
         return { installed: true, binaryPath: '/tmp/officecli', version: '1.2.3', release: 'v1.2.3', asset: 'test' }
+      },
+      async update(binaryPath) {
+        calls.push({ name: 'update', args: [binaryPath] })
+        return { installed: true, binaryPath, version: '1.2.4', release: 'v1.2.4', asset: 'test' }
       }
     },
     runner: {
@@ -43,6 +51,7 @@ test('attachOfficeSuite exposes only the fixed narrow UI methods', () => {
   const target = {}
   attachOfficeSuite(target, mock.runner, mock.installer)
   assert.deepEqual(Object.keys(target.officeSuite).sort(), [
+    'checkOfficeCliUpdate',
     'getMcpConfigs',
     'getMcpStatus',
     'getStatus',
@@ -51,7 +60,8 @@ test('attachOfficeSuite exposes only the fixed narrow UI methods', () => {
     'registerMcp',
     'run',
     'runForAi',
-    'unregisterMcp'
+    'unregisterMcp',
+    'updateOfficeCli'
   ])
 })
 
@@ -64,6 +74,28 @@ test('one-click installer is exposed as a fixed no-argument bridge method', asyn
   assert.equal(result.ok, true)
   assert.equal(result.data.version, '1.2.3')
   assert.deepEqual(mock.calls, [{ name: 'install', args: [] }])
+})
+
+test('background update check and one-click update derive the binary path from the trusted runner', async () => {
+  const mock = runnerMock()
+  mock.runner.getStatus = async () => ({
+    ok: true,
+    data: { installed: true, binaryPath: '/tmp/officecli', version: '1.2.3' }
+  })
+  const target = {}
+  attachOfficeSuite(target, mock.runner, mock.installer)
+
+  const check = await target.officeSuite.checkOfficeCliUpdate({ binaryPath: '/tmp/untrusted' })
+  assert.equal(check.ok, true)
+  assert.equal(check.data.updateAvailable, true)
+
+  const update = await target.officeSuite.updateOfficeCli({ binaryPath: '/tmp/untrusted' })
+  assert.equal(update.ok, true)
+  assert.equal(update.data.version, '1.2.4')
+  assert.deepEqual(mock.calls, [
+    { name: 'check', args: ['1.2.3'] },
+    { name: 'update', args: ['/tmp/officecli'] }
+  ])
 })
 
 test('native AI bridge enforces per-turn write approval without weakening MCP policy', async () => {

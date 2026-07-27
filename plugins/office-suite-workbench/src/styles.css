@@ -166,6 +166,13 @@ pre {
   border-color: rgba(239, 106, 87, 0.4);
 }
 
+.runtime-status.has-update {
+  color: #2a2100;
+  border-color: #d4ac15;
+  background: var(--acid);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.24);
+}
+
 .sidebar {
   position: relative;
   z-index: 10;
@@ -2435,6 +2442,62 @@ pre {
   background: #f9d7cd;
   font-size: 10px;
   line-height: 1.45;
+}
+
+.runtime-update-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  margin-top: 11px;
+  padding: 11px;
+  color: #332800;
+  border: 1px solid #d4ac15;
+  background: rgba(242, 211, 63, 0.24);
+}
+
+.runtime-update-card > span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--acid);
+}
+
+.runtime-update-card > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.runtime-update-card strong {
+  font-size: 9.5px;
+}
+
+.runtime-update-card small {
+  color: #716019;
+  font-size: 7.5px;
+  line-height: 1.45;
+}
+
+.runtime-update-card button {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 11px;
+  color: white;
+  border: 0;
+  background: #172123;
+  font-size: 8.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.runtime-update-card button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .modal-actions {

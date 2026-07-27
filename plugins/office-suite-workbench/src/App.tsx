@@ -48,6 +48,7 @@ import type {
   McpProbe,
   OfficeCliRunOutput,
   OfficeCliStatus,
+  OfficeCliUpdateInfo,
   OfficeFormat,
   ViewId,
   ZToolsAiModel,
@@ -129,6 +130,7 @@ const CONSOLE_EXAMPLES = [
 ];
 
 const ZTOOLS_MCP_URL = "http://127.0.0.1:36579/mcp";
+const OFFICECLI_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const ZTOOLS_MCP_CONFIGS: Record<ClientId, unknown> = {
   generic: {
     type: "http",
@@ -196,6 +198,10 @@ export default function App() {
   const [status, setStatus] = useState<OfficeCliStatus>({ installed: false });
   const [installingOfficeCli, setInstallingOfficeCli] = useState(false);
   const [installError, setInstallError] = useState("");
+  const [officeCliUpdate, setOfficeCliUpdate] = useState<OfficeCliUpdateInfo | null>(null);
+  const [checkingOfficeCliUpdate, setCheckingOfficeCliUpdate] = useState(false);
+  const [updatingOfficeCli, setUpdatingOfficeCli] = useState(false);
+  const [officeCliUpdateError, setOfficeCliUpdateError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>(loadStoredHistory);
@@ -264,9 +270,42 @@ export default function App() {
     }
   }, []);
 
+  const refreshOfficeCliUpdate = useCallback(async (reportError = false) => {
+    if (!window.officeSuite?.checkOfficeCliUpdate) return;
+    setCheckingOfficeCliUpdate(true);
+    try {
+      const response = await window.officeSuite.checkOfficeCliUpdate();
+      if (response.ok) {
+        setOfficeCliUpdate(response.data);
+        setOfficeCliUpdateError("");
+      } else if (reportError) {
+        setOfficeCliUpdateError(response.error.message);
+      }
+    } catch (error) {
+      if (reportError) {
+        setOfficeCliUpdateError(error instanceof Error ? error.message : "OfficeCLI 更新检查失败。");
+      }
+    } finally {
+      setCheckingOfficeCliUpdate(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    if (statusPhase !== "ready" || !status.version) {
+      setOfficeCliUpdate(null);
+      return;
+    }
+    const timer = window.setTimeout(() => void refreshOfficeCliUpdate(false), 1_500);
+    const interval = window.setInterval(() => void refreshOfficeCliUpdate(false), OFFICECLI_UPDATE_INTERVAL_MS);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
+  }, [refreshOfficeCliUpdate, status.version, statusPhase]);
 
   useEffect(() => {
     try {
@@ -685,6 +724,36 @@ export default function App() {
       setInstallError(error instanceof Error ? error.message : "OfficeCLI 安装意外中断。");
     } finally {
       setInstallingOfficeCli(false);
+    }
+  };
+
+  const updateOfficeCli = async () => {
+    if (updatingOfficeCli || !window.officeSuite?.updateOfficeCli) return;
+    const token = beginOperation("更新 OfficeCLI");
+    if (!token) return;
+    setUpdatingOfficeCli(true);
+    setOfficeCliUpdateError("");
+    try {
+      const response = await window.officeSuite.updateOfficeCli();
+      if (!response.ok) {
+        setOfficeCliUpdateError(response.error.message);
+        return;
+      }
+      setStatus(response.data);
+      setStatusPhase("ready");
+      setOfficeCliUpdate({
+        installed: true,
+        currentVersion: response.data.version ?? null,
+        latestVersion: response.data.version ?? null,
+        updateAvailable: false,
+        checkedAt: new Date().toISOString()
+      });
+      notify(`OfficeCLI 已更新到 ${response.data.version ?? "最新版本"}`);
+    } catch (error) {
+      setOfficeCliUpdateError(error instanceof Error ? error.message : "OfficeCLI 更新意外中断。");
+    } finally {
+      setUpdatingOfficeCli(false);
+      endOperation(token);
     }
   };
 
@@ -1245,11 +1314,15 @@ export default function App() {
           <span><strong>OFFICE / SUITE</strong><small>powered by OfficeCLI</small></span>
         </button>
         <div className="topbar-center"><span>LOCAL DOCUMENT OPERATIONS</span><i /><span>NATIVE AI + MCP</span></div>
-        <button className={`runtime-status ${statusPhase}`} onClick={openSettings}>
+        <button className={`runtime-status ${statusPhase} ${officeCliUpdate?.updateAvailable ? "has-update" : ""}`} onClick={openSettings}>
           {statusPhase === "checking" && <LoaderCircle className="spin" size={15} />}
           {statusPhase === "ready" && <Check size={15} />}
           {statusPhase === "missing" && <Unplug size={15} />}
-          <span>{statusPhase === "ready" ? `OfficeCLI ${status.version ?? "online"}` : statusPhase === "checking" ? "正在探测" : "需要连接"}</span>
+          <span>{statusPhase === "ready"
+            ? officeCliUpdate?.updateAvailable
+              ? `可更新 ${officeCliUpdate.latestVersion}`
+              : `OfficeCLI ${status.version ?? "online"}`
+            : statusPhase === "checking" ? "正在探测" : "需要连接"}</span>
           <Settings2 size={14} />
         </button>
       </header>
@@ -1312,7 +1385,20 @@ export default function App() {
               <span>{statusPhase === "ready" ? <Check size={16} /> : <CircleAlert size={16} />}</span>
               <div><strong>{statusPhase === "ready" ? "运行时已连接" : "尚未发现 OfficeCLI"}</strong><small>{status.binaryPath ?? "可直接安装到当前用户目录，无需打开终端"}</small></div>
             </div>
+            {officeCliUpdate?.updateAvailable && (
+              <div className="runtime-update-card">
+                <span><ArrowUpRight size={17} /></span>
+                <div>
+                  <strong>发现 OfficeCLI {officeCliUpdate.latestVersion}</strong>
+                  <small>当前版本 {officeCliUpdate.currentVersion}；更新时继续使用国内镜像与 SHA-256 校验。</small>
+                </div>
+                <button disabled={updatingOfficeCli || Boolean(busyLabel)} onClick={() => void updateOfficeCli()}>
+                  {updatingOfficeCli ? <><LoaderCircle className="spin" size={14} /> 更新中…</> : "一键更新"}
+                </button>
+              </div>
+            )}
             {installError && <div className="install-error"><CircleAlert size={15} />{installError}</div>}
+            {officeCliUpdateError && <div className="install-error"><CircleAlert size={15} />{officeCliUpdateError}</div>}
             <div className="modal-actions">
               <button className="button ghost" onClick={() => void window.ztools?.shellOpenExternal?.("https://github.com/iOfficeAI/OfficeCLI")}>
                 安装说明 <ExternalLink size={15} />
@@ -1322,7 +1408,12 @@ export default function App() {
                   {installingOfficeCli ? <><LoaderCircle className="spin" size={15} /> 正在安装…</> : "一键安装"}
                 </button>
               ) : (
-                <button className="button primary" onClick={retryRuntimeDiscovery}>重新探测</button>
+                <>
+                  <button className="button ghost" disabled={checkingOfficeCliUpdate} onClick={() => void refreshOfficeCliUpdate(true)}>
+                    {checkingOfficeCliUpdate ? <><LoaderCircle className="spin" size={14} /> 检查中…</> : "检查更新"}
+                  </button>
+                  <button className="button primary" onClick={retryRuntimeDiscovery}>重新探测</button>
+                </>
               )}
             </div>
           </dialog>

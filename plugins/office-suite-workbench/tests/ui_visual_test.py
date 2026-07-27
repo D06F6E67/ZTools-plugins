@@ -19,6 +19,13 @@ window.officeSuite = {
     window.__installCalls = (window.__installCalls || 0) + 1;
     return { ok: true, data: { installed: true, binaryPath: '/Users/test/.local/bin/officecli', version: '1.0.142', release: 'v1.0.142', asset: 'officecli-mac-arm64' } };
   },
+  async checkOfficeCliUpdate() {
+    return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.141', updateAvailable: false, checkedAt: '2026-07-27T00:00:00.000Z' } };
+  },
+  async updateOfficeCli() {
+    window.__updateCalls = (window.__updateCalls || 0) + 1;
+    return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.142', release: 'v1.0.142', asset: 'officecli-mac-arm64' } };
+  },
   async run(command) {
     const args = Array.isArray(command) ? command : [command];
     return {
@@ -255,6 +262,27 @@ def main() -> None:
         assert missing_page.evaluate("window.__installCalls") == 1
         missing_context.close()
 
+        update_context = browser.new_context(viewport={"width": 1280, "height": 780}, device_scale_factor=1)
+        update_context.add_init_script(MOCK_BRIDGE.replace(
+            "return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.141', updateAvailable: false, checkedAt: '2026-07-27T00:00:00.000Z' } };",
+            "return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.142', updateAvailable: true, checkedAt: '2026-07-27T00:00:00.000Z' } };",
+        ))
+        update_page = update_context.new_page()
+        update_page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        update_page.on("pageerror", lambda error: page_errors.append(str(error)))
+        update_page.goto(BASE_URL)
+        update_badge = update_page.get_by_role("button", name=re.compile(r"可更新 1\.0\.142"))
+        update_badge.wait_for(timeout=5000)
+        update_badge.click()
+        update_dialog = update_page.get_by_role("dialog", name="OfficeCLI 运行时")
+        update_dialog.get_by_text("发现 OfficeCLI 1.0.142").wait_for()
+        update_page.wait_for_timeout(600)
+        update_page.screenshot(path=str(OUTPUT_DIR / "office-suite-update.png"), full_page=True)
+        update_dialog.get_by_role("button", name="一键更新").click()
+        update_page.get_by_role("button", name=re.compile(r"OfficeCLI 1\.0\.142")).wait_for()
+        assert update_page.evaluate("window.__updateCalls") == 1
+        update_context.close()
+
         browser.close()
 
     summary = {
@@ -265,6 +293,7 @@ def main() -> None:
             str(OUTPUT_DIR / "office-suite-ai-permission.png"),
             str(OUTPUT_DIR / "office-suite-mcp.png"),
             str(OUTPUT_DIR / "office-suite-install.png"),
+            str(OUTPUT_DIR / "office-suite-update.png"),
         ],
         "console_errors": console_errors,
         "page_errors": page_errors,

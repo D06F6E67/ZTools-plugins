@@ -49,6 +49,8 @@ React 只负责文件选择、命令构建、状态显示和结果可视化。�
 
 `preload/officecli-installer.cjs` 提供无参数的一键安装能力。平台和架构由 Node 运行时决定，下载地址、资产名、安装目录均由插件内部生成，renderer 无法传入 URL、文件路径或命令。版本、程序资产和校验清单均按 `d.officecli.ai` 国内镜像 → GitHub 的固定顺序获取。安装器只接受版本化的 OfficeCLI 官方资产，要求 `SHA256SUMS` 精确匹配，并在临时文件通过 `--version` 自检后原子替换目标文件。所有进程调用保持 `shell:false`。
 
+版本检测在 UI 就绪后延迟执行，并以 24 小时为周期刷新；网络失败不会影响文档能力。renderer 只能调用无参数的 `checkOfficeCliUpdate()` 与 `updateOfficeCli()`。更新目标来自 runner 已验证的当前二进制路径，不接受页面传参；检测只产生提示，替换必须由用户显式点击。
+
 ### ZTools MCP tool
 
 `plugin.json.tools.office_document` 是宿主发现契约；preload 顶层立即注册同名 handler。MCP 可能在 UI 从未打开时后台唤起插件，因此该 handler 不读取 React 状态。`backgroundRunning: true` 避免隐藏 WebContents 节流影响子进程事件和超时。

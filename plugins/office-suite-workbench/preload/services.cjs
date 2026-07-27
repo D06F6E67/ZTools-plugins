@@ -60,15 +60,42 @@ async function safeInvoke(runner, method, args) {
   }
 }
 
-async function safeInstallerInvoke(installer) {
+async function safeInstallerInvoke(installer, method = 'install', args = []) {
   try {
-    if (!installer || typeof installer.install !== 'function') {
+    if (!installer || typeof installer[method] !== 'function') {
       throw new OfficeCliRunnerError('INSTALLER_UNAVAILABLE', 'OfficeCLI installer is unavailable.')
     }
-    return { ok: true, data: await installer.install() }
+    return { ok: true, data: await installer[method](...args) }
   } catch (error) {
     return failure(error, 'OFFICECLI_INSTALL_FAILED')
   }
+}
+
+async function checkOfficeCliUpdate(runner, installer) {
+  const status = await safeInvoke(runner, 'getStatus', [undefined])
+  if (!status.ok) return status
+  if (!status.data.installed || !status.data.version) {
+    return {
+      ok: true,
+      data: {
+        installed: false,
+        updateAvailable: false,
+        currentVersion: status.data.version || null,
+        latestVersion: null,
+        checkedAt: new Date().toISOString()
+      }
+    }
+  }
+  return safeInstallerInvoke(installer, 'check', [status.data.version])
+}
+
+async function updateOfficeCli(runner, installer) {
+  const status = await safeInvoke(runner, 'getStatus', [undefined])
+  if (!status.ok) return status
+  if (!status.data.installed || !status.data.binaryPath) {
+    return failure(new OfficeCliRunnerError('OFFICECLI_NOT_FOUND', 'OfficeCLI must be installed before it can be updated.'))
+  }
+  return safeInstallerInvoke(installer, 'update', [status.data.binaryPath])
 }
 
 function sanitizeUiOptions(options, allowedFields) {
@@ -226,6 +253,12 @@ function createOfficeSuiteServices(runner = createOfficeCliRunner(), installer =
     },
     installOfficeCli() {
       return safeInstallerInvoke(installer)
+    },
+    checkOfficeCliUpdate() {
+      return checkOfficeCliUpdate(runner, installer)
+    },
+    updateOfficeCli() {
+      return updateOfficeCli(runner, installer)
     },
     run(command, options) {
       return safeUiRun(runner, command, options)

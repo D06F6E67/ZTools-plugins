@@ -11,6 +11,7 @@ const { PassThrough } = require('node:stream')
 
 const {
   checksumForAsset,
+  compareVersions,
   createOfficeCliInstaller,
   latestVersionFromUrl,
   releaseAsset
@@ -32,6 +33,10 @@ test('installer parses immutable versions and exact checksum manifest entries', 
   assert.equal(latestVersionFromUrl('https://example.com/latest'), null)
   assert.equal(checksumForAsset(`${digest}  officecli-mac-arm64\n${'b'.repeat(64)}  officecli-mac-arm64-debug`, 'officecli-mac-arm64'), digest)
   assert.equal(checksumForAsset(`${digest}  another-asset`, 'officecli-mac-arm64'), null)
+  assert.equal(compareVersions('1.2.3', '1.2.2'), 1)
+  assert.equal(compareVersions('v1.2.3', '1.2.3'), 0)
+  assert.equal(compareVersions('1.2.3-beta.1', '1.2.3'), -1)
+  assert.throws(() => compareVersions('latest', '1.2.3'), { code: 'INVALID_VERSION' })
 })
 
 function fakeRequest(responses, requestUrls = []) {
@@ -109,6 +114,16 @@ test('one-click installer verifies SHA-256, stages atomically, and performs a ve
   assert.equal(spawnCalls.length, 1)
   assert.deepEqual(spawnCalls[0].args, ['--version'])
   assert.equal(spawnCalls[0].options.shell, false)
+  const updateInfo = await installer.check('1.2.2')
+  assert.equal(updateInfo.updateAvailable, true)
+  assert.equal(updateInfo.latestVersion, '1.2.3')
+
+  const existingPath = path.join(homeDir, 'custom', 'officecli')
+  await fs.mkdir(path.dirname(existingPath), { recursive: true })
+  await fs.writeFile(existingPath, 'old-version', { mode: 0o755 })
+  const updated = await installer.update(existingPath)
+  assert.equal(updated.binaryPath, existingPath)
+  assert.deepEqual(await fs.readFile(existingPath), binary)
   assert.equal(requestUrls.every((url) => url.startsWith('https://d.officecli.ai/')), true)
   assert.equal(requestUrls.some((url) => url.startsWith('https://github.com/')), false)
   await assert.rejects(fs.access(`${expectedPath}.new`))

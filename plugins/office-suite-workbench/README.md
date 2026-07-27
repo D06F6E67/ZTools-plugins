@@ -37,6 +37,8 @@ officecli --version
 
 插件会依次检查只读环境变量 `OFFICECLI_PATH`、当前 `PATH`、`~/.local/bin`、Homebrew/Scoop 与 Windows 官方 `%LOCALAPPDATA%\OfficeCLI` 等常见目录。renderer 不能指定任意可执行文件。一键安装链路已使用官方 `1.0.142` macOS ARM64 资产完成真实下载、校验、安装与版本自检。
 
+运行时连接成功后，插件会在后台异步检查最新版，并每 24 小时刷新一次。检测不阻塞文档操作，也不会静默更新；发现新版本时只显示更新提示，用户点击“一键更新”后才下载并替换。更新继续使用国内镜像优先、GitHub 兜底、版本化资产、SHA-256 强制校验和新二进制自检。
+
 ## MCP：推荐使用 ZTools 网关
 
 `plugin.json` 声明 `office_document`，preload 启动后立即调用 `window.ztools.registerTool()`。ZTools 会把它聚合到本地 HTTP MCP：
@@ -91,6 +93,7 @@ ZTools 2.4.0 起支持当前工具命名和多模态透传；推荐使用 ZTools
 
 - 所有文档命令通过 argv 调用固定 OfficeCLI 二进制，始终 `shell:false`。
 - 一键安装只接受插件内固定的官方地址和平台资产；版本化下载必须通过 `SHA256SUMS` 校验后才会原子写入用户目录。
+- 后台版本检测只读取公开版本信息；CLI 更新必须由用户点击确认，renderer 不能提供更新 URL 或目标路径。
 - 命令、参数、超时和输出大小均有限制；`install`、`plugins`、`skills`、`mcp` 等管理命令不能从通用执行器调用。
 - ZTools MCP 工具只接收 `command`，不接受二进制路径、工作目录或环境变量覆盖。
 - 外部 MCP 调用禁用隐式 resident，并阻止 `import`、`merge`、`raw-set`、`add-part`、`open`、`--out`、`--save` 和拉起浏览器等高风险路径。

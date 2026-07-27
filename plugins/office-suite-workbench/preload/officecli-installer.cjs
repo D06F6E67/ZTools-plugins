@@ -12,6 +12,7 @@ const GITHUB_BASE = 'https://github.com/iOfficeAI/OfficeCLI'
 const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000
 const VERSION_TIMEOUT_MS = 15 * 1000
+const VERSION_CACHE_MS = 30 * 60 * 1000
 
 class OfficeCliInstallerError extends Error {
   constructor(code, message, details) {
@@ -52,6 +53,30 @@ function checksumForAsset(manifest, asset) {
     if (match && match[2] === asset) return match[1].toLowerCase()
   }
   return null
+}
+
+function versionParts(value) {
+  const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?$/u)
+  if (!match) return null
+  return {
+    numbers: match.slice(1, 4).map(Number),
+    prerelease: match[4] || ''
+  }
+}
+
+function compareVersions(leftInput, rightInput) {
+  const left = versionParts(leftInput)
+  const right = versionParts(rightInput)
+  if (!left || !right) {
+    throw new OfficeCliInstallerError('INVALID_VERSION', 'OfficeCLI version must use semantic version format.')
+  }
+  for (let index = 0; index < 3; index += 1) {
+    if (left.numbers[index] !== right.numbers[index]) return left.numbers[index] > right.numbers[index] ? 1 : -1
+  }
+  if (left.prerelease === right.prerelease) return 0
+  if (!left.prerelease) return 1
+  if (!right.prerelease) return -1
+  return left.prerelease.localeCompare(right.prerelease, 'en', { numeric: true })
 }
 
 function redirectRequest(url, options = {}, redirects = 0) {
@@ -178,23 +203,75 @@ function createOfficeCliInstaller(dependencies = {}) {
   const environment = { ...(dependencies.env || process.env) }
   const homeDir = path.resolve(dependencies.homeDir || os.homedir())
   const request = dependencies.request
+  const now = dependencies.now || Date.now
   const isMusl = dependencies.isMusl ?? (platform === 'linux' && !process.report?.getReport()?.header?.glibcVersionRuntime)
   let activeInstallation = null
+  let activeVersionCheck = null
+  let versionCache = null
 
-  async function resolveVersion() {
+  async function resolveVersion(force = false) {
+    if (!force && versionCache && now() - versionCache.checkedAt < VERSION_CACHE_MS) return versionCache.version
+    if (!force && activeVersionCheck) return activeVersionCheck
+    const work = (async () => {
     for (const url of [`${MIRROR_BASE}/releases/latest`, `${GITHUB_BASE}/releases/latest`]) {
       try {
         const response = await redirectRequest(url, { request, timeoutMs: 30_000, maxBytes: 1024 })
         const version = latestVersionFromUrl(response.finalUrl)
-        if (version) return version
+        if (version) {
+          versionCache = { version, checkedAt: now() }
+          return version
+        }
       } catch { }
     }
     throw new OfficeCliInstallerError('VERSION_RESOLUTION_FAILED', 'Unable to resolve the latest OfficeCLI version.')
+    })()
+    activeVersionCheck = work.finally(() => { activeVersionCheck = null })
+    return activeVersionCheck
   }
 
-  async function performInstall() {
+  function defaultInstallPath() {
+    const installDirectory = platform === 'win32'
+      ? path.join(environment.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local'), 'OfficeCLI')
+      : path.join(homeDir, '.local', 'bin')
+    return path.join(installDirectory, platform === 'win32' ? 'officecli.exe' : 'officecli')
+  }
+
+  function updateTarget(targetInput) {
+    if (targetInput == null) return defaultInstallPath()
+    if (typeof targetInput !== 'string' || !path.isAbsolute(targetInput) || targetInput.includes('\0')) {
+      throw new OfficeCliInstallerError('INVALID_UPDATE_TARGET', 'OfficeCLI update target must be an absolute binary path.')
+    }
+    const target = path.resolve(targetInput)
+    const basename = path.basename(target).toLowerCase()
+    if (!['officecli', 'officecli.exe'].includes(basename)) {
+      throw new OfficeCliInstallerError('INVALID_UPDATE_TARGET', 'OfficeCLI update target must point to the officecli binary.')
+    }
+    return target
+  }
+
+  async function replaceBinary(stagedPath, binaryPath) {
+    try {
+      await fsImpl.promises.rename(stagedPath, binaryPath)
+      return
+    } catch (error) {
+      if (platform !== 'win32' || !fsImpl.existsSync(binaryPath)) throw error
+    }
+
+    const backupPath = `${binaryPath}.previous`
+    await fsImpl.promises.rm(backupPath, { force: true })
+    await fsImpl.promises.rename(binaryPath, backupPath)
+    try {
+      await fsImpl.promises.rename(stagedPath, binaryPath)
+      await fsImpl.promises.rm(backupPath, { force: true })
+    } catch (error) {
+      await fsImpl.promises.rename(backupPath, binaryPath).catch(() => undefined)
+      throw error
+    }
+  }
+
+  async function performInstall(targetInput) {
     const asset = releaseAsset(platform, arch, isMusl)
-    const version = await resolveVersion()
+    const version = await resolveVersion(true)
     const mirrorRelease = `${MIRROR_BASE}/releases/download/${version}`
     const githubRelease = `${GITHUB_BASE}/releases/download/${version}`
     const [binaryResponse, checksumResponse] = await Promise.all([
@@ -210,11 +287,8 @@ function createOfficeCliInstaller(dependencies = {}) {
       throw new OfficeCliInstallerError('CHECKSUM_MISMATCH', 'OfficeCLI download failed SHA-256 verification.')
     }
 
-    const installDirectory = platform === 'win32'
-      ? path.join(environment.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local'), 'OfficeCLI')
-      : path.join(homeDir, '.local', 'bin')
-    const binaryName = platform === 'win32' ? 'officecli.exe' : 'officecli'
-    const binaryPath = path.join(installDirectory, binaryName)
+    const binaryPath = updateTarget(targetInput)
+    const installDirectory = path.dirname(binaryPath)
     const stagedPath = `${binaryPath}.new`
     await fsImpl.promises.mkdir(installDirectory, { recursive: true })
     await fsImpl.promises.writeFile(stagedPath, binaryResponse.body, { mode: platform === 'win32' ? undefined : 0o755 })
@@ -222,7 +296,7 @@ function createOfficeCliInstaller(dependencies = {}) {
 
     try {
       const installedVersion = await runVersion(stagedPath, spawnImpl, environment)
-      await fsImpl.promises.rename(stagedPath, binaryPath)
+      await replaceBinary(stagedPath, binaryPath)
       return { installed: true, binaryPath, version: installedVersion, release: version, asset }
     } catch (error) {
       await fsImpl.promises.rm(stagedPath, { force: true }).catch(() => undefined)
@@ -231,9 +305,24 @@ function createOfficeCliInstaller(dependencies = {}) {
   }
 
   return Object.freeze({
+    async check(currentVersion) {
+      const latestVersion = await resolveVersion()
+      return {
+        currentVersion: String(currentVersion || '').replace(/^v/u, ''),
+        latestVersion: latestVersion.replace(/^v/u, ''),
+        updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
+        checkedAt: new Date(now()).toISOString()
+      }
+    },
     install() {
       if (!activeInstallation) {
         activeInstallation = performInstall().finally(() => { activeInstallation = null })
+      }
+      return activeInstallation
+    },
+    update(binaryPath) {
+      if (!activeInstallation) {
+        activeInstallation = performInstall(binaryPath).finally(() => { activeInstallation = null })
       }
       return activeInstallation
     }
@@ -243,6 +332,7 @@ function createOfficeCliInstaller(dependencies = {}) {
 module.exports = {
   OfficeCliInstallerError,
   checksumForAsset,
+  compareVersions,
   createOfficeCliInstaller,
   latestVersionFromUrl,
   releaseAsset
