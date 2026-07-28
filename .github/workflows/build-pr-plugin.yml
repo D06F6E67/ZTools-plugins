@@ -319,8 +319,10 @@ jobs:
         working-directory: plugins/image-batch-studio
         run: npm ci
       - name: Validate Windows runtime
+        shell: bash
         working-directory: plugins/image-batch-studio
         run: |
+          set -euo pipefail
           npm run typecheck
           npm test
           npm run build

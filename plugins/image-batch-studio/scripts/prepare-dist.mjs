@@ -31,7 +31,8 @@ function npmCi(directory, target) {
     "--no-fund"
   ], {
     cwd: directory,
-    stdio: "inherit"
+    stdio: "inherit",
+    shell: process.platform === "win32"
   });
 }
 

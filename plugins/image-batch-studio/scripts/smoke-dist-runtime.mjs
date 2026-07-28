@@ -38,5 +38,6 @@ try {
 
   console.log(JSON.stringify({ ok: true, platform: process.platform, arch: process.arch }, null, 2));
 } finally {
-  await fs.rm(directory, { recursive: true, force: true });
+  sharp.cache(false);
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
