@@ -361,6 +361,8 @@ async function runRetentionIfDue(): Promise<void> {
       days: settings.retention.days,
       maxBlobBytes: settings.retention.maxBlobBytes,
       now,
+    }, {
+      delete: (input) => syncRepository.deleteLocalBlob(input),
     });
     window.dispatchEvent(
       new CustomEvent("pasteboard-pro:retention-completed", { detail: result }),

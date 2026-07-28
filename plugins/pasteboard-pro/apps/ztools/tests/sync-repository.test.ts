@@ -73,6 +73,23 @@ describe("ZTools sync entity repository", () => {
     }
   });
 
+  it("deletes only files inside the plugin-managed blob directory", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pasteboard-pro-delete-"));
+    const outside = path.join(os.tmpdir(), `pasteboard-pro-outside-${Date.now()}.png`);
+    try {
+      const repository = new ZToolsSyncEntityRepository(database(), "host-a", root);
+      const stored = await repository.storeLocalBlob(new Uint8Array([9, 8, 7]), "image/png");
+
+      await repository.deleteLocalBlob({ blobId: stored.id, filePath: stored.imagePath });
+      await expect(stat(stored.imagePath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        repository.deleteLocalBlob({ blobId: "blob-outside", filePath: outside }),
+      ).rejects.toThrow(/outside/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("turns local deletion into a tombstone and permits only a newer live edit to return", async () => {
     const db = database();
     const clipboard = new ZToolsCanonicalClipboardStore(db, {

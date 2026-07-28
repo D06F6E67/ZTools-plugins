@@ -19,6 +19,7 @@ const record = (
     pinboardId?: string;
     blobBytes?: number;
     pluginBlobId?: string;
+    imagePath?: string;
   } = {},
 ): CanonicalClipboardRecord => {
   const item: PasteItem = {
@@ -53,7 +54,10 @@ const record = (
         : { blobBytes: options.blobBytes }),
       ...(options.pluginBlobId === undefined
         ? {}
-        : { pluginBlobId: options.pluginBlobId }),
+        : {
+            pluginBlobId: options.pluginBlobId,
+            imagePath: options.imagePath ?? `/plugin-blobs/${options.pluginBlobId}.png`,
+          }),
     },
   };
 };
@@ -102,8 +106,38 @@ describe("retention executor", () => {
       overBudget: true,
     });
     expect(deleteRecords).toHaveBeenCalledWith(["expired"]);
-    expect(blobStore.delete).toHaveBeenCalledWith("blob-expired");
-    expect(blobStore.delete).not.toHaveBeenCalledWith("blob-protected");
+    expect(blobStore.delete).toHaveBeenCalledWith({
+      blobId: "blob-expired",
+      filePath: "/plugin-blobs/blob-expired.png",
+    });
+    expect(blobStore.delete).not.toHaveBeenCalledWith(
+      expect.objectContaining({ blobId: "blob-protected" }),
+    );
+  });
+
+  it("keeps a content-addressed blob while another record still references it", async () => {
+    const expired = record("expired", "2026-01-01T00:00:00Z", {
+      blobBytes: 40,
+      pluginBlobId: "blob-shared",
+    });
+    const protectedRecord = record("protected", "2026-01-01T00:00:00Z", {
+      pinned: true,
+      blobBytes: 40,
+      pluginBlobId: "blob-shared",
+    });
+    const store = {
+      listRecords: async () => [expired, protectedRecord],
+      deleteRecords: async () => ({ deletedIds: ["expired"], failures: [] }),
+    } as unknown as ZToolsCanonicalClipboardStore;
+    const blobStore: RetentionBlobStore = { delete: vi.fn(async () => undefined) };
+
+    await executeRetentionPrune(
+      store,
+      { days: 1, maxBlobBytes: 0, now: "2026-07-16T00:00:00Z" },
+      blobStore,
+    );
+
+    expect(blobStore.delete).not.toHaveBeenCalled();
   });
 
   it("does not delete a blob when metadata deletion fails", async () => {

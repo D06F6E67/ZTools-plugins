@@ -230,6 +230,19 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
     };
   }
 
+  async deleteLocalBlob(input: Readonly<{ blobId: string; filePath: string }>): Promise<void> {
+    if (input.blobId.length === 0) {
+      throw new TypeError("Blob id must be non-empty");
+    }
+    const root = path.resolve(this.blobRoot);
+    const filePath = path.resolve(input.filePath);
+    const relative = path.relative(root, filePath);
+    if (relative.length === 0 || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new TypeError("Refusing to delete a blob outside the plugin blob directory");
+    }
+    await rm(filePath, { force: true });
+  }
+
   async writeBlob(blob: SyncBlob): Promise<void> {
     if (blob.bytes.byteLength > MAX_BLOB_BYTES) {
       throw new RangeError(`Blob ${blob.id} exceeds 100 MiB`);

@@ -5,7 +5,7 @@ import {
 } from "./privacy";
 
 export interface RetentionBlobStore {
-  delete(blobId: string): Promise<void>;
+  delete(input: Readonly<{ blobId: string; filePath: string }>): Promise<void>;
 }
 
 export type RetentionExecutionResult = Readonly<{
@@ -42,12 +42,19 @@ export async function executeRetentionPrune(
 
   if (blobStore !== undefined) {
     for (const id of metadata.deletedIds) {
-      const blobId = recordsById.get(id)?.origin.pluginBlobId;
-      if (blobId === undefined) {
+      const record = recordsById.get(id);
+      const blobId = record?.origin.pluginBlobId;
+      const filePath = record?.origin.imagePath;
+      const stillReferenced = records.some(
+        (candidate) =>
+          !deleted.has(candidate.item.id) &&
+          candidate.origin.pluginBlobId === blobId,
+      );
+      if (blobId === undefined || filePath === undefined || stillReferenced) {
         continue;
       }
       try {
-        await blobStore.delete(blobId);
+        await blobStore.delete({ blobId, filePath });
       } catch (error) {
         blobFailures.push({
           id,
