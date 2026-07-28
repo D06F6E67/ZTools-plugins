@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { historyFixture } from "@pasteboard-pro/contract-fixtures";
 import type { PasteItem } from "@pasteboard-pro/core";
@@ -19,6 +19,7 @@ function record(item: Partial<PasteItem>): CanonicalClipboardRecord {
 }
 
 describe("paste stack runtime", () => {
+  afterEach(() => vi.useRealTimers());
   it("prepares rich text before plain text and rejects unavailable remote blobs", () => {
     expect(prepareStackItem(record({
       kind: "rich_text",
@@ -241,6 +242,104 @@ describe("paste stack runtime", () => {
       "Invoice #1042 is due on July 31 for USD 480.00.",
       "<a href=\"https://billing.example.test/invoice/1042\">Open invoice 1042</a>",
     ]);
+    expect(persistedState.itemIds).toEqual([]);
+  });
+
+  it("restarts an unexpectedly exited global paste hook while the queue is active", async () => {
+    vi.useFakeTimers();
+    let pasteHandler: (() => boolean) | undefined;
+    let stopped: ((reason: "accessibility-required" | "exit" | "error") => void) | undefined;
+    let starts = 0;
+    const queuedRecord = historyFixture.find((item) => item.id === "text-old");
+    if (queuedRecord === undefined) throw new Error("Missing text fixture");
+    const stackStore = new ZToolsPasteStackStore({
+      async get() {
+        return {
+          _id: "pasteboard-pro:paste-stack",
+          type: "pasteboard-pro-paste-stack",
+          state: { direction: "forward", itemIds: ["text-old"] },
+        };
+      },
+      async put() { return { ok: true }; },
+    });
+    const runtime = new PasteStackRuntime(
+      stackStore,
+      { async findRecordByItemId() {
+        return {
+          item: structuredClone(queuedRecord) as PasteItem,
+          origin: { host: "sync", remoteAvailable: true },
+        };
+      } },
+      {
+        write() {}, writeText() {}, writeImage() {}, writeBuffer() {},
+      },
+      { createFromPath() { throw new Error("unexpected image load"); } },
+      {
+        start(callback, onStopped) {
+          starts += 1;
+          pasteHandler = callback;
+          stopped = onStopped;
+        },
+        stop() { pasteHandler = undefined; },
+      },
+    );
+
+    await runtime.initialize();
+    expect(starts).toBe(1);
+    stopped?.("exit");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(starts).toBe(2);
+    expect(pasteHandler).toBeTypeOf("function");
+    runtime.dispose();
+  });
+
+  it("does not resurrect consumed entries after a persistence failure", async () => {
+    let persistedState = { direction: "forward" as const, itemIds: ["text-old"] };
+    let rejectNextWrite = true;
+    const queuedRecord = historyFixture.find((item) => item.id === "text-old");
+    if (queuedRecord === undefined) throw new Error("Missing text fixture");
+    const stackStore = new ZToolsPasteStackStore({
+      async get() {
+        return {
+          _id: "pasteboard-pro:paste-stack",
+          type: "pasteboard-pro-paste-stack",
+          state: structuredClone(persistedState),
+        };
+      },
+      async put(next) {
+        if (rejectNextWrite) {
+          rejectNextWrite = false;
+          throw new Error("database temporarily unavailable");
+        }
+        persistedState = structuredClone(
+          (next as { state: typeof persistedState }).state,
+        );
+        return { ok: true };
+      },
+    });
+    let pasteHandler: (() => boolean) | undefined;
+    const runtime = new PasteStackRuntime(
+      stackStore,
+      { async findRecordByItemId() {
+        return {
+          item: structuredClone(queuedRecord) as PasteItem,
+          origin: { host: "sync", remoteAvailable: true },
+        };
+      } },
+      { write() {}, writeText() {}, writeImage() {}, writeBuffer() {} },
+      { createFromPath() { throw new Error("unexpected image load"); } },
+      {
+        start(callback) { pasteHandler = callback; },
+        stop() { pasteHandler = undefined; },
+      },
+    );
+
+    await runtime.initialize();
+    expect(pasteHandler?.()).toBe(true);
+    await expect(runtime.refreshFromStore()).resolves.toEqual({
+      direction: "forward",
+      itemIds: [],
+    });
     expect(persistedState.itemIds).toEqual([]);
   });
 });
