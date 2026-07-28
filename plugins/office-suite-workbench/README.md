@@ -9,7 +9,10 @@
 - Word / Excel / PowerPoint 分区工作站与文件触发入口。
 - 结构速览、正文提取、统计、问题扫描、OpenXML 校验、视觉预览。
 - 受控 OfficeCLI 命令台和三种格式的常用命令配方。
+- 直接复用 ZTools 设置中的 AI 模型和提供商凭据，插件不接触 API Key。
+- AI 文件权限提供“只读”“本次允许修改”“始终允许修改”三档；长期授权仅在当前插件会话有效。
 - `shell:false` 的 preload 执行桥；UI 不接触 `child_process`、`fs` 或任意 shell。
+- OfficeCLI 一键安装、每日后台版本检测与用户确认后的一键更新；国内镜像优先、GitHub 兜底。
 - OfficeCLI 环境变量/常见路径自动发现、超时和输出上限。
 - MCP 原生握手探测、客户端配置生成和显式注册/移除。
 - ZTools HTTP MCP 工具 `office_document`，以及 OfficeCLI 原生 stdio 兼容通道。
@@ -97,7 +100,7 @@ ZTools 2.4.0 起支持当前工具命名和多模态透传；推荐使用 ZTools
 - 命令、参数、超时和输出大小均有限制；`install`、`plugins`、`skills`、`mcp` 等管理命令不能从通用执行器调用。
 - ZTools MCP 工具只接收 `command`，不接受二进制路径、工作目录或环境变量覆盖。
 - 外部 MCP 调用禁用隐式 resident，并阻止 `import`、`merge`、`raw-set`、`add-part`、`open`、`--out`、`--save` 和拉起浏览器等高风险路径。
-- 持有有效 MCP Key 的客户端仍可读取或修改当前 OS 用户有权访问的 Office 文件；首版不提供目录级授权沙箱。
+- 持有有效 MCP Key 的客户端仍可读取或修改当前 OS 用户有权访问的 Office 文件；当前版本不提供目录级授权沙箱。
 - MCP Key 不能提交到 Git、截图或聊天记录。ZTools 设置页虽然显示回环地址，仍建议同时使用系统防火墙并只在可信设备启用。
 - 高风险任务请先复制原文件；`validate` 通过不代表 Word / Excel / PowerPoint 的最终视觉效果正确。
 
@@ -122,8 +125,8 @@ npm run build
 - Word 页码、目录和交叉引用可能依赖真实 Word 分页引擎刷新。
 - Excel 复杂公式、动态数组和图表缓存不能只依赖 OpenXML 校验。
 - 动画、Morph、3D、SmartArt、OLE 与 speaker notes 视为实验能力。
-- PDF 导出和其他格式需要 OfficeCLI 的额外插件，不属于首版内置能力。
+- PDF 导出和其他格式需要 OfficeCLI 的额外插件，不属于当前版本内置能力。
 
 ## 许可与归属
 
-OfficeCLI 采用 Apache-2.0 许可。本插件使用 “Powered by OfficeCLI” 表述，不代表 iOfficeAI 官方发行版；首版不重新分发其二进制。若未来加入内置运行时下载，发布物必须同时携带 OfficeCLI 的 `LICENSE`、`NOTICE` 和第三方许可声明并校验官方 SHA-256 清单。
+OfficeCLI 采用 Apache-2.0 许可。本插件使用 “Powered by OfficeCLI” 表述，不代表 iOfficeAI 官方发行版。插件包不捆绑或重新分发 OfficeCLI 二进制；一键安装和更新仅在用户设备上按需下载 OfficeCLI 官方版本化资产，并强制校验官方 SHA-256 清单。OfficeCLI 的源码、许可和发行资产归 iOfficeAI 及其贡献者所有，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

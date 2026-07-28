@@ -28,6 +28,7 @@ await fs.cp(path.join(root, "docs"), path.join(dist, "docs"), {
   force: true
 });
 await fs.copyFile(path.join(root, "README.md"), path.join(dist, "README.md"));
+await fs.copyFile(path.join(root, "CHANGELOG.md"), path.join(dist, "CHANGELOG.md"));
 await fs.copyFile(path.join(root, "LICENSE"), path.join(dist, "LICENSE"));
 await fs.copyFile(
   path.join(root, "THIRD_PARTY_NOTICES.md"),

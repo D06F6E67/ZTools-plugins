@@ -26,6 +26,7 @@ for (const file of [
   "preload/officecli-runner.cjs",
   "preload/command-parser.cjs",
   "README.md",
+  "CHANGELOG.md",
   "LICENSE",
   "THIRD_PARTY_NOTICES.md"
 ]) {
