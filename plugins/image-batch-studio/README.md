@@ -1,6 +1,6 @@
 # 图片批处理
 
-ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹入口的批量处理能力。当前仅支持 macOS，Windows 适配开发中。
+ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹入口的批量处理能力，支持 macOS 与 Windows。
 
 ## 界面截图
 
@@ -9,7 +9,7 @@ ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹
 ## 平台支持
 
 - macOS：当前版本已支持 Apple Silicon M 系列（arm64）和 Intel（x64）。
-- Windows：适配开发中，后续版本发布。
+- Windows：支持 x64 与 ARM64，发布包内置对应 Sharp 运行时。
 
 ## 功能
 
@@ -67,4 +67,4 @@ npm run install:local
 npm run smoke:installed
 ```
 
-`verify:runtime` 会检测打包产物是否包含 macOS arm64/x64 两套 Sharp 运行时。`smoke:installed` 会在本地生成测试图片和 PDF，验证图片处理、拼图、GIF 合成、PDF 合并以及 ZTools 安装记录。
+`verify:runtime` 会检测打包产物是否包含 macOS arm64/x64 与 Windows x64/ARM64 的 Sharp 运行时，以及各平台原生文件的 ASAR 解包配置。`smoke:installed` 会在当前系统生成测试图片和 PDF，验证图片处理、拼图、GIF 合成、PDF 合并以及 ZTools 安装记录。
