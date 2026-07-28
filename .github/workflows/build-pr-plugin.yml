@@ -292,6 +292,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  validate-image-batch-studio-windows:
+    needs: detect
+    if: contains(needs.detect.outputs.changed_plugins, 'image-batch-studio')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout PR code
+        shell: bash
+        env:
+          PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head"
+          git checkout --force FETCH_HEAD
+          git clean -ffdx
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: plugins/image-batch-studio/package-lock.json
+      - name: Install dependencies
+        working-directory: plugins/image-batch-studio
+        run: npm ci
+      - name: Validate Windows runtime
+        working-directory: plugins/image-batch-studio
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+          npm run verify:runtime
+          npm run smoke:dist
+
   build-linux:
     needs: detect
     if: needs.detect.outputs.has_linux == 'true'
