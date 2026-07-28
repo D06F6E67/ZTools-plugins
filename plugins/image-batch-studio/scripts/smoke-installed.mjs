@@ -5,11 +5,10 @@ import { createRequire } from "node:module";
 import sharp from "sharp";
 import { PDFDocument } from "pdf-lib";
 import { open } from "lmdb";
+import { getZToolsRoots } from "./ztools-data-paths.mjs";
 
 const require = createRequire(import.meta.url);
-const home = os.homedir();
-const modernRoot = path.join(home, ".ztools");
-const legacyRoot = path.join(home, "Library", "Application Support", "ZTools");
+const { modernRoot, legacyRoot } = getZToolsRoots();
 const modernLayout = await fs
   .access(path.join(modernRoot, "version.json"))
   .then(() => true)
