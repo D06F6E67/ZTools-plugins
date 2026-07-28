@@ -2,7 +2,7 @@
   "name": "ztools-node-manager",
   "title": "Node Dashboard",
   "description": "📦 极简、高效的 Node.js 生产力工具。支持版本一键切换 (基于 nvm)、npm 多源管理、快速指令极速换源，专为开发者打造。",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "index.html",
   "author": "wangtao",
   "logo": "logo.png",
