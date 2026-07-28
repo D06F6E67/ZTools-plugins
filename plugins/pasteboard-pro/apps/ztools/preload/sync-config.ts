@@ -28,7 +28,6 @@ export type SaveSyncConfigurationInput = Readonly<{
   username: string;
   webdavPassword?: string;
   syncPassword?: string;
-  syncFileContents: boolean;
 }>;
 
 export type SaveSyncConfigurationOptions = Readonly<{
@@ -187,7 +186,6 @@ export async function saveSyncConfiguration(
     baseUrl,
     username,
     ...(vaultSaltHex === undefined ? {} : { vaultSaltHex }),
-    syncFileContents: input.syncFileContents,
     status: {
       state: input.enabled ? "idle" : "disabled",
       pendingObjects: (await store.listObjects()).length,

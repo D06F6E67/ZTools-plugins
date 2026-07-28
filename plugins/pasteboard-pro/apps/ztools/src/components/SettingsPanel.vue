@@ -83,7 +83,6 @@ const form = reactive({
   username: props.syncSettings.username,
   webdavPassword: "",
   syncPassword: "",
-  syncFileContents: props.syncSettings.syncFileContents,
 });
 
 const blobBudgetConstraints = computed(() =>
@@ -124,7 +123,6 @@ watch(
     form.username = settings.username;
     form.webdavPassword = "";
     form.syncPassword = "";
-    form.syncFileContents = settings.syncFileContents;
   },
 );
 
@@ -168,7 +166,6 @@ function save(): void {
       ...(form.syncPassword.length === 0
         ? {}
         : { syncPassword: form.syncPassword }),
-      syncFileContents: form.syncFileContents,
     },
   );
 }
@@ -247,7 +244,6 @@ function save(): void {
               <label class="settings-field"><span>WebDAV 密码</span><input v-model="form.webdavPassword" :disabled="!form.syncEnabled" type="password" placeholder="未修改" autocomplete="current-password" /></label>
               <label class="settings-field settings-field--wide"><span>剪贴板同步密码</span><input v-model="form.syncPassword" :disabled="!form.syncEnabled" type="password" placeholder="用于端到端加密；丢失后无法恢复" autocomplete="new-password" /></label>
             </div>
-            <label class="settings-toggle"><span><strong>同步任意文件内容</strong><small>默认只同步文件元数据；单项最大 100 MB。</small></span><input v-model="form.syncFileContents" :disabled="!form.syncEnabled" type="checkbox" /></label>
             <p class="settings-note">密码和派生密钥只保存在 macOS 钥匙串；插件数据库不保存明文秘密。</p>
           </section>
         </div>
