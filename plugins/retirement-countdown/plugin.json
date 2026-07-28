@@ -4,7 +4,7 @@
   "title": "退休倒计时",
   "description": "显示距离法定退休日的倒计时，支持渐进式延迟退休政策估算",
   "version": "0.1.0",
-  "author": "BLKJ",
+  "author": "HZX",
   "homepage": "https://github.com/ZToolsCenter/ZTools-plugins",
   "main": "index.html",
   "preload": "preload.js",
