@@ -97,13 +97,43 @@ window.nodeManager = {
         const output = decodeOutput(Buffer.from(stdout, 'binary'));
         const lines = output.split("\n");
         const versions = [];
+        let defaultVersion = "";
+
+        // 1. 提取 macOS 下的 default 默认版本别名指向
         lines.forEach((line) => {
-          // 匹配版本号 (支持 Windows 的 v1.2.3 和 Unix 的 1.2.3)
-          const match = line.match(/(\d+\.\d+\.\d+)/);
+          const cleanLine = line.replace(/\u001b\[\d+m/g, "").trim();
+          const defaultMatch = cleanLine.match(/^default\s*->\s*v?(\d+\.\d+\.\d+)/);
+          if (defaultMatch) {
+            defaultVersion = defaultMatch[1];
+          }
+        });
+
+        lines.forEach((line) => {
+          // 去除 ANSI 颜色转义字符（如果存在）并首尾去空格
+          const cleanLine = line.replace(/\u001b\[\d+m/g, "").trim();
+
+          // 过滤别名行（如 default -> 16.15.0 等）
+          // 别名行通常包含 "->"，且左侧有字符。而当前活动版本行以 "->" 开头。
+          if (cleanLine.includes("->") && !cleanLine.startsWith("->")) {
+            return;
+          }
+
+          // 匹配版本号
+          const match = cleanLine.match(/v?(\d+\.\d+\.\d+)/);
           if (match) {
+            const version = match[1];
+            // 判断是否是当前活动版本
+            // macOS 上的标记是开头的 "->"，或者当前版本为 default 别名指向的版本
+            // Windows 上是 "*" 或包含 "(Currently using"
+            const isCurrent =
+              cleanLine.startsWith("->") ||
+              cleanLine.startsWith("*") ||
+              cleanLine.includes("(Currently using") ||
+              (defaultVersion && version === defaultVersion);
+
             versions.push({
-              version: match[1],
-              isCurrent: line.includes("*") || line.includes("(Currently using"),
+              version,
+              isCurrent,
             });
           }
         });
@@ -167,7 +197,8 @@ window.nodeManager = {
 
   useVersion: (version) => {
     return new Promise((resolve, reject) => {
-      exec(wrapNvmCmd(`nvm use ${version}`), { shell: true }, (error, stdout, stderr) => {
+      const cmd = isWin ? `nvm use ${version}` : wrapNvmCmd(`nvm use ${version} && nvm alias default ${version}`);
+      exec(cmd, { shell: true }, (error, stdout, stderr) => {
         if (error) {
           const errMsg = decodeOutput(Buffer.from(stderr, 'binary'));
           reject(errMsg || error.message);
