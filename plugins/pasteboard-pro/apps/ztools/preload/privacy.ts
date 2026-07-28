@@ -1,3 +1,5 @@
+import { RE2JS } from "re2js";
+
 import type { ZToolsDocumentDatabase } from "./clipboard-store";
 
 export type ClipboardContentRule = Readonly<{
@@ -79,7 +81,6 @@ export type DirectPasteResult =
     }>;
 
 const MAX_RULE_LENGTH = 256;
-const MAX_SCANNED_TEXT_LENGTH = 16_384;
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b/iu,
   /\bAKIA[0-9A-Z]{16}\b/u,
@@ -111,10 +112,6 @@ function normalizedBundleId(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function escapedRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
 function assertRuleLength(value: string): void {
   if (value.length === 0) {
     throw new RangeError("Privacy rules cannot be empty");
@@ -124,38 +121,71 @@ function assertRuleLength(value: string): void {
   }
 }
 
-function assertSafeRegex(pattern: string): void {
-  assertRuleLength(pattern);
-  if (
-    /\([^)]*(?:\+|\*|\?|\{\d+,?\d*\})[^)]*\)(?:\+|\*|\{)/u.test(pattern) ||
-    /\([^)]*\|[^)]*\)(?:\+|\*|\{\d+,?\d*\})/u.test(pattern) ||
-    /\\[1-9]/u.test(pattern) ||
-    /\.\*.*\.\*/u.test(pattern)
-  ) {
-    throw new RangeError("Potentially unsafe regular expression");
+function wildcardMatches(pattern: string, input: string): boolean {
+  const patternCharacters = [...pattern.toLowerCase()];
+  const inputCharacters = [...input.toLowerCase()];
+  let patternIndex = 0;
+  let inputIndex = 0;
+  let starIndex = -1;
+  let starInputIndex = 0;
+
+  while (inputIndex < inputCharacters.length) {
+    const character = patternCharacters[patternIndex];
+    if (
+      character === "?" ||
+      (character !== undefined && character === inputCharacters[inputIndex])
+    ) {
+      patternIndex += 1;
+      inputIndex += 1;
+      continue;
+    }
+    if (character === "*") {
+      starIndex = patternIndex;
+      starInputIndex = inputIndex;
+      patternIndex += 1;
+      continue;
+    }
+    if (starIndex >= 0) {
+      patternIndex = starIndex + 1;
+      starInputIndex += 1;
+      inputIndex = starInputIndex;
+      continue;
+    }
+    return false;
   }
+
+  while (patternCharacters[patternIndex] === "*") patternIndex += 1;
+  return patternIndex === patternCharacters.length;
 }
 
-function compileRule(rule: ClipboardContentRule): RegExp {
+function compileRule(rule: ClipboardContentRule): Readonly<{ test(value: string): boolean }> {
   assertRuleLength(rule.value);
 
   if (rule.type === "literal") {
-    return new RegExp(escapedRegex(rule.value), "iu");
+    const literal = rule.value.toLowerCase();
+    return { test: (value) => value.toLowerCase().includes(literal) };
   }
 
   if (rule.type === "wildcard") {
-    const pattern = escapedRegex(rule.value.replace(/\*+/gu, "*"))
-      .replaceAll("\\*", ".*")
-      .replaceAll("\\?", ".");
-    return new RegExp(`^${pattern}$`, "iu");
+    const pattern = rule.value.replace(/\*+/gu, "*");
+    return { test: (value) => wildcardMatches(pattern, value) };
   }
 
-  assertSafeRegex(rule.value);
   const flags = rule.flags ?? "";
   if (/[^imsu]/u.test(flags)) {
     throw new TypeError("Privacy regex flags may only contain i, m, s, or u");
   }
-  return new RegExp(rule.value, [...new Set(`${flags}u`)].join(""));
+  let re2Flags = 0;
+  if (flags.includes("i")) re2Flags |= RE2JS.CASE_INSENSITIVE;
+  if (flags.includes("m")) re2Flags |= RE2JS.MULTILINE;
+  if (flags.includes("s")) re2Flags |= RE2JS.DOTALL;
+  try {
+    return RE2JS.compile(rule.value, re2Flags);
+  } catch (error) {
+    throw new RangeError("Potentially unsafe or unsupported regular expression", {
+      cause: error,
+    });
+  }
 }
 
 export function shouldPersistClipboard(
@@ -179,7 +209,7 @@ export function shouldPersistClipboard(
     return true;
   }
 
-  const text = input.text.slice(0, MAX_SCANNED_TEXT_LENGTH);
+  const text = input.text;
   if (
     rules.blockLikelySecrets &&
     SECRET_PATTERNS.some((pattern) => pattern.test(text))

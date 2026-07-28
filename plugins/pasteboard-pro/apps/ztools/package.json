@@ -18,6 +18,7 @@
     "@pasteboard-pro/core": "workspace:*",
     "@pasteboard-pro/design-tokens": "workspace:*",
     "@pasteboard-pro/sync-protocol": "workspace:*",
+    "re2js": "2.8.6",
     "vue": "^3.5.22"
   },
   "devDependencies": {

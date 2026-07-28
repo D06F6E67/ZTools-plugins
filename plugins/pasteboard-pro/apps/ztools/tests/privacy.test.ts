@@ -46,17 +46,20 @@ describe("clipboard privacy", () => {
     ).toBe(true);
   });
 
-  it("rejects unsafe or oversized regular expressions", () => {
-    expect(() =>
-      shouldPersistClipboard(
-        { text: "aaaa" },
-        {
-          ignoredBundleIds: [],
-          blockLikelySecrets: false,
-          contentRules: [{ type: "regex", value: "(a+)+$" }],
-        },
-      ),
-    ).toThrow(/unsafe/i);
+  it("runs backtracking-shaped regular expressions through the linear engine", () => {
+    const linearRules: ClipboardPrivacyRules = {
+      ignoredBundleIds: [],
+      blockLikelySecrets: false,
+      contentRules: [{ type: "regex", value: "^a+a+a+a+a+a+$" }],
+    };
+
+    expect(shouldPersistClipboard({ text: `${"a".repeat(16_384)}!` }, linearRules)).toBe(
+      true,
+    );
+    expect(shouldPersistClipboard({ text: "a".repeat(16_384) }, linearRules)).toBe(false);
+  });
+
+  it("rejects unsupported or oversized regular expressions", () => {
     expect(() =>
       shouldPersistClipboard(
         { text: "x" },
@@ -67,7 +70,7 @@ describe("clipboard privacy", () => {
         },
       ),
     ).toThrow(/256/);
-    for (const value of ["(a|aa)+$", "(a?)+$", String.raw`^(a+)\1+$`]) {
+    for (const value of [String.raw`^(a+)\1+$`, "^(?=a+)(a+)$"]) {
       expect(() =>
         shouldPersistClipboard(
           { text: `${"a".repeat(2_000)}!` },
@@ -90,6 +93,30 @@ describe("clipboard privacy", () => {
           blockLikelySecrets: false,
           contentRules: [{ type: "wildcard", value: "card-***-secret" }],
         },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches adversarial wildcard rules without compiling a backtracking regex", () => {
+    const adversarialRules: ClipboardPrivacyRules = {
+      ignoredBundleIds: [],
+      blockLikelySecrets: false,
+      contentRules: [{ type: "wildcard", value: "*a*a*a*a*a*a*a*a*a*b" }],
+    };
+
+    expect(shouldPersistClipboard({ text: "a".repeat(16_384) }, adversarialRules)).toBe(
+      true,
+    );
+    expect(
+      shouldPersistClipboard({ text: `${"a".repeat(16_383)}b` }, adversarialRules),
+    ).toBe(false);
+  });
+
+  it("scans the complete accepted text instead of only its prefix", () => {
+    expect(
+      shouldPersistClipboard(
+        { text: `${"x".repeat(16_384)} Bearer abcdefghijklmnopqrstuvwxyz012345` },
+        defaultPrivacySettings.rules,
       ),
     ).toBe(false);
   });
