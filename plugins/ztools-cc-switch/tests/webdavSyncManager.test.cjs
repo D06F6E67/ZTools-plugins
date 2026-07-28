@@ -49,3 +49,31 @@ test('WebDAV 请求超时后释放操作并返回可诊断错误', async (t) => 
   await manager.saveConfig({ url: 'https://dav.example.com', username: 'u', password: 'p' })
   await assert.rejects(() => manager.download(), /请求超时/)
 })
+
+test('WebDAV newest strategy compares real local and remote modification times', async (t) => {
+  async function runCase(remoteIsNewer) {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-webdav-newest-'))
+    const dataDir = path.join(root, 'data'); await fs.mkdir(dataDir)
+    const providersPath = path.join(dataDir, 'providers.json'); await fs.writeFile(providersPath, JSON.stringify({ value: 'initial' }))
+    let remoteBody = null; let etagVersion = 0; let remoteModified = 1000; let localModified = 1000
+    const fakeFetch = async (_url, options = {}) => {
+      const method = options.method || 'GET'
+      if (method === 'MKCOL') return new Response('', { status: 201 })
+      if (method === 'HEAD') return remoteBody ? new Response(null, { status: 200, headers: { etag: `"v${etagVersion}"`, 'last-modified': new Date(remoteModified).toUTCString() } }) : new Response(null, { status: 404 })
+      if (method === 'PUT') { remoteBody = Buffer.from(options.body); etagVersion += 1; return new Response('', { status: 201 }) }
+      if (method === 'GET') return new Response(remoteBody, { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response('', { status: 405 })
+    }
+    const manager = createWebdavSyncManager({ backupManager: createBackupManager({ dataDir }), storage: createMemoryStorage(), secretCodec: { secure: true, encode: v => v, decode: v => v }, fetchImpl: fakeFetch, getLocalModifiedAt: async () => localModified })
+    await manager.saveConfig({ url: 'https://dav.example.com', username: 'u', password: 'p' })
+    await manager.sync()
+    const remoteBundle = JSON.parse(remoteBody.toString('utf8')); remoteBundle.files['providers.json'] = JSON.stringify({ value: 'remote' }); remoteBody = Buffer.from(JSON.stringify(remoteBundle)); etagVersion += 1
+    await fs.writeFile(providersPath, JSON.stringify({ value: 'local' }))
+    localModified = remoteIsNewer ? 2000 : 4000; remoteModified = remoteIsNewer ? 3000 : 3000
+    const result = await manager.sync({ strategy: 'newest' })
+    await fs.rm(root, { recursive: true, force: true })
+    return result.direction
+  }
+  assert.equal(await runCase(true), 'download')
+  assert.equal(await runCase(false), 'upload')
+})

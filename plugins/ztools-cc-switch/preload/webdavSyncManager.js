@@ -31,6 +31,7 @@ function createWebdavSyncManager(options = {}) {
   const storage = options.storage || createMemoryStorage()
   const secretCodec = options.secretCodec || { secure: false, encode: (value) => Buffer.from(value).toString('base64'), decode: (value) => Buffer.from(value, 'base64').toString('utf8') }
   const fetchImpl = options.fetchImpl || fetch
+  const getLocalModifiedAt = options.getLocalModifiedAt || (() => backupManager.getLocalModifiedAt?.())
   const requestTimeoutMs = Math.min(Math.max(Number(options.requestTimeoutMs) || 30_000, 100), 120_000)
   const listeners = new Set()
   let syncing = null
@@ -159,7 +160,8 @@ function createWebdavSyncManager(options = {}) {
         if (strategy === 'local') return upload({ force: true })
         if (strategy === 'remote') return download()
         if (strategy === 'newest') {
-          const localModified = Date.now()
+          const localModified = Number(await getLocalModifiedAt()) || 0
+          if (!localModified || !remote.modifiedAt) return emit({ state: 'conflict', message: '无法确定本地或远端修改时间，请手动选择同步方向', direction: null })
           return remote.modifiedAt > localModified ? download() : upload({ force: true })
         }
         return emit({ state: 'conflict', message: '本地与远端均有修改，请选择保留版本', conflict: { localHash: bundle.hash, remoteEtag: remote.etag } })
