@@ -7,6 +7,7 @@ import {
   loadItemThumbnail,
   observeThumbnailVisibility,
 } from "../thumbnail-loader";
+import { containContextMenuKeydown } from "../context-menu-keyboard";
 
 const props = defineProps<{
   item: PasteItem;
@@ -52,6 +53,10 @@ function assignToPinboard(pinboardId: string | undefined): void {
 
 function closeContextMenuOnEscape(event: KeyboardEvent): void {
   if (event.key === "Escape") closeContextMenu();
+}
+
+function handleContextMenuKeydown(event: KeyboardEvent): void {
+  containContextMenuKeydown(event, closeContextMenu);
 }
 
 function beginDrag(event: DragEvent): void {
@@ -174,6 +179,7 @@ onBeforeUnmount(() => {
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
       @pointerdown.stop
       @contextmenu.prevent
+      @keydown="handleContextMenuKeydown"
     >
       <strong>添加到分组</strong>
       <span v-if="pinboards.length === 0" class="pinboard-context-menu__empty">暂无分组</span>
