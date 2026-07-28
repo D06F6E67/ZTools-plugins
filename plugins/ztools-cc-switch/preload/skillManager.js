@@ -29,6 +29,7 @@ const DEFAULT_REPOS = Object.freeze([
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 const MAX_SCAN_ENTRIES = 10000
 const BACKUP_RETAIN_COUNT = 20
+const COPY_OWNERSHIP_MARKER = '.ztools-cc-switch-managed.json'
 
 function safeDirectory(value) {
   const directory = String(value || '').trim()
@@ -120,6 +121,47 @@ function createSkillManager(options = {}) {
     const parts = SKILL_CLIENT_DIRS[client]
     if (!parts) throw new Error(`不支持的 Skill 客户端: ${client}`)
     return path.join(homeDir, ...parts, directory)
+  }
+
+  async function lstatOrNull(target) {
+    return fsp.lstat(target).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error))
+  }
+
+  function expectedSources(source, extra = []) {
+    return new Set([source, ...extra].filter(Boolean).map((item) => path.resolve(item)))
+  }
+
+  async function assertManagedTarget(target, directory, source, extraSources = []) {
+    const stat = await lstatOrNull(target)
+    if (!stat) return false
+    const expected = expectedSources(source, extraSources)
+    if (stat.isSymbolicLink()) {
+      const link = await fsp.readlink(target)
+      const resolved = path.resolve(path.dirname(target), link)
+      if (expected.has(resolved)) return true
+      throw new Error(`目标链接已被替换或不再属于插件管理: ${target}`)
+    }
+    if (stat.isDirectory()) {
+      const markerPath = path.join(target, COPY_OWNERSHIP_MARKER)
+      let marker
+      try {
+        const markerStat = await fsp.lstat(markerPath)
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('invalid marker')
+        marker = JSON.parse(await fsp.readFile(markerPath, 'utf8'))
+      } catch (error) {
+        if (error.code === 'ENOENT' || error instanceof SyntaxError) throw new Error(`目标目录缺少有效的插件所有权标记，已停止删除: ${target}`)
+        throw new Error(`目标目录的插件所有权标记不安全，已停止删除: ${target}`)
+      }
+      if (marker?.version === 1 && marker.directory === directory && expected.has(path.resolve(String(marker.source || '')))) return true
+      throw new Error(`目标目录的插件所有权标记不匹配，已停止删除: ${target}`)
+    }
+    throw new Error(`目标路径不是插件管理的 Skill 链接或目录: ${target}`)
+  }
+
+  async function removeManagedTarget(target, directory, source, extraSources = []) {
+    if (!await assertManagedTarget(target, directory, source, extraSources)) return false
+    await fsp.rm(target, { recursive: true, force: true })
+    return true
   }
 
   async function hashDirectory(root) {
@@ -242,10 +284,10 @@ function createSkillManager(options = {}) {
     await copyAtomically(path.join(backupPath, 'skill'), path.join(storeFor(state), directory))
     state.skills[directory] = { ...(metadata.skill || {}), directory, apps: { ...(metadata.skill?.apps || {}) } }
     if (client) state.skills[directory].apps[String(client)] = true
-    await writeState(state)
     for (const [app, enabled] of Object.entries(state.skills[directory].apps || {})) {
       if (enabled) await syncTarget(state, directory, app, true)
     }
+    await writeState(state)
     return (await listSkills()).skills.find((item) => item.directory === directory)
   }
 
@@ -357,24 +399,31 @@ function createSkillManager(options = {}) {
         existing.add(directory.toLowerCase()); installedDirectories.push(directory)
       }
       if (!installedDirectories.length) return []
-      await writeState(state)
       for (const directory of installedDirectories) await syncTarget(state, directory, client, true)
+      await writeState(state)
       const installedSet = new Set(installedDirectories)
       return (await listSkills()).skills.filter((item) => installedSet.has(item.directory))
     } finally { await fsp.rm(tempRoot, { recursive: true, force: true }).catch(() => {}) }
   }
 
-  async function syncTarget(state, directory, client, enabled) {
+  async function syncTarget(state, directory, client, enabled, options = {}) {
     const source = path.join(storeFor(state), directory)
     const target = targetFor(client, directory)
     if (!enabled) {
-      await fsp.rm(target, { recursive: true, force: true })
+      await removeManagedTarget(target, directory, source, options.allowedSources)
       return target
     }
     await fsp.access(path.join(source, 'SKILL.md'))
     await fsp.mkdir(path.dirname(target), { recursive: true, mode: 0o700 })
-    await fsp.rm(target, { recursive: true, force: true })
-    if (state.syncMode === 'copy') await fsp.cp(source, target, { recursive: true })
+    const targetStat = await lstatOrNull(target)
+    if (targetStat) {
+      if (options.replaceUnmanaged) await fsp.rm(target, { recursive: true, force: true })
+      else await removeManagedTarget(target, directory, source, options.allowedSources)
+    }
+    if (state.syncMode === 'copy') {
+      await fsp.cp(source, target, { recursive: true })
+      await fsp.writeFile(path.join(target, COPY_OWNERSHIP_MARKER), `${JSON.stringify({ version: 1, directory, source: path.resolve(source) }, null, 2)}\n`, { mode: 0o600 })
+    }
     else await fsp.symlink(source, target, process.platform === 'win32' ? 'junction' : 'dir')
     return target
   }
@@ -385,7 +434,7 @@ function createSkillManager(options = {}) {
     const state = await readState()
     const target = targetFor(client, directory)
     const previouslyManaged = state.skills[directory]?.apps?.[client] === true
-    if (enabled && fs.existsSync(target) && !previouslyManaged) throw new Error(`目标已存在且不由插件管理: ${target}`)
+    if (enabled && await lstatOrNull(target) && !previouslyManaged) throw new Error(`目标已存在且不由插件管理: ${target}`)
     state.skills[directory] = state.skills[directory] || { id: `local:${directory}`, apps: {} }
     await syncTarget(state, directory, client, Boolean(enabled))
     state.skills[directory].apps[client] = Boolean(enabled)
@@ -396,10 +445,12 @@ function createSkillManager(options = {}) {
   async function removeSkill(directoryInput) {
     const directory = safeDirectory(directoryInput)
     const state = await readState()
+    const enabledClients = Object.keys(SKILL_CLIENT_DIRS).filter((client) => state.skills[directory]?.apps?.[client])
+    const source = path.join(storeFor(state), directory)
+    // 先全部校验，避免发现异常目标前已经移除其他客户端的链接。
+    for (const client of enabledClients) await assertManagedTarget(targetFor(client, directory), directory, source)
     const backup = await createBackup(directory, state, 'remove')
-    for (const client of Object.keys(SKILL_CLIENT_DIRS)) {
-      if (state.skills[directory]?.apps?.[client]) await fsp.rm(targetFor(client, directory), { recursive: true, force: true })
-    }
+    for (const client of enabledClients) await removeManagedTarget(targetFor(client, directory), directory, source)
     await fsp.rm(path.join(storeFor(state), directory), { recursive: true, force: true })
     delete state.skills[directory]
     await writeState(state)
@@ -413,6 +464,14 @@ function createSkillManager(options = {}) {
     if (patch.syncMode) state.syncMode = patch.syncMode === 'copy' ? 'copy' : 'symlink'
     if (patch.storage) state.storage = patch.storage === 'agents' ? 'agents' : 'plugin'
     const nextStore = storeFor(state)
+    if (previousStore !== nextStore || previousSyncMode !== state.syncMode) {
+      for (const [directory, item] of Object.entries(state.skills)) {
+        const previousSource = path.join(previousStore, directory)
+        for (const [client, enabled] of Object.entries(item.apps || {})) {
+          if (enabled) await assertManagedTarget(targetFor(client, directory), directory, previousSource)
+        }
+      }
+    }
     if (previousStore !== nextStore) {
       await fsp.mkdir(nextStore, { recursive: true, mode: 0o700 })
       for (const entry of await fsp.readdir(previousStore, { withFileTypes: true }).catch(() => [])) {
@@ -427,7 +486,7 @@ function createSkillManager(options = {}) {
     }
     if (previousStore !== nextStore || previousSyncMode !== state.syncMode) {
       for (const [directory, item] of Object.entries(state.skills)) {
-        for (const [client, enabled] of Object.entries(item.apps || {})) if (enabled) await syncTarget(state, directory, client, true)
+        for (const [client, enabled] of Object.entries(item.apps || {})) if (enabled) await syncTarget(state, directory, client, true, { allowedSources: [path.join(previousStore, directory)] })
       }
     }
     await writeState(state)
@@ -594,8 +653,8 @@ function createSkillManager(options = {}) {
         sourceDirectory, readmeUrl: input.readmeUrl || null,
         installedAt: existing?.installedAt || Date.now(), updatedAt: Date.now(), ...metadata
       }
-      await writeState(state)
       await syncTarget(state, directory, client, true)
+      await writeState(state)
       return (await listSkills()).skills.find((item) => item.directory === directory)
     } finally { await download.cleanup().catch(() => {}) }
   }
@@ -641,8 +700,8 @@ function createSkillManager(options = {}) {
       await copyAtomically(source, path.join(storeFor(state), directory))
       const metadata = parseFrontmatter(await fsp.readFile(path.join(source, 'SKILL.md'), 'utf8'), directory)
       state.skills[directory] = { ...item, ...metadata, repoBranch: download.branch, updatedAt: Date.now() }
-      await writeState(state)
       for (const [client, enabled] of Object.entries(item.apps || {})) if (enabled) await syncTarget(state, directory, client, true)
+      await writeState(state)
       return (await listSkills()).skills.find((entry) => entry.directory === directory)
     } finally { await download.cleanup().catch(() => {}) }
   }
@@ -685,8 +744,8 @@ function createSkillManager(options = {}) {
         await fsp.cp(source, path.join(staging, directory), { recursive: true })
         await copyAtomically(path.join(staging, directory), path.join(storeFor(state), directory))
         state.skills[directory] = { id: `local:${directory}`, apps, installedAt: Date.now() }
+        for (const client of Object.keys(apps)) await syncTarget(state, directory, client, true, { replaceUnmanaged: true })
         await writeState(state)
-        for (const client of Object.keys(apps)) await syncTarget(state, directory, client, true)
         imported.push((await listSkills()).skills.find((item) => item.directory === directory))
       } finally { await fsp.rm(staging, { recursive: true, force: true }) }
     }
