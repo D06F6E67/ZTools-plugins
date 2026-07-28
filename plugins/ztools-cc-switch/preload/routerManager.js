@@ -423,13 +423,16 @@ function createRouterManager(options = {}) {
         Object.assign(headers, optimizerHeaders)
         const credential = managedAuth?.token || provider.apiKey
         if (!credential) throw new Error(`${provider.name} 缺少可用的认证凭据`)
+        // 入站凭据只用于认证本地路由，绝不能透传给上游 Provider。
+        delete headers.authorization
+        delete headers['x-api-key']
+        delete headers['x-goog-api-key']
         if (provider.authProvider === 'codex_oauth') {
           headers.authorization = `Bearer ${credential}`
           headers['chatgpt-account-id'] = managedAuth.accountId
           headers.originator = 'codex_cli_rs'
           headers.version = '0.115.0'
           headers['user-agent'] = 'codex_cli_rs/0.115.0'
-          delete headers['x-api-key']
         } else if (provider.authProvider === 'github_copilot') {
           headers.authorization = `Bearer ${credential}`
           headers['user-agent'] = 'GitHubCopilotChat/0.38.2'
@@ -437,12 +440,11 @@ function createRouterManager(options = {}) {
           headers['editor-plugin-version'] = 'copilot-chat/0.38.2'
           headers['copilot-integration-id'] = 'vscode-chat'
           headers['x-github-api-version'] = '2025-10-01'
-          delete headers['x-api-key']
         } else if (prepared.targetProtocol === 'anthropic') {
-          headers['x-api-key'] = credential; headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01'; delete headers.authorization
+          headers['x-api-key'] = credential; headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01'
         } else if (prepared.targetProtocol === 'gemini') {
-          upstream.searchParams.set('key', credential); delete headers.authorization
-        } else { headers.authorization = `Bearer ${credential}`; delete headers['x-api-key'] }
+          upstream.searchParams.set('key', credential)
+        } else { headers.authorization = `Bearer ${credential}` }
         const candidateBody = requestPayload ? Buffer.from(JSON.stringify(prepared.body)) : body
           upstreamResponse = await fetchImpl(upstream, { method: request.method, headers, body: ['GET', 'HEAD'].includes(request.method) ? undefined : candidateBody, redirect: 'manual' })
           const retryable = upstreamResponse.status === 408 || upstreamResponse.status === 429 || upstreamResponse.status >= 500
