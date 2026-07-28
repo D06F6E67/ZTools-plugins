@@ -9,7 +9,7 @@ import type {
 } from "../shared/types";
 import { imageDataUrlToBuffer } from "./data-url";
 import { createGif, mergeImages, mergePdfs, processImages } from "./processor";
-import { discoverFiles, inspectFile, isImagePath, isPdfPath } from "./file-discovery";
+import { discoverFiles } from "./file-discovery";
 
 declare global {
   interface Window {
@@ -19,7 +19,7 @@ declare global {
 }
 
 const electron = require("electron");
-const { clipboard, nativeImage, shell, webUtils } = electron;
+const { shell, webUtils } = electron;
 
 const tempRoot = path.join(getZToolsPath("temp"), "image-batch-studio");
 
@@ -69,10 +69,6 @@ const services = {
 
   async resolveFiles(paths: string[]) {
     return discoverFiles(paths);
-  },
-
-  async inspectFile(filePath: string) {
-    return inspectFile(filePath);
   },
 
   async processImages(paths: string[], settings: ImageJobSettings) {
@@ -142,25 +138,9 @@ const services = {
     return webUtils.getPathForFile(file);
   },
 
-  copyFile(filePath: string) {
-    if (window.ztools?.copyFile) return window.ztools.copyFile(filePath);
-    clipboard.writeBuffer("public.file-url", Buffer.from(pathToFileURL(filePath).toString()));
-    return true;
-  },
-
-  copyImage(filePath: string) {
-    if (!isImagePath(filePath)) return false;
-    if (window.ztools?.copyImage) return window.ztools.copyImage(filePath);
-    clipboard.writeImage(nativeImage.createFromPath(filePath));
-    return true;
-  },
-
   reveal(filePath: string) {
     shell.showItemInFolder(filePath);
-  },
-
-  isImagePath,
-  isPdfPath
+  }
 };
 
 window.services = services;
