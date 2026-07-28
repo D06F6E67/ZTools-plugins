@@ -34,6 +34,18 @@ const provider = {
   color: '#5EEAD4'
 }
 
+test('Provider URLs require secure remote transport and reject embedded credentials', async (t) => {
+  const ctx = await fixture(); t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))
+  await assert.rejects(() => ctx.manager.saveProvider({ ...provider, baseUrl: 'http://api.example.com' }), /必须使用 HTTPS/)
+  await assert.rejects(() => ctx.manager.saveProvider({ ...provider, baseUrl: 'https://user:pass@api.example.com' }), /不能包含内嵌凭据/)
+  await assert.rejects(() => ctx.manager.saveProvider({ ...provider, modelsUrl: 'http://models.example.com' }), /必须使用 HTTPS/)
+  await assert.rejects(() => ctx.manager.saveProvider({ ...provider, modelsUrl: 'https://user:pass@models.example.com' }), /不能包含内嵌凭据/)
+  await assert.rejects(() => ctx.manager.saveProvider({ ...provider, id: OFFICIAL_PROVIDER_ID, clients: ['claude-desktop', 'claude'], baseUrl: 'http://api.example.com' }), /必须使用 HTTPS/)
+  const local = await ctx.manager.saveProvider({ ...provider, baseUrl: 'http://127.0.0.1:8080', modelsUrl: 'http://localhost:8080/models' })
+  assert.equal(local.baseUrl, 'http://127.0.0.1:8080')
+  await assert.rejects(() => ctx.manager.addCustomEndpoint('claude', local.id, 'http://remote.example.com'), /必须使用 HTTPS/)
+})
+
 test('switches Claude while preserving unknown settings and creates backup', async (t) => {
   const ctx = await fixture()
   t.after(() => fs.rm(ctx.root, { recursive: true, force: true }))

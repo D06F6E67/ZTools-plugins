@@ -17,6 +17,7 @@ const crypto = require('node:crypto')
 const JSON5 = require('json5')
 const YAML = require('yaml')
 const { OFFICIAL_PROVIDER_ID, PROFILE_ID, normalizeRoutes } = require('./claudeDesktopManager')
+const { requireSecureHttpUrl } = require('./networkSecurity')
 
 const CLIENTS = Object.freeze({
   claude: { id: 'claude', name: 'Claude Code', accent: '#E8A66A' },
@@ -218,20 +219,9 @@ function createConfigManager(options = {}) {
     if (!provider.clients.length) throw new Error('请至少选择一个客户端')
     const officialDesktop = provider.id === OFFICIAL_PROVIDER_ID && provider.clients.includes('claude-desktop')
     if (!provider.baseUrl && !officialDesktop) throw new Error('Base URL 不能为空')
-    if (officialDesktop) return provider
-    try {
-      const parsed = new URL(provider.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported')
-    } catch {
-      throw new Error('Base URL 必须是有效的 HTTP(S) 地址')
-    }
+    if (provider.baseUrl) requireSecureHttpUrl(provider.baseUrl, 'Base URL')
     if (provider.modelsUrl) {
-      try {
-        const parsed = new URL(provider.modelsUrl)
-        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported')
-      } catch {
-        throw new Error('Models URL 必须是有效的 HTTP(S) 地址')
-      }
+      requireSecureHttpUrl(provider.modelsUrl, 'Models URL')
     }
     return provider
   }
@@ -950,9 +940,7 @@ function createConfigManager(options = {}) {
   function normalizeEndpointUrl(value, required = false) {
     const raw = String(value || '').trim().replace(/\/+$/, '')
     if (!raw) { if (required) throw new Error('URL 不能为空'); return '' }
-    let parsed
-    try { parsed = new URL(raw) } catch { throw new Error('端点 URL 无效') }
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('端点必须是无内嵌凭据的 HTTP(S) URL')
+    const parsed = requireSecureHttpUrl(raw, '端点 URL')
     return parsed.href.replace(/\/$/, '')
   }
 
