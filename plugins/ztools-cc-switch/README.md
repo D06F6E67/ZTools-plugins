@@ -218,7 +218,7 @@ ztools publish
 
 首次发布会在 fork 的 `plugin/ztools-cc-switch` 分支创建 Draft PR；后续发布在同一分支追加提交。审核者在 PR 分支直接修改后，先运行 `ztools pull-contributions` 三方合并回本地，再继续发布。不要 force-push 发布分支。由于本地 macOS 无法真实执行 Windows/Linux 二进制，跨平台支持以 PR 的三系统原生 CI 全绿作为合并前置条件，并仍建议各平台进行一次 ZTools 宿主冒烟测试。
 
-首发 PR 标题使用 `Add plugin AI Provider Switch v1.52.0`，并保持 Draft 状态，直到 macOS、Windows、Linux 原生产物测试、安全说明和界面截图审核完成。
+更新 PR 标题使用 `Update plugin AI Provider Switch v1.53.0`，并保持 Draft 状态，直到 macOS、Windows、Linux 原生产物测试、安全说明和界面截图审核完成。
 
 ## 安全边界
 
