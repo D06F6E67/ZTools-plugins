@@ -29,6 +29,20 @@ async function makeImage(filePath: string, width: number, height: number, color:
     .toFile(filePath);
 }
 
+async function makeOrientedJpeg(filePath: string, width: number, height: number, orientation: number) {
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: "#446a9d"
+    }
+  })
+    .jpeg()
+    .withMetadata({ orientation })
+    .toFile(filePath);
+}
+
 async function makeTwoColorImage(filePath: string) {
   await sharp({
     create: {
@@ -50,13 +64,16 @@ async function makeTwoColorImage(filePath: string) {
 }
 
 async function makeTinyOptimizedPng(filePath: string) {
-  await fs.writeFile(
-    filePath,
-    Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-      "base64"
-    )
-  );
+  await sharp({
+    create: {
+      width: 1,
+      height: 1,
+      channels: 4,
+      background: "#ffffff"
+    }
+  })
+    .png({ compressionLevel: 9, palette: true })
+    .toFile(filePath);
 }
 
 async function makeHeif(filePath: string, width: number, height: number, color: string) {
@@ -278,7 +295,7 @@ describe("offline processing engine", () => {
       compression: { quality: 60, keepMetadata: false }
     });
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error).toBe(true);
     expect(result.outputBytes).toBeLessThanOrEqual(result.inputBytes ?? 0);
     const metadata = await sharp(result.outputPath).metadata();
     expect(metadata.format).toBe("png");
@@ -320,6 +337,58 @@ describe("offline processing engine", () => {
     expect(centerPixel[2]).toBeLessThan(80);
   });
 
+  it("requires an image path when image watermark mode is enabled", async () => {
+    const dir = await makeTempDir();
+    const input = path.join(dir, "base.png");
+    await makeImage(input, 100, 80, "#000000");
+
+    const [result] = await processImages([input], {
+      output: { directory: path.join(dir, "out"), namingPattern: "{name}.{ext}", overwrite: false },
+      watermark: {
+        enabled: true,
+        kind: "image",
+        position: "center",
+        opacity: 1,
+        fontSize: 16,
+        color: "#ffffff",
+        margin: 0,
+        rotation: 0
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("需要先选择水印图片");
+  });
+
+  it("constrains tall image watermarks to the canvas height", async () => {
+    const dir = await makeTempDir();
+    const input = path.join(dir, "base.png");
+    const watermark = path.join(dir, "tall-watermark.png");
+    await makeImage(input, 100, 100, "#000000");
+    await makeImage(watermark, 10, 1000, "#ff0000");
+
+    const [result] = await processImages([input], {
+      output: { directory: path.join(dir, "out"), namingPattern: "{name}-wm.{ext}", overwrite: false },
+      format: { type: "png" },
+      watermark: {
+        enabled: true,
+        kind: "image",
+        imagePath: watermark,
+        position: "center",
+        opacity: 1,
+        fontSize: 16,
+        color: "#ffffff",
+        margin: 0,
+        rotation: 0
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    const metadata = await sharp(result.outputPath).metadata();
+    expect(metadata.width).toBe(100);
+    expect(metadata.height).toBe(100);
+  });
+
   it("rotates and flips HEIC images while preserving readable output", async () => {
     const dir = await makeTempDir();
     const input = path.join(dir, "rotate.heic");
@@ -355,6 +424,40 @@ describe("offline processing engine", () => {
     const metadata = await sharp(result.outputPath).metadata();
     expect(metadata.width).toBe(48);
     expect(metadata.height).toBe(36);
+  });
+
+  it("uses auto-oriented dimensions for long-edge resize", async () => {
+    const dir = await makeTempDir();
+    const input = path.join(dir, "oriented.jpg");
+    await makeOrientedJpeg(input, 100, 50, 6);
+
+    const [result] = await processImages([input], {
+      output: { directory: path.join(dir, "out"), namingPattern: "{name}.{ext}", overwrite: false },
+      format: { type: "png" },
+      resize: { mode: "long-edge", width: 40, withoutEnlargement: true }
+    });
+
+    expect(result.ok).toBe(true);
+    const metadata = await sharp(result.outputPath).metadata();
+    expect(metadata.width).toBe(20);
+    expect(metadata.height).toBe(40);
+  });
+
+  it("uses auto-oriented dimensions for relative crop", async () => {
+    const dir = await makeTempDir();
+    const input = path.join(dir, "oriented-crop.jpg");
+    await makeOrientedJpeg(input, 100, 50, 6);
+
+    const [result] = await processImages([input], {
+      output: { directory: path.join(dir, "out"), namingPattern: "{name}.{ext}", overwrite: false },
+      format: { type: "png" },
+      cropRelative: { left: 0, top: 0.5, width: 1, height: 0.5 }
+    });
+
+    expect(result.ok).toBe(true);
+    const metadata = await sharp(result.outputPath).metadata();
+    expect(metadata.width).toBe(50);
+    expect(metadata.height).toBe(50);
   });
 
   it("clamps crop geometry against resized dimensions before extracting", async () => {
@@ -517,6 +620,24 @@ describe("offline processing engine", () => {
     const metadata = await sharp(output, { animated: true }).metadata();
     expect(metadata.format).toBe("gif");
     expect(metadata.pages).toBe(2);
+  });
+
+  it("rejects animated GIF input instead of silently dropping frames", async () => {
+    const dir = await makeTempDir();
+    const first = path.join(dir, "frame-one.png");
+    const second = path.join(dir, "frame-two.png");
+    const input = path.join(dir, "animated.gif");
+    await makeImage(first, 32, 24, "#d49b3d");
+    await makeImage(second, 32, 24, "#1f6f68");
+    await createGif([first, second], input, { width: 32, height: 24, delayMs: 120, loop: 0 });
+
+    const [result] = await processImages([input], {
+      output: { directory: path.join(dir, "out"), namingPattern: "{name}.{ext}", overwrite: false },
+      format: { type: "png" }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("暂不支持直接处理多帧 GIF");
   });
 
   it("preserves GIF frame colors when quantizing raw RGBA pixels", async () => {

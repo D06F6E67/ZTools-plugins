@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import sharp, { type Sharp } from "sharp";
+import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import { PDFDocument } from "pdf-lib";
 import { GIFEncoder, applyPalette, quantize } from "gifenc";
 import type {
@@ -11,7 +11,7 @@ import type {
   ProcessResult,
   WatermarkPosition
 } from "../shared/types";
-import { buildOutputPath, normalizeExtension } from "./paths";
+import { buildOutputPath } from "./paths";
 import { assertSafeProcessPlan, resolveProcessCropBox } from "./process-plan";
 import {
   assertSafeGifRequest,
@@ -95,10 +95,6 @@ function safeSvgColor(value: string | undefined, fallback = "#ffffff"): string {
     return color;
   }
   return fallback;
-}
-
-function gravity(position: WatermarkPosition): sharp.Gravity {
-  return position;
 }
 
 function formatFromPath(filePath: string): ImageFormat {
@@ -254,13 +250,23 @@ async function applyWatermark(image: Sharp, settings: ImageJobSettings): Promise
   const opacity = Math.max(0, Math.min(1, watermark.opacity));
   const margin = Math.max(0, watermark.margin);
 
-  if (watermark.kind === "image" && watermark.imagePath) {
-    const maxOverlayWidth = Math.max(24, Math.round(width * 0.35));
+  if (watermark.kind === "image") {
+    if (!watermark.imagePath) {
+      throw new Error("图片水印模式需要先选择水印图片");
+    }
+    const maxOverlayWidth = Math.max(1, Math.round(width * 0.35));
+    const maxOverlayHeight = Math.max(1, Math.round(height * 0.35));
     const overlayBase = await sharp(watermark.imagePath, {
       animated: false,
       limitInputPixels: maxProcessSourcePixels
     })
-      .resize({ width: maxOverlayWidth, withoutEnlargement: true })
+      .rotate()
+      .resize({
+        width: maxOverlayWidth,
+        height: maxOverlayHeight,
+        fit: "inside",
+        withoutEnlargement: true
+      })
       .toColorspace("srgb")
       .ensureAlpha()
       .raw()
@@ -376,7 +382,12 @@ async function processOne(
     await ensureDirectory(settings.output.directory);
     const sharpInputOptions = { animated: false, limitInputPixels: maxProcessSourcePixels };
     const initialMetadata = await sharp(inputPath, sharpInputOptions).metadata();
-    assertSafeProcessPlan(settings, initialMetadata.width, initialMetadata.height);
+    if (initialMetadata.format === "gif" && (initialMetadata.pages ?? 1) > 1) {
+      throw new Error("暂不支持直接处理多帧 GIF，请先拆分为静态图片或使用 GIF 制作模块");
+    }
+    const sourceWidth = initialMetadata.autoOrient?.width ?? initialMetadata.width;
+    const sourceHeight = initialMetadata.autoOrient?.height ?? initialMetadata.height;
+    assertSafeProcessPlan(settings, sourceWidth, sourceHeight);
     let image = sharp(inputPath, sharpInputOptions).rotate();
 
     if (settings.flip === "horizontal" || settings.flip === "both") image = image.flop();
@@ -387,9 +398,9 @@ async function processOne(
       });
     }
 
-    image = applyResize(image, settings, initialMetadata.width, initialMetadata.height);
+    image = applyResize(image, settings, sourceWidth, sourceHeight);
 
-    const crop = resolveProcessCropBox(settings, initialMetadata.width, initialMetadata.height);
+    const crop = resolveProcessCropBox(settings, sourceWidth, sourceHeight);
     if (crop) {
       image = image.extract(crop);
     }
@@ -541,7 +552,7 @@ export async function mergeImages(
   const gap = safeMergeGap(options.gap);
   let width = 1;
   let height = 1;
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: OverlayOptions[] = [];
 
   if (options.layout === "horizontal") {
     width = prepared.reduce((sum, item) => sum + item.width, 0) + gap * (prepared.length - 1);
@@ -650,12 +661,4 @@ export async function createGif(
   encoder.finish();
   await fs.writeFile(outputPath, Buffer.from(encoder.bytes()));
   return outputPath;
-}
-
-export function supportedOutputFormats(): ImageFormat[] {
-  return ["jpeg", "png", "webp", "avif", "heif", "tiff", "gif"];
-}
-
-export function extensionForFormat(format: ImageFormat): string {
-  return normalizeExtension(format);
 }
