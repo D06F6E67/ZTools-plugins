@@ -49,9 +49,14 @@ function createExtensionManager(options = {}) {
   async function readStore() {
     try {
       const value = JSON.parse(await fsp.readFile(storePath, 'utf8'))
-      return { version: 1, mcpServers: Array.isArray(value.mcpServers) ? value.mcpServers : [], prompts: Array.isArray(value.prompts) ? value.prompts : [] }
+      return {
+        version: 2,
+        mcpServers: Array.isArray(value.mcpServers) ? value.mcpServers : [],
+        prompts: Array.isArray(value.prompts) ? value.prompts : [],
+        promptDeployments: value.promptDeployments && typeof value.promptDeployments === 'object' && !Array.isArray(value.promptDeployments) ? value.promptDeployments : {}
+      }
     } catch (error) {
-      if (error.code === 'ENOENT') return { version: 1, mcpServers: [], prompts: [] }
+      if (error.code === 'ENOENT') return { version: 2, mcpServers: [], prompts: [], promptDeployments: {} }
       throw new Error(`读取扩展数据失败: ${error.message}`)
     }
   }
@@ -325,11 +330,33 @@ function createExtensionManager(options = {}) {
     if (!item) throw new Error('Prompt 不存在')
     const parts = PROMPT_DIRS[client]; if (!parts) throw new Error(`${client} 暂不支持 Prompt 同步`)
     const extension = client === 'gemini' ? '.toml' : '.md'; const target = client === 'grokbuild' ? path.join(homeDir, ...parts, 'AGENTS.md') : path.join(homeDir, ...parts, `${id}${extension}`)
+    const deploymentKey = `${client}:${client === 'grokbuild' ? '__global__' : id}`
+    const deployment = store.promptDeployments[deploymentKey]
+    const content = client === 'gemini' ? `description = ${JSON.stringify(item.description || item.name)}\nprompt = ${JSON.stringify(item.content)}\n` : `# ${item.name}\n\n${item.content.trim()}\n`
+    const hash = (value) => crypto.createHash('sha256').update(value).digest('hex')
     if (enabled) {
-      const content = client === 'gemini' ? `description = ${JSON.stringify(item.description || item.name)}\nprompt = ${JSON.stringify(item.content)}\n` : `# ${item.name}\n\n${item.content.trim()}\n`
+      const current = await readRegularText(target, MAX_PROMPT_FILE_BYTES)
+      if (deployment) {
+        if (path.resolve(String(deployment.target || '')) !== target) throw new Error('Prompt 部署记录与目标路径不一致，已停止覆盖')
+        if (current === null || hash(current) !== deployment.managedHash) throw new Error('Prompt 文件已被用户修改，已停止覆盖')
+      }
+      const original = deployment?.original || (current === null
+        ? { existed: false }
+        : { existed: true, content: current, mode: (await fsp.stat(target)).mode & 0o777 })
       await atomicWrite(target, content)
+      store.promptDeployments[deploymentKey] = { promptId: id, target, managedHash: hash(content), original }
       if (client === 'grokbuild') for (const prompt of store.prompts) if (prompt.id !== id && prompt.apps?.grokbuild) prompt.apps.grokbuild = false
-    } else await fsp.rm(target, { force: true })
+    } else if (deployment?.promptId === id) {
+      const current = await readRegularText(target, MAX_PROMPT_FILE_BYTES)
+      if (current === null || hash(current) !== deployment.managedHash) throw new Error('Prompt 文件已被用户修改，已保留该文件')
+      if (deployment.original?.existed) {
+        await atomicWrite(target, String(deployment.original.content || ''))
+        if (Number.isInteger(deployment.original.mode)) await fsp.chmod(target, deployment.original.mode)
+      } else await fsp.rm(target, { force: true })
+      delete store.promptDeployments[deploymentKey]
+    } else if (!deployment && await readRegularText(target, MAX_PROMPT_FILE_BYTES) !== null) {
+      throw new Error('Prompt 文件缺少插件所有权记录，已保留该文件')
+    }
     item.apps = { ...item.apps, [client]: Boolean(enabled) }; await writeStore(store)
     return { id, client, enabled: Boolean(enabled), target }
   }
