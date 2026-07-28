@@ -392,11 +392,11 @@ function scheduleHistoryMirror(): void {
             privacy.rules,
           ),
       });
-      thumbnailService.invalidateRecordIndex();
       window.dispatchEvent(
         new CustomEvent("pasteboard-pro:history-mirrored", { detail: result }),
       );
       await runRetentionIfDue();
+      broadcastHistoryChanged();
       void scheduleVaultSync().catch(reportSynchronizationError);
     })
     .catch(reportSynchronizationError);
