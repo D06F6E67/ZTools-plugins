@@ -105,6 +105,7 @@ type StoredCursorDocument = Readonly<{
 }>;
 
 const CURSOR_DOCUMENT_ID = "pasteboard-pro:cursor:ztools-history";
+export const MAX_CLIPBOARD_TEXT_BYTES = 10 * 1_024 * 1_024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -397,7 +398,7 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     if (normalizedText.length === 0) {
       throw new RangeError("Text item content cannot be empty");
     }
-    if (Buffer.byteLength(normalizedText, "utf8") > 10 * 1_024 * 1_024) {
+    if (Buffer.byteLength(normalizedText, "utf8") > MAX_CLIPBOARD_TEXT_BYTES) {
       throw new RangeError("Text item content cannot exceed 10 MiB");
     }
     const timestamp = this.validTimestamp();
@@ -475,7 +476,7 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     }
     const normalizedText = text.trim();
     const byteLength = Buffer.byteLength(normalizedText, "utf8");
-    if (byteLength === 0 || byteLength > 10 * 1_024 * 1_024) {
+    if (byteLength === 0 || byteLength > MAX_CLIPBOARD_TEXT_BYTES) {
       throw new RangeError("Edited text must contain 1 byte to 10 MiB");
     }
     const timestamp = this.validTimestamp();
@@ -911,7 +912,11 @@ export function normalizeHostClipboardItem(
         : typeof value.preview === "string"
           ? value.preview
           : undefined;
-    if (text === undefined || text.length === 0) {
+    if (
+      text === undefined ||
+      text.length === 0 ||
+      Buffer.byteLength(text, "utf8") > MAX_CLIPBOARD_TEXT_BYTES
+    ) {
       return null;
     }
     const contentFingerprint = fingerprint({ type: hostType, text });

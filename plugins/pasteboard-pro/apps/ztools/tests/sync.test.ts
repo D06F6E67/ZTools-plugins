@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MemorySyncQueue,
   createWebDavVaultClient,
+  readLimitedResponseBody,
   type WebDavRequest,
   type WebDavResponse,
   type WebDavTransport,
@@ -19,6 +20,22 @@ function response(status: number, body = "", etag?: string): WebDavResponse {
 }
 
 describe("PasteboardPro WebDAV sync", () => {
+  it("stops reading an undeclared oversized response as soon as it crosses the limit", async () => {
+    let cancelled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.enqueue(new Uint8Array([4, 5, 6]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }));
+
+    await expect(readLimitedResponseBody(response, 4)).rejects.toThrow(/141 MiB/);
+    expect(cancelled).toBe(true);
+  });
+
   it("requires HTTPS and never accepts credentials embedded in the URL", () => {
     expect(() =>
       createWebDavVaultClient({
