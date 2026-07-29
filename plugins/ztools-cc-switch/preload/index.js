@@ -68,7 +68,7 @@ function getDefaultDataDir() {
   return path.join(process.env.HOME || process.env.USERPROFILE, '.ztools', 'cc-switch')
 }
 const bundledRulesPath = path.join(__dirname, '..', 'default-rules.json')
-const sidecar = createSidecarClient()
+const sidecar = createSidecarClient({ extractDir: path.join(getDefaultDataDir(), 'runtime', 'sidecar') })
 let authManager = null
 function createZtoolsStorage() {
   const candidate = window.ztools && window.ztools.dbStorage
@@ -139,6 +139,7 @@ routerManager = createRouterManager({
   fetchImpl: outboundFetch,
   getActiveProvider: (client) => configManager.getActiveProvider(client),
   getProviderCandidates: (client) => configManager.getProviderCandidates(client),
+  getRouteCredential: () => configManager.getRouteCredential(),
   getClaudeDesktopContext: async () => ({
     provider: await configManager.getActiveProvider('claude-desktop'),
     gatewayToken: await claudeDesktopManager.getGatewayToken()
@@ -227,11 +228,20 @@ async function switchProviderWithManagedAuth(client, providerId) {
   if (!provider?.authProvider) return configManager.switchProvider(client, providerId)
   if (!['claude', 'codex', 'gemini', 'grokbuild'].includes(client)) throw new Error('订阅账号 Provider 目前需通过 Claude、Codex、Gemini 或 GrokBuild 本地路由使用')
   await authManager.getValidToken(provider.authProvider, provider.authAccountId)
-  const started = await routerManager.start()
-  await configManager.activateProvider(client, providerId)
-  await routerManager.saveConfig({ routes: { [client]: true } })
-  await configManager.setClientRouting(client, true, started.url)
-  return { client, providerId, providerName: provider.name, managedAuth: true, routed: true, routerUrl: started.url }
+  const previous = await configManager.getActiveProvider(client)
+  const status = await routerManager.status()
+  try {
+    if (status.config.routes?.[client]) {
+      const result = await configManager.switchProvider(client, providerId)
+      return { ...result, managedAuth: true, routerUrl: status.url }
+    }
+    await configManager.activateProvider(client, providerId)
+    const routed = await routeLifecycleManager.setRoute(client, true)
+    return { client, providerId, providerName: provider.name, managedAuth: true, routed: true, routerUrl: routed.status.url }
+  } catch (error) {
+    await configManager.restoreActiveProvider(client, previous?.id || null).catch(() => {})
+    throw error
+  }
 }
 window.ccSwitch = Object.freeze({
   getThemePreference: () => {
@@ -246,8 +256,8 @@ window.ccSwitch = Object.freeze({
   },
   getVisibleClients: () => clientVisibilityManager.getVisibleClients(),
   setVisibleClients: (ids) => clientVisibilityManager.setVisibleClients(ids),
-  listProviders: () => configManager.listProviders(),
-  saveProvider: (provider) => configManager.saveProvider(provider),
+  listProviders: () => configManager.listPublicProviders(),
+  saveProvider: (provider) => configManager.savePublicProvider(provider),
   updateProviderSortOrder: (client, ids) => configManager.updateProviderSortOrder(String(client || ''), Array.isArray(ids) ? ids : []),
   deleteProvider: async (providerId) => { const id = String(providerId || ''); const result = await configManager.deleteProvider(id); usageScriptManager.clearSecrets(id); return result },
   listUniversalProviders: () => universalProviderManager.list(),

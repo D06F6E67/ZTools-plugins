@@ -7,6 +7,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'save'])
 const form = reactive({ ...props.provider, clients: [...(props.provider.clients || [])] })
+form.apiKey = ''
+form.clearApiKey = false
 form.promptCacheRouting ||= 'auto'
 form.modelMapText = JSON.stringify(props.provider.modelMap || {}, null, 2)
 const revealKey = ref(false)
@@ -46,13 +48,15 @@ function removeDesktopRoute(index) {
 }
 async function fetchModels() {
   error.value = ''
-  if (!form.authProvider && !String(form.apiKey || '').trim()) { error.value = '获取模型前请填写 API Key'; return }
+  if (!form.authProvider && !String(form.apiKey || '').trim() && !form.hasApiKey) { error.value = '获取模型前请填写 API Key'; return }
   if (!String(form.baseUrl || '').trim()) { error.value = '获取模型前请填写 Base URL'; return }
   fetchingModels.value = true
   try {
     fetchedModels.value = form.authProvider
       ? await window.ccSwitch.fetchManagedModels(form.authProvider, form.authAccountId, form.baseUrl)
-      : await window.ccSwitch.fetchModelsForConfig({ baseUrl: form.baseUrl, apiKey: form.apiKey, isFullUrl: form.isFullUrl, modelsUrl: form.modelsUrl, customUserAgent: form.customUserAgent })
+      : (form.id && form.hasApiKey && !String(form.apiKey || '').trim()
+          ? await window.ccSwitch.fetchModelsForProvider(form.id)
+          : await window.ccSwitch.fetchModelsForConfig({ baseUrl: form.baseUrl, apiKey: form.apiKey, isFullUrl: form.isFullUrl, modelsUrl: form.modelsUrl, customUserAgent: form.customUserAgent }))
     if (!fetchedModels.value.length) error.value = 'Provider 返回的模型列表为空'
   } catch (fetchError) { error.value = fetchError.message || '获取模型列表失败' }
   finally { fetchingModels.value = false }
@@ -78,7 +82,7 @@ function submit() {
 
 <template>
   <div class="modal-backdrop" @mousedown.self="$emit('close')">
-    <section class="provider-modal" role="dialog" aria-modal="true" aria-labelledby="provider-dialog-title">
+    <section class="provider-modal provider-config-modal" role="dialog" aria-modal="true" aria-labelledby="provider-dialog-title">
       <header class="modal-header">
         <div>
           <span class="eyebrow">ROUTE CONFIGURATION</span>
@@ -219,10 +223,11 @@ function submit() {
         <div v-if="!form.authProvider" class="form-field">
           <label for="provider-api-key"><span>API Key</span></label>
           <div class="input-with-action">
-            <input id="provider-api-key" v-model="form.apiKey" :type="revealKey ? 'text' : 'password'" autocomplete="off" placeholder="sk-••••••••" />
+            <input id="provider-api-key" v-model="form.apiKey" :type="revealKey ? 'text' : 'password'" autocomplete="off" :placeholder="form.hasApiKey ? '留空保持现有密钥' : 'sk-••••••••'" @input="form.clearApiKey = false" />
             <button type="button" :aria-label="revealKey ? '隐藏 API Key' : '显示 API Key'" @click="revealKey = !revealKey">{{ revealKey ? '隐藏' : '显示' }}</button>
           </div>
-          <small>密钥仅保存在本机插件数据目录中。</small>
+          <small>{{ form.hasApiKey ? '已保存密钥；留空表示保持不变。' : '密钥仅保存在本机插件数据目录中。' }}</small>
+          <button v-if="form.hasApiKey" type="button" class="text-danger-button" @click="form.apiKey = ''; form.clearApiKey = true; form.hasApiKey = false">清除已保存密钥</button>
         </div>
 
       <fieldset>

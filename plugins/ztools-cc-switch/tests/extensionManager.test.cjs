@@ -90,3 +90,37 @@ test('reads and imports fixed per-client global Prompt files without accepting a
   await fs.symlink(claudePrompt, linked)
   await assert.rejects(() => manager.getCurrentPromptFileContent('codex'), /安全的普通文件/)
 })
+
+test('restores pre-existing Prompt files and preserves user edits', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-prompt-ownership-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const homeDir = path.join(root, 'home'); const manager = createExtensionManager({ homeDir, dataDir: path.join(root, 'data') })
+  const grokPath = path.join(homeDir, '.grok', 'AGENTS.md'); await fs.mkdir(path.dirname(grokPath), { recursive: true })
+  const original = '# User instructions\n\nKeep this exact.\n'; await fs.writeFile(grokPath, original, { mode: 0o640 })
+  const first = await manager.savePrompt({ id: 'first', name: 'First', content: 'Managed first.' })
+  const second = await manager.savePrompt({ id: 'second', name: 'Second', content: 'Managed second.' })
+  await manager.setPromptEnabled(first.id, 'grokbuild', true)
+  await manager.setPromptEnabled(second.id, 'grokbuild', true)
+  await manager.setPromptEnabled(second.id, 'grokbuild', false)
+  assert.equal(await fs.readFile(grokPath, 'utf8'), original)
+  assert.equal((await fs.stat(grokPath)).mode & 0o777, 0o640)
+
+  const claudePath = path.join(homeDir, '.claude', 'commands', 'first.md'); await fs.mkdir(path.dirname(claudePath), { recursive: true }); await fs.writeFile(claudePath, 'unmanaged same-id\n')
+  await manager.setPromptEnabled(first.id, 'claude', true)
+  await manager.setPromptEnabled(first.id, 'claude', false)
+  assert.equal(await fs.readFile(claudePath, 'utf8'), 'unmanaged same-id\n')
+
+  await manager.setPromptEnabled(first.id, 'codex', true)
+  const codexPath = path.join(homeDir, '.codex', 'prompts', 'first.md'); await fs.writeFile(codexPath, 'user changed this\n')
+  await assert.rejects(() => manager.setPromptEnabled(first.id, 'codex', false), /用户修改/)
+  assert.equal(await fs.readFile(codexPath, 'utf8'), 'user changed this\n')
+})
+
+test('removes an unchanged Prompt only when the plugin created it', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-prompt-created-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const homeDir = path.join(root, 'home'); const manager = createExtensionManager({ homeDir, dataDir: path.join(root, 'data') })
+  const prompt = await manager.savePrompt({ id: 'new-prompt', name: 'New', content: 'Created by plugin.' })
+  const target = path.join(homeDir, '.claude', 'commands', 'new-prompt.md')
+  await manager.setPromptEnabled(prompt.id, 'claude', true)
+  await manager.setPromptEnabled(prompt.id, 'claude', false)
+  await assert.rejects(() => fs.stat(target), /ENOENT/)
+})

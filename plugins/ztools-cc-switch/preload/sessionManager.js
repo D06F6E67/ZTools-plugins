@@ -7,6 +7,7 @@ const crypto = require('node:crypto')
 const readline = require('node:readline')
 const { execFile: execFileCallback } = require('node:child_process')
 const { promisify } = require('node:util')
+const { launchLinuxTerminal } = require('./terminalLauncher')
 const execFile = promisify(execFileCallback)
 
 const MAX_SESSIONS = 5000
@@ -30,6 +31,21 @@ function extractText(value) {
 function truncate(value, length = 160) { const text = String(value || '').trim().replace(/\s+/g, ' '); return text.length > length ? `${text.slice(0, length - 1)}…` : text }
 function basename(value) { try { return path.basename(value) || null } catch { return null } }
 function quoteShell(value) { return `'${String(value).replace(/'/g, `'"'"'`)}'` }
+function quotePowerShell(value) { return `'${String(value).replaceAll("'", "''")}'` }
+function resumeSpec(providerId, sessionId) {
+  const id = String(sessionId || '')
+  if (!id || id.length > 512 || /[\0\r\n]/.test(id)) return null
+  const specs = {
+    claude: ['claude', ['--resume', id]],
+    codex: ['codex', ['resume', id]],
+    gemini: ['gemini', ['--resume', id]],
+    opencode: ['opencode', ['-s', id]],
+    grokbuild: ['grok', ['--resume', id]]
+  }
+  const spec = specs[providerId]
+  if (!spec) return null
+  return { executable: spec[0], args: spec[1], command: [spec[0], ...spec[1].map(quoteShell)].join(' ') }
+}
 function codexRequestHeadingPayload(line) {
   const trimmed = String(line || '').trim()
   if (!trimmed.startsWith('#')) return null
@@ -58,9 +74,11 @@ function codexTitleCandidate(text) {
 }
 
 function createSessionManager(options = {}) {
+  const platform = options.platform || process.platform
   const homeDir = path.resolve(options.homeDir)
   const dataDir = path.resolve(options.dataDir)
   const trashDir = path.join(dataDir, 'session-trash')
+  const execFileImpl = options.execFile || execFile
   const codexDir = path.resolve(options.codexHome || process.env.CODEX_HOME || path.join(homeDir, '.codex'))
   const xdgData = options.xdgDataHome ? path.resolve(options.xdgDataHome) : process.env.XDG_DATA_HOME ? path.resolve(process.env.XDG_DATA_HOME) : path.join(homeDir, '.local', 'share')
   const roots = {
@@ -83,7 +101,8 @@ function createSessionManager(options = {}) {
     if (depth > maxDepth || output.length >= MAX_SESSIONS) return output
     let entries; try { entries = await fsp.readdir(root, { withFileTypes: true }) } catch { return output }
     for (const entry of entries) {
-      if (output.length >= MAX_SESSIONS || entry.isSymbolicLink()) break
+      if (output.length >= MAX_SESSIONS) break
+      if (entry.isSymbolicLink()) continue
       const target = path.join(root, entry.name)
       if (entry.isDirectory()) await collectFiles(target, predicate, maxDepth, output, depth + 1)
       else if (entry.isFile() && predicate(target, entry.name)) output.push(target)
@@ -100,7 +119,7 @@ function createSessionManager(options = {}) {
     } finally { await handle.close() }
   }
   function jsonLines(lines) { return lines.map((line) => { try { return JSON.parse(line) } catch { return null } }).filter(Boolean) }
-  function meta(providerId, sessionId, sourcePath, values = {}) { return { providerId, sessionId, title: values.title || null, summary: values.summary || null, projectDir: values.projectDir || null, createdAt: values.createdAt || null, lastActiveAt: values.lastActiveAt || values.createdAt || null, sourcePath, resumeCommand: values.resumeCommand || null, storageType: values.storageType || 'file' } }
+  function meta(providerId, sessionId, sourcePath, values = {}) { const resume = resumeSpec(providerId, sessionId); return { providerId, sessionId, title: values.title || null, summary: values.summary || null, projectDir: values.projectDir || null, createdAt: values.createdAt || null, lastActiveAt: values.lastActiveAt || values.createdAt || null, sourcePath, resumeCommand: resume?.command || null, storageType: values.storageType || 'file' } }
 
   async function scanClaude() {
     const files = await collectFiles(roots.claude[0], (_p, name) => name.endsWith('.jsonl') && !name.startsWith('agent-'))
@@ -111,7 +130,7 @@ function createSessionManager(options = {}) {
       for (const row of first) { id ||= row.sessionId || ''; cwd ||= row.cwd || ''; createdAt ||= parseTimestamp(row.timestamp); const message = row.message; if (!title && (row.type === 'user' || message?.role === 'user')) { const text = extractText(message?.content); if (text && !text.includes('<local-command-caveat>') && !text.startsWith('<command-name>')) title = text } }
       id ||= path.basename(file, '.jsonl'); let summary = '', lastActiveAt = null, customTitle = ''
       for (const row of [...last].reverse()) { lastActiveAt ||= parseTimestamp(row.timestamp); if (!customTitle && row.type === 'custom-title') customTitle = row.customTitle || ''; if (!summary && !row.isMeta) summary = extractText(row.message?.content) }
-      result.push(meta('claude', id, file, { title: truncate(customTitle || title || basename(cwd)), summary: truncate(summary), projectDir: cwd, createdAt, lastActiveAt, resumeCommand: `claude --resume ${id}` }))
+      result.push(meta('claude', id, file, { title: truncate(customTitle || title || basename(cwd)), summary: truncate(summary), projectDir: cwd, createdAt, lastActiveAt }))
     } catch {} }
     return result
   }
@@ -125,7 +144,7 @@ function createSessionManager(options = {}) {
       for (const row of first) { createdAt ||= parseTimestamp(row.timestamp); if (row.type === 'session_meta') { subagent ||= Boolean(row.payload?.source?.subagent); id ||= row.payload?.id || ''; cwd ||= row.payload?.cwd || ''; createdAt ||= parseTimestamp(row.payload?.timestamp) } if (!title && row.type === 'response_item' && row.payload?.type === 'message' && row.payload?.role === 'user') title = codexTitleCandidate(extractText(row.payload.content)) || '' }
       if (subagent) continue; id ||= (path.basename(file).match(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)?.[0] || path.basename(file, '.jsonl'))
       let summary = '', lastActiveAt = null; for (const row of [...last].reverse()) { lastActiveAt ||= parseTimestamp(row.timestamp); if (!summary && row.type === 'response_item' && row.payload?.type === 'message') summary = extractText(row.payload.content) }
-      result.push(meta('codex', id, file, { title: truncate(threadTitles.get(id) || title || basename(cwd)), summary: truncate(summary), projectDir: cwd, createdAt, lastActiveAt, resumeCommand: `codex resume ${id}` }))
+      result.push(meta('codex', id, file, { title: truncate(threadTitles.get(id) || title || basename(cwd)), summary: truncate(summary), projectDir: cwd, createdAt, lastActiveAt }))
     } catch {} }
     return result
   }
@@ -134,16 +153,16 @@ function createSessionManager(options = {}) {
     const projectRoots = new Map(); let projects = []; try { projects = await fsp.readdir(roots.gemini[0], { withFileTypes: true }) } catch {}
     for (const entry of projects) if (entry.isDirectory()) { try { projectRoots.set(entry.name, (await fsp.readFile(path.join(roots.gemini[0], entry.name, '.project_root'), 'utf8')).trim()) } catch {} }
     const files = await collectFiles(roots.gemini[0], (file, name) => name.startsWith('session-') && name.endsWith('.json'), 3); const result = []
-    for (const file of files) { try { const value = await readJsonLimited(file); const id = value.sessionId; if (!id) continue; const first = (value.messages || []).find((item) => item.type === 'user'); const title = extractText(first?.content); const projectKey = path.basename(path.dirname(path.dirname(file))); result.push(meta('gemini', id, file, { title: truncate(title), summary: truncate(title), projectDir: projectRoots.get(projectKey), createdAt: parseTimestamp(value.startTime), lastActiveAt: parseTimestamp(value.lastUpdated), resumeCommand: `gemini --resume ${id}` })) } catch {} }
+    for (const file of files) { try { const value = await readJsonLimited(file); const id = value.sessionId; if (!id) continue; const first = (value.messages || []).find((item) => item.type === 'user'); const title = extractText(first?.content); const projectKey = path.basename(path.dirname(path.dirname(file))); result.push(meta('gemini', id, file, { title: truncate(title), summary: truncate(title), projectDir: projectRoots.get(projectKey), createdAt: parseTimestamp(value.startTime), lastActiveAt: parseTimestamp(value.lastUpdated) })) } catch {} }
     return result
   }
   async function scanOpenCodeJson() {
     const storage = roots.opencode[0]; const files = await collectFiles(path.join(storage, 'session'), (_p, name) => name.endsWith('.json'), 4); const result = []
-    for (const file of files) { try { const value = await readJsonLimited(file); if (!value.id) continue; const title = value.title || basename(value.directory); result.push(meta('opencode', value.id, path.join(storage, 'message', value.id), { title: truncate(title), summary: truncate(title), projectDir: value.directory, createdAt: parseTimestamp(value.time?.created), lastActiveAt: parseTimestamp(value.time?.updated), resumeCommand: `opencode -s ${value.id}`, storageType: 'json' })) } catch {} }
+    for (const file of files) { try { const value = await readJsonLimited(file); if (!value.id) continue; const title = value.title || basename(value.directory); result.push(meta('opencode', value.id, path.join(storage, 'message', value.id), { title: truncate(title), summary: truncate(title), projectDir: value.directory, createdAt: parseTimestamp(value.time?.created), lastActiveAt: parseTimestamp(value.time?.updated), storageType: 'json' })) } catch {} }
     return result
   }
   async function sqliteQuery(db, sql) {
-    try { const result = await execFile('sqlite3', ['-readonly', '-json', db, sql], { timeout: 5000, maxBuffer: 12 * 1024 * 1024 }); return JSON.parse(result.stdout || '[]') } catch { return [] }
+    try { const result = await execFileImpl('sqlite3', ['-readonly', '-json', db, sql], { timeout: 5000, maxBuffer: 12 * 1024 * 1024 }); return JSON.parse(result.stdout || '[]') } catch { return [] }
   }
   function resolveCodexPath(value) {
     const raw = String(value || '').trim()
@@ -178,7 +197,7 @@ function createSessionManager(options = {}) {
   async function scanOpenCodeSqlite() {
     const db = roots.opencode[1]; if (!fs.existsSync(db)) return []
     const rows = await sqliteQuery(db, 'SELECT id,title,directory,time_created,time_updated FROM session ORDER BY time_updated DESC LIMIT 1000;')
-    return rows.map((row) => meta('opencode', row.id, `sqlite:${db}:${row.id}`, { title: truncate(row.title || basename(row.directory)), summary: truncate(row.title), projectDir: row.directory, createdAt: parseTimestamp(row.time_created), lastActiveAt: parseTimestamp(row.time_updated), resumeCommand: `opencode -s ${row.id}`, storageType: 'sqlite' }))
+    return rows.map((row) => meta('opencode', row.id, `sqlite:${db}:${row.id}`, { title: truncate(row.title || basename(row.directory)), summary: truncate(row.title), projectDir: row.directory, createdAt: parseTimestamp(row.time_created), lastActiveAt: parseTimestamp(row.time_updated), storageType: 'sqlite' }))
   }
   async function scanOpenClaw() {
     const files = await collectFiles(roots.openclaw[0], (_p, name) => name.endsWith('.jsonl'), 4); const result = []
@@ -207,7 +226,7 @@ function createSessionManager(options = {}) {
     const result = []
     for (const file of files) { try {
       const value = await readJsonLimited(file); const info = value.info || {}; if (!info.id) continue
-      result.push(meta('grokbuild', String(info.id), file, { title: truncate(value.generated_title || value.session_summary), summary: truncate(value.session_summary), projectDir: info.cwd || null, createdAt: parseTimestamp(value.created_at), lastActiveAt: parseTimestamp(value.last_active_at ?? value.updated_at), resumeCommand: `grok --resume ${info.id}` }))
+      result.push(meta('grokbuild', String(info.id), file, { title: truncate(value.generated_title || value.session_summary), summary: truncate(value.session_summary), projectDir: info.cwd || null, createdAt: parseTimestamp(value.created_at), lastActiveAt: parseTimestamp(value.last_active_at ?? value.updated_at) }))
     } catch {} }
     return result
   }
@@ -276,7 +295,7 @@ function createSessionManager(options = {}) {
   async function createSqliteBackup(db, backup) {
     await fsp.mkdir(path.dirname(backup), { recursive: true })
     await fsp.rm(backup, { force: true })
-    await execFile('sqlite3', [db, `VACUUM INTO '${backup.replace(/'/g, "''")}'`], { timeout: 15000 })
+    await execFileImpl('sqlite3', [db, `VACUUM INTO '${backup.replace(/'/g, "''")}'`], { timeout: 15000 })
   }
   async function sqliteSessionSnapshot(providerId, db, id) {
     const escaped = id.replace(/'/g, "''")
@@ -298,7 +317,7 @@ function createSessionManager(options = {}) {
       const sql = providerId === 'hermes'
         ? `BEGIN; DELETE FROM messages WHERE session_id='${id}'; DELETE FROM sessions WHERE id='${id}'; COMMIT;`
         : `BEGIN; DELETE FROM part WHERE session_id='${id}'; DELETE FROM message WHERE session_id='${id}'; DELETE FROM session WHERE id='${id}'; COMMIT;`
-      await execFile('sqlite3', [parsed.db, sql], { timeout: 5000 })
+      await execFileImpl('sqlite3', [parsed.db, sql], { timeout: 5000 })
       const manifest = { id: trashId, providerId, sessionId, title: session.title || null, deletedAt: Date.now(), moved: [], sqliteRestore: { db: parsed.db, backupPath: backup, tables } }
       try { await fsp.writeFile(path.join(trashDir, `${trashId}.json`), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 }) }
       catch (error) { await fsp.copyFile(backup, parsed.db).catch(() => {}); throw error }
@@ -354,8 +373,24 @@ function createSessionManager(options = {}) {
   }
   async function deleteSessions(items) { const results = []; for (const item of Array.isArray(items) ? items : []) { try { const value = await deleteSession(item.providerId, item.sessionId, item.sourcePath); results.push({ ...item, ...value }) } catch (error) { results.push({ ...item, success: false, error: error.message }) } } return results }
   async function launchSession(providerId, sessionId, sourcePath) {
-    const session = (await listSessions()).find((item) => item.providerId === providerId && item.sessionId === sessionId && item.sourcePath === sourcePath); if (!session?.resumeCommand) throw new Error('该会话不支持 CLI 恢复'); if (process.platform !== 'darwin') throw new Error('会话终端恢复当前仅支持 macOS')
-    const cwd = session.projectDir && fs.existsSync(session.projectDir) ? session.projectDir : homeDir; const command = `cd ${quoteShell(cwd)} && ${session.resumeCommand}`; const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"'); const script = `tell application "Terminal"\nactivate\ndo script "${escaped}"\nend tell`; await execFile('osascript', ['-e', script], { timeout: 10000 }); return { launched: true, command: session.resumeCommand, cwd }
+    const session = (await listSessions()).find((item) => item.providerId === providerId && item.sessionId === sessionId && item.sourcePath === sourcePath)
+    const resume = session ? resumeSpec(session.providerId, session.sessionId) : null
+    if (!resume) throw new Error('该会话不支持 CLI 恢复')
+    const cwd = session.projectDir && fs.existsSync(session.projectDir) ? session.projectDir : homeDir
+    let command
+    if (platform === 'darwin') {
+      command = `cd ${quoteShell(cwd)} && ${resume.command}`
+      const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const script = `tell application "Terminal"\nactivate\ndo script "${escaped}"\nend tell`
+      await execFileImpl('osascript', ['-e', script], { timeout: 10000 })
+    } else if (platform === 'win32') {
+      command = `Set-Location -LiteralPath ${quotePowerShell(cwd)}; & ${quotePowerShell(resume.executable)} ${resume.args.map(quotePowerShell).join(' ')}`
+      await execFileImpl('powershell.exe', ['-NoProfile', '-Command', `Start-Process powershell.exe -ArgumentList @('-NoExit','-Command',${quotePowerShell(command)})`], { timeout: 10000, windowsHide: true })
+    } else if (platform === 'linux') {
+      command = `cd ${quoteShell(cwd)} && ${resume.command}`
+      await launchLinuxTerminal(execFileImpl, command)
+    } else throw new Error(`不支持的终端平台: ${platform}`)
+    return { launched: true, command: resume.command, cwd }
   }
   async function listTrash() {
     let entries; try { entries = await fsp.readdir(trashDir, { withFileTypes: true }) } catch (error) { if (error.code === 'ENOENT') return []; throw error }
@@ -383,7 +418,7 @@ function createSessionManager(options = {}) {
       if (!statements.length) throw new Error('SQLite Session 恢复数据为空')
       const preRestoreBackup = path.join(trashDir, `${trashId}-pre-restore-${path.basename(sqlite.db)}.bak`)
       await createSqliteBackup(sqlite.db, preRestoreBackup)
-      await execFile('sqlite3', [sqlite.db, `BEGIN IMMEDIATE; ${statements.join(' ')} COMMIT;`], { timeout: 10000 })
+      await execFileImpl('sqlite3', [sqlite.db, `BEGIN IMMEDIATE; ${statements.join(' ')} COMMIT;`], { timeout: 10000 })
       await fsp.rm(manifestPath)
       return { restored: true, providerId: manifest.providerId, sessionId: manifest.sessionId, backupPath: preRestoreBackup }
     }
@@ -407,4 +442,4 @@ function createSessionManager(options = {}) {
   return { listSessions, getSessionMessages, deleteSession, deleteSessions, launchSession, listTrash, restoreTrash, getRoots: () => structuredClone(roots), _internal: { scanClaude, scanCodex, scanGemini, scanOpenCodeJson, scanOpenCodeSqlite, scanOpenClaw, scanHermes, scanHermesSqlite, scanGrokBuild, loadCodexThreadTitles } }
 }
 
-module.exports = { parseTimestamp, extractText, truncate, quoteShell, codexRequestHeadingPayload, extractCodexPromptFromIdeContext, codexTitleCandidate, createSessionManager }
+module.exports = { parseTimestamp, extractText, truncate, quoteShell, quotePowerShell, codexRequestHeadingPayload, extractCodexPromptFromIdeContext, codexTitleCandidate, createSessionManager }

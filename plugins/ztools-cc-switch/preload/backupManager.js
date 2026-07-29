@@ -45,6 +45,16 @@ function createBackupManager(options = {}) {
     await atomicWrite(target, `${JSON.stringify(bundle, null, 2)}\n`)
     return { path: target, fileCount: Object.keys(files).length }
   }
+  async function getLocalModifiedAt() {
+    let latest = 0
+    for (const filename of DATA_FILES) {
+      try {
+        const stat = await fsp.stat(path.join(dataDir, filename))
+        if (stat.isFile()) latest = Math.max(latest, stat.mtimeMs)
+      } catch (error) { if (error.code !== 'ENOENT') throw error }
+    }
+    return latest
+  }
   async function performImportBackup(source) {
     const sourcePath = path.resolve(String(source || ''))
     const stat = await fsp.lstat(sourcePath)
@@ -172,6 +182,6 @@ function createBackupManager(options = {}) {
     if (latest && Date.now() - new Date(latest.createdAt).getTime() < settings.intervalHours * 3600000) return { created: false }
     return { created: true, backup: await createLocalBackup('db_backup') }
   }
-  return { exportBackup, importBackup, getLocalBackupSettings, saveLocalBackupSettings, listLocalBackups, createLocalBackup, restoreLocalBackup, renameLocalBackup, deleteLocalBackup, periodicLocalBackupIfNeeded }
+  return { exportBackup, importBackup, getLocalModifiedAt, getLocalBackupSettings, saveLocalBackupSettings, listLocalBackups, createLocalBackup, restoreLocalBackup, renameLocalBackup, deleteLocalBackup, periodicLocalBackupIfNeeded }
 }
 module.exports = { DATA_FILES, MAX_BACKUP_FILE_BYTES, createBackupManager }

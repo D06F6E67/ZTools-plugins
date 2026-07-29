@@ -45,6 +45,44 @@ test('imports, synchronizes, migrates and recoverably removes a Skill', async (t
   await assert.rejects(() => fs.stat(path.join(homeDir, '.claude', 'skills', 'demo-skill')), /ENOENT/)
 })
 
+async function createOwnedSkillFixture(t, syncMode = 'symlink') {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-skill-ownership-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const homeDir = path.join(root, 'home'); const source = path.join(root, 'source')
+  await fs.mkdir(source, { recursive: true }); await fs.writeFile(path.join(source, 'SKILL.md'), '---\nname: Owned\n---\n')
+  const manager = createSkillManager({ homeDir, dataDir: path.join(root, 'data') })
+  await manager.importSkill(source, 'owned')
+  if (syncMode === 'copy') await manager.updateSettings({ syncMode: 'copy' })
+  await manager.setSkillEnabled('owned', 'claude', true)
+  return { root, homeDir, manager, target: path.join(homeDir, '.claude', 'skills', 'owned') }
+}
+
+test('Skill disable verifies symlink ownership and preserves a replacement directory', async (t) => {
+  const fixture = await createOwnedSkillFixture(t)
+  await fs.rm(fixture.target); await fs.mkdir(fixture.target); await fs.writeFile(path.join(fixture.target, 'user.txt'), 'keep')
+  await assert.rejects(() => fixture.manager.setSkillEnabled('owned', 'claude', false), /所有权标记|不再属于插件管理|不是插件管理/)
+  assert.equal(await fs.readFile(path.join(fixture.target, 'user.txt'), 'utf8'), 'keep')
+})
+
+test('Skill disable removes verified symlinks and marked copies only', async (t) => {
+  const linked = await createOwnedSkillFixture(t)
+  await linked.manager.setSkillEnabled('owned', 'claude', false)
+  await assert.rejects(() => fs.lstat(linked.target), /ENOENT/)
+
+  const copied = await createOwnedSkillFixture(t, 'copy')
+  assert.match(await fs.readFile(path.join(copied.target, '.ztools-cc-switch-managed.json'), 'utf8'), /"directory": "owned"/)
+  await copied.manager.setSkillEnabled('owned', 'claude', false)
+  await assert.rejects(() => fs.lstat(copied.target), /ENOENT/)
+})
+
+test('Skill operations never delete unmarked or replaced client directories', async (t) => {
+  const copied = await createOwnedSkillFixture(t, 'copy')
+  await fs.rm(path.join(copied.target, '.ztools-cc-switch-managed.json'))
+  await assert.rejects(() => copied.manager.setSkillEnabled('owned', 'claude', false), /所有权标记/)
+  assert.equal((await fs.stat(copied.target)).isDirectory(), true)
+  await assert.rejects(() => copied.manager.removeSkill('owned'), /所有权标记/)
+  assert.equal(await fs.readFile(path.join(copied.root, 'data', 'skills', 'owned', 'SKILL.md'), 'utf8'), '---\nname: Owned\n---\n')
+})
+
 test('installs multiple Skills from ZIP, resolves internal symlinks and skips conflicts', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-skills-zip-test-'))
   t.after(() => fs.rm(root, { recursive: true, force: true }))

@@ -1,13 +1,13 @@
 {
   "name": "ztools-cc-switch",
   "title": "AI Provider Switch",
-  "version": "1.52.0",
+  "version": "1.53.0",
   "description": "统一管理 AI 编程客户端 Provider、Skills、本地路由、用量与日志",
   "author": "ZTools Community",
   "main": "index.html",
   "preload": "preload/index.js",
   "logo": "logo.svg",
-  "platform": ["darwin"],
+  "platform": ["darwin", "win32", "linux"],
   "development": {
     "main": "http://127.0.0.1:5179/"
   },

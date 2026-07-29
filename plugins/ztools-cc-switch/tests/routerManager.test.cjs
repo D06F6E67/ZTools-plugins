@@ -33,6 +33,57 @@ test('router config always normalizes listening host to loopback', async (t) => 
   assert.equal(config.host, '127.0.0.1')
 })
 
+test('concurrent router starts share one server and stop releases the port', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-concurrent-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise((resolve) => probe.close(resolve))
+  const router = createRouterManager({ dataDir: root, getActiveProvider: async () => null })
+  await router.saveConfig({ port })
+  const [first, second] = await Promise.all([router.start(), router.start()])
+  assert.equal(first.running, true); assert.equal(second.running, true); assert.equal(first.url, second.url)
+  await router.stop()
+  const replacement = http.createServer(); await new Promise((resolve, reject) => replacement.once('error', reject).listen(port, '127.0.0.1', resolve)); await new Promise((resolve) => replacement.close(resolve))
+})
+
+test('local routes reject requests without the private gateway token', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-auth-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise((resolve) => probe.close(resolve))
+  const router = createRouterManager({
+    dataDir: root,
+    getRouteCredential: async () => 'private-route-token',
+    fetchImpl: async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    getActiveProvider: async () => ({ id: 'upstream', name: 'Upstream', apiKey: 'real-upstream-key', baseUrl: 'https://api.example.com', model: 'gpt', apiType: 'responses' })
+  })
+  await router.saveConfig({ port, routes: { codex: true } }); await router.start(); t.after(() => router.stop())
+  const url = `http://127.0.0.1:${port}/v1/responses`
+  let response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+  assert.equal(response.status, 401)
+  response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer private-route-token' }, body: '{}' })
+  assert.equal(response.status, 200)
+})
+
+test('Gemini routes replace local gateway credentials instead of forwarding them upstream', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-gemini-auth-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
+  const probe = http.createServer(); await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise((resolve) => probe.close(resolve))
+  let upstream
+  const router = createRouterManager({
+    dataDir: root,
+    getRouteCredential: async () => 'private-route-token',
+    getActiveProvider: async () => ({ id: 'gemini', name: 'Gemini', apiKey: 'provider-key', baseUrl: 'https://generativelanguage.googleapis.com', model: 'gemini-test', apiType: 'gemini' }),
+    fetchImpl: async (url, init) => {
+      upstream = { url: new URL(url), headers: init.headers }
+      return new Response(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: {} }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+  })
+  await router.saveConfig({ port, routes: { claude: true } }); await router.start(); t.after(() => router.stop())
+  const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'private-route-token', 'x-goog-api-key': 'also-local' }, body: JSON.stringify({ model: 'claude-test', max_tokens: 32, messages: [{ role: 'user', content: 'hi' }] }) })
+  assert.equal(response.status, 200)
+  assert.equal(upstream.url.searchParams.get('key'), 'provider-key')
+  assert.equal(upstream.headers.authorization, undefined)
+  assert.equal(upstream.headers['x-api-key'], undefined)
+  assert.equal(upstream.headers['x-goog-api-key'], undefined)
+  assert.doesNotMatch(JSON.stringify(upstream), /private-route-token|also-local/)
+})
+
 test('router rejects self-recursive upstream and forwarded router hops', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ztools-router-recursion-')); t.after(() => fs.rm(root, { recursive: true, force: true }))
   const probe = http.createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r)); const port = probe.address().port; await new Promise(r => probe.close(r))

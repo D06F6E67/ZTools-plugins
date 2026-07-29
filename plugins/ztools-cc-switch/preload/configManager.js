@@ -17,6 +17,7 @@ const crypto = require('node:crypto')
 const JSON5 = require('json5')
 const YAML = require('yaml')
 const { OFFICIAL_PROVIDER_ID, PROFILE_ID, normalizeRoutes } = require('./claudeDesktopManager')
+const { requireSecureHttpUrl } = require('./networkSecurity')
 
 const CLIENTS = Object.freeze({
   claude: { id: 'claude', name: 'Claude Code', accent: '#E8A66A' },
@@ -76,10 +77,12 @@ function createConfigManager(options = {}) {
   const paths = getClientPaths(homeDir)
   const providerStorePath = path.join(dataDir, 'providers.json')
   const commonConfigPath = path.join(dataDir, 'common-config-snippets.json')
+  const routeCredentialPath = path.join(dataDir, 'route-gateway-token')
   const sidecar = options.sidecar || null
   const resolveProviderAuth = options.resolveProviderAuth || null
   const claudeDesktopManager = options.claudeDesktopManager || null
   const getRouterStatus = options.getRouterStatus || (async () => ({ running: false, url: '' }))
+  let storeMutationQueue = Promise.resolve()
 
   async function ensureDataDir() {
     await fsp.mkdir(dataDir, { recursive: true })
@@ -136,6 +139,9 @@ function createConfigManager(options = {}) {
     provider.id = String(provider.id || '').trim() || crypto.randomUUID()
     provider.name = String(provider.name || '').trim()
     provider.apiKey = String(provider.apiKey || '').trim()
+    delete provider.hasApiKey
+    delete provider.apiKeyPreview
+    delete provider.clearApiKey
     provider.baseUrl = String(provider.baseUrl || '').trim().replace(/\/+$/, '')
     provider.model = String(provider.model || '').trim()
     provider.modelsUrl = String(provider.modelsUrl || '').trim()
@@ -213,20 +219,9 @@ function createConfigManager(options = {}) {
     if (!provider.clients.length) throw new Error('请至少选择一个客户端')
     const officialDesktop = provider.id === OFFICIAL_PROVIDER_ID && provider.clients.includes('claude-desktop')
     if (!provider.baseUrl && !officialDesktop) throw new Error('Base URL 不能为空')
-    if (officialDesktop) return provider
-    try {
-      const parsed = new URL(provider.baseUrl)
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported')
-    } catch {
-      throw new Error('Base URL 必须是有效的 HTTP(S) 地址')
-    }
+    if (provider.baseUrl) requireSecureHttpUrl(provider.baseUrl, 'Base URL')
     if (provider.modelsUrl) {
-      try {
-        const parsed = new URL(provider.modelsUrl)
-        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported')
-      } catch {
-        throw new Error('Models URL 必须是有效的 HTTP(S) 地址')
-      }
+      requireSecureHttpUrl(provider.modelsUrl, 'Models URL')
     }
     return provider
   }
@@ -310,7 +305,38 @@ function createConfigManager(options = {}) {
 
   async function saveStore(store) {
     await ensureDataDir()
+    await options.beforeStoreWrite?.(structuredClone(store))
     await writeJson(providerStorePath, store)
+  }
+
+  function mutateStore(mutator, hooks = {}) {
+    const task = storeMutationQueue.then(async () => {
+      const store = await loadStore()
+      const result = await mutator(store)
+      try { await saveStore(store) }
+      catch (error) {
+        await hooks.onSaveError?.(error, store)
+        throw error
+      }
+      return result
+    })
+    storeMutationQueue = task.catch(() => {})
+    return task
+  }
+
+  async function getRouteCredential() {
+    await ensureDataDir()
+    try {
+      const existing = (await fsp.readFile(routeCredentialPath, 'utf8')).trim()
+      if (existing.length >= 32) return existing
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+    const token = `ztools-route-${crypto.randomBytes(32).toString('base64url')}`
+    await fsp.writeFile(routeCredentialPath, `${token}\n`, { mode: 0o600, flag: 'wx' }).catch(async (error) => {
+      if (error.code !== 'EEXIST') throw error
+    })
+    return (await fsp.readFile(routeCredentialPath, 'utf8')).trim()
   }
 
   async function loadCommonConfigStore() {
@@ -505,7 +531,6 @@ function createConfigManager(options = {}) {
    * 每个客户端使用稳定 ID，重复导入会更新同一条记录，不会不断制造副本。
    */
   async function importLiveProviders() {
-    const store = await loadStore()
     const candidates = []
     const skipped = []
 
@@ -655,16 +680,18 @@ function createConfigManager(options = {}) {
       else skipped.push({ client: 'grokbuild', reason: '未发现自定义模型 API Key 与 Base URL' })
     } catch (error) { skipped.push({ client: 'grokbuild', reason: error.message }) }
 
-    const imported = []
-    for (const input of candidates) {
-      const provider = validateProvider(input)
-      const index = store.providers.findIndex((item) => item.id === provider.id)
-      if (index >= 0) store.providers.splice(index, 1, provider)
-      else store.providers.push(provider)
-      store.active[provider.clients[0]] = provider.id
-      imported.push({ id: provider.id, name: provider.name, client: provider.clients[0] })
-    }
-    if (imported.length) await saveStore(store)
+    const imported = candidates.length ? await mutateStore(async (store) => {
+      const rows = []
+      for (const input of candidates) {
+        const provider = validateProvider(input)
+        const index = store.providers.findIndex((item) => item.id === provider.id)
+        if (index >= 0) store.providers.splice(index, 1, provider)
+        else store.providers.push(provider)
+        store.active[provider.clients[0]] = provider.id
+        rows.push({ id: provider.id, name: provider.name, client: provider.clients[0] })
+      }
+      return rows
+    }) : []
     return { imported, skipped }
   }
 
@@ -755,21 +782,38 @@ function createConfigManager(options = {}) {
       if (store.routes[client]?.enabled && store.active[client]) nextActive[client] = store.active[client]
       else if (detected[client]) nextActive[client] = detected[client]
     }
-    if (JSON.stringify(nextActive) !== JSON.stringify(store.active)) {
-      store.active = nextActive
-      await saveStore(store)
-    }
+    if (JSON.stringify(nextActive) !== JSON.stringify(store.active)) store.active = nextActive
     return store
   }
 
   async function listProviders() {
-    const store = await detectActiveProviders(await loadStore())
+    const store = await mutateStore((value) => detectActiveProviders(value))
     return {
       providers: store.providers,
       active: store.active,
       sortOrders: store.sortOrders,
       clients: Object.values(CLIENTS)
     }
+  }
+
+  function publicProvider(provider) {
+    return {
+      ...provider,
+      apiKey: '',
+      hasApiKey: Boolean(provider.apiKey),
+      apiKeyPreview: provider.apiKey
+        ? (provider.apiKey.length < 9 ? '••••••••' : `${provider.apiKey.slice(0, 4)}••••${provider.apiKey.slice(-4)}`)
+        : ''
+    }
+  }
+
+  async function listPublicProviders() {
+    const result = await listProviders()
+    return { ...result, providers: result.providers.map(publicProvider) }
+  }
+
+  async function savePublicProvider(input) {
+    return publicProvider(await saveProvider(input))
   }
 
   async function getActiveProvider(client) {
@@ -786,12 +830,23 @@ function createConfigManager(options = {}) {
 
   async function activateProvider(client, providerId) {
     if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
-    const store = await loadStore()
-    const provider = store.providers.find((item) => item.id === providerId)
-    if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
-    store.active[client] = provider.id
-    await saveStore(store)
-    return provider
+    return mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId)
+      if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
+      store.active[client] = provider.id
+      return provider
+    })
+  }
+
+  async function restoreActiveProvider(client, providerId) {
+    if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
+    return mutateStore(async (store) => {
+      if (!providerId) { delete store.active[client]; return null }
+      const provider = store.providers.find((item) => item.id === providerId && item.clients.includes(client))
+      if (!provider) throw new Error('无法恢复之前的 Provider')
+      store.active[client] = provider.id
+      return provider
+    })
   }
 
   async function getProviderCandidates(client) {
@@ -831,58 +886,61 @@ function createConfigManager(options = {}) {
 
   async function addToFailoverQueue(client, providerIdInput) {
     if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
-    const providerId = String(providerIdInput || ''); const store = await loadStore()
-    const provider = store.providers.find((item) => item.id === providerId && item.clients.includes(client) && (item.apiKey || item.authProvider))
-    if (!provider) throw new Error('Provider 不存在、不适用于该客户端或未配置认证')
-    store.failoverQueues[client] = store.failoverQueues[client] || []
-    if (!store.failoverQueues[client].includes(providerId)) store.failoverQueues[client].push(providerId)
-    await saveStore(store); return getFailoverQueue(client)
+    const providerId = String(providerIdInput || '')
+    await mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId && item.clients.includes(client) && (item.apiKey || item.authProvider))
+      if (!provider) throw new Error('Provider 不存在、不适用于该客户端或未配置认证')
+      store.failoverQueues[client] = store.failoverQueues[client] || []
+      if (!store.failoverQueues[client].includes(providerId)) store.failoverQueues[client].push(providerId)
+    })
+    return getFailoverQueue(client)
   }
 
   async function removeFromFailoverQueue(client, providerIdInput) {
     if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
-    const providerId = String(providerIdInput || ''); const store = await loadStore()
-    store.failoverQueues[client] = (store.failoverQueues[client] || []).filter((id) => id !== providerId)
-    await saveStore(store); return getFailoverQueue(client)
+    const providerId = String(providerIdInput || '')
+    await mutateStore(async (store) => { store.failoverQueues[client] = (store.failoverQueues[client] || []).filter((id) => id !== providerId) })
+    return getFailoverQueue(client)
   }
 
   async function saveProvider(input) {
-    const provider = validateProvider(input)
-    const store = await loadStore()
-    const index = store.providers.findIndex((item) => item.id === provider.id)
-    if (index >= 0) {
-      provider.source = store.providers[index].source || provider.source
-      store.providers.splice(index, 1, provider)
-    } else {
-      provider.source = 'custom'
-      store.providers.push(provider)
-    }
-    store.hiddenPresetIds = store.hiddenPresetIds.filter((id) => id !== provider.id)
-    await saveStore(store)
-    return provider
+    return mutateStore(async (store) => {
+      const requestedId = String(input?.id || '').trim()
+      const existing = requestedId ? store.providers.find((item) => item.id === requestedId) : null
+      const merged = existing && !input.clearApiKey && !String(input.apiKey || '').trim()
+        ? { ...input, apiKey: existing.apiKey }
+        : input
+      const provider = validateProvider(merged)
+      const index = store.providers.findIndex((item) => item.id === provider.id)
+      if (index >= 0) {
+        provider.source = store.providers[index].source || provider.source
+        store.providers.splice(index, 1, provider)
+      } else {
+        provider.source = 'custom'
+        store.providers.push(provider)
+      }
+      store.hiddenPresetIds = store.hiddenPresetIds.filter((id) => id !== provider.id)
+      return provider
+    })
   }
 
   async function updateProviderSortOrder(client, orderedIds) {
     if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
     if (!Array.isArray(orderedIds)) throw new Error('排序列表必须是数组')
-    const store = await loadStore()
-    const eligible = store.providers.filter((item) => item.clients.includes(client)).map((item) => item.id)
-    const expected = new Set(eligible)
-    const normalized = orderedIds.map((id) => String(id || '')).filter(Boolean)
-    if (normalized.length !== eligible.length || new Set(normalized).size !== normalized.length || normalized.some((id) => !expected.has(id))) {
-      throw new Error('排序列表必须完整且不能包含重复或跨客户端 Provider')
-    }
-    store.sortOrders[client] = normalized
-    await saveStore(store)
-    return normalized
+    return mutateStore(async (store) => {
+      const eligible = store.providers.filter((item) => item.clients.includes(client)).map((item) => item.id)
+      const expected = new Set(eligible)
+      const normalized = orderedIds.map((id) => String(id || '')).filter(Boolean)
+      if (normalized.length !== eligible.length || new Set(normalized).size !== normalized.length || normalized.some((id) => !expected.has(id))) throw new Error('排序列表必须完整且不能包含重复或跨客户端 Provider')
+      store.sortOrders[client] = normalized
+      return normalized
+    })
   }
 
   function normalizeEndpointUrl(value, required = false) {
     const raw = String(value || '').trim().replace(/\/+$/, '')
     if (!raw) { if (required) throw new Error('URL 不能为空'); return '' }
-    let parsed
-    try { parsed = new URL(raw) } catch { throw new Error('端点 URL 无效') }
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('端点必须是无内嵌凭据的 HTTP(S) URL')
+    const parsed = requireSecureHttpUrl(raw, '端点 URL')
     return parsed.href.replace(/\/$/, '')
   }
 
@@ -895,53 +953,54 @@ function createConfigManager(options = {}) {
 
   async function addCustomEndpoint(client, providerId, value) {
     const url = normalizeEndpointUrl(value, true)
-    const store = await loadStore(); const provider = store.providers.find((item) => item.id === providerId)
-    if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
-    provider.customEndpointsByClient = provider.customEndpointsByClient && typeof provider.customEndpointsByClient === 'object' ? provider.customEndpointsByClient : {}
-    const rows = Array.isArray(provider.customEndpointsByClient[client]) ? provider.customEndpointsByClient[client] : []
-    if (!rows.some((item) => item.url === url)) rows.unshift({ url, addedAt: Date.now(), lastUsed: null })
-    provider.customEndpointsByClient[client] = rows
-    await saveStore(store)
-    return rows
+    return mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId)
+      if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
+      provider.customEndpointsByClient = provider.customEndpointsByClient && typeof provider.customEndpointsByClient === 'object' ? provider.customEndpointsByClient : {}
+      const rows = Array.isArray(provider.customEndpointsByClient[client]) ? provider.customEndpointsByClient[client] : []
+      if (!rows.some((item) => item.url === url)) rows.unshift({ url, addedAt: Date.now(), lastUsed: null })
+      provider.customEndpointsByClient[client] = rows
+      return rows
+    })
   }
 
   async function removeCustomEndpoint(client, providerId, value) {
     const url = normalizeEndpointUrl(value, true)
-    const store = await loadStore(); const provider = store.providers.find((item) => item.id === providerId)
-    if (!provider) return false
-    provider.customEndpointsByClient = provider.customEndpointsByClient || {}
-    provider.customEndpointsByClient[client] = (provider.customEndpointsByClient[client] || []).filter((item) => item.url !== url)
-    await saveStore(store); return true
+    return mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId)
+      if (!provider) return false
+      provider.customEndpointsByClient = provider.customEndpointsByClient || {}
+      provider.customEndpointsByClient[client] = (provider.customEndpointsByClient[client] || []).filter((item) => item.url !== url)
+      return true
+    })
   }
 
   async function selectCustomEndpoint(client, providerId, value) {
     const url = normalizeEndpointUrl(value, true)
-    const store = await loadStore(); const provider = store.providers.find((item) => item.id === providerId)
-    if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
-    const endpoint = (provider.customEndpointsByClient?.[client] || []).find((item) => item.url === url)
-    if (!endpoint && normalizeEndpointUrl(provider.baseUrl) !== url) throw new Error('端点不属于该 Provider')
-    provider.baseUrl = url
-    if (endpoint) endpoint.lastUsed = Date.now()
-    await saveStore(store)
-    if (store.active[client] === provider.id) await switchProvider(client, provider.id)
-    return { providerId, client, baseUrl: url, applied: store.active[client] === provider.id }
+    const result = await mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId)
+      if (!provider || !provider.clients.includes(client)) throw new Error('Provider 不存在或不适用于该客户端')
+      const endpoint = (provider.customEndpointsByClient?.[client] || []).find((item) => item.url === url)
+      if (!endpoint && normalizeEndpointUrl(provider.baseUrl) !== url) throw new Error('端点不属于该 Provider')
+      provider.baseUrl = url
+      if (endpoint) endpoint.lastUsed = Date.now()
+      return { applied: store.active[client] === provider.id }
+    })
+    if (result.applied) await switchProvider(client, providerId)
+    return { providerId, client, baseUrl: url, applied: result.applied }
   }
 
   async function deleteProvider(providerId) {
     if (providerId === OFFICIAL_PROVIDER_ID) throw new Error('Claude Desktop Official Provider 不能删除')
-    const store = await loadStore()
-    const existing = store.providers.find((item) => item.id === providerId)
-    if (!existing) return false
-    store.providers = store.providers.filter((item) => item.id !== providerId)
-    if (existing.source === 'preset' && !store.hiddenPresetIds.includes(providerId)) {
-      store.hiddenPresetIds.push(providerId)
-    }
-    for (const client of Object.keys(store.active)) {
-      if (store.active[client] === providerId) delete store.active[client]
-    }
-    for (const client of Object.keys(store.failoverQueues || {})) store.failoverQueues[client] = (store.failoverQueues[client] || []).filter((id) => id !== providerId)
-    await saveStore(store)
-    return true
+    return mutateStore(async (store) => {
+      const existing = store.providers.find((item) => item.id === providerId)
+      if (!existing) return false
+      store.providers = store.providers.filter((item) => item.id !== providerId)
+      if (existing.source === 'preset' && !store.hiddenPresetIds.includes(providerId)) store.hiddenPresetIds.push(providerId)
+      for (const client of Object.keys(store.active)) if (store.active[client] === providerId) delete store.active[client]
+      for (const client of Object.keys(store.failoverQueues || {})) store.failoverQueues[client] = (store.failoverQueues[client] || []).filter((id) => id !== providerId)
+      return true
+    })
   }
 
   async function writeClaude(provider) {
@@ -1305,85 +1364,83 @@ function createConfigManager(options = {}) {
     }
   }
 
+  async function applyProviderToClient(client, provider) {
+    if (sidecar && sidecar.isAvailable() && ['claude', 'codex', 'gemini'].includes(client) && !provider.commonConfigEnabled) return sidecar.applyClient(client, homeDir, provider)
+    if (client === 'claude') return writeClaude(provider)
+    if (client === 'codex') return writeCodex(provider)
+    if (client === 'gemini') return writeGemini(provider)
+    if (client === 'opencode') return writeOpenCode(provider)
+    if (client === 'openclaw') return writeOpenClaw(provider)
+    if (client === 'hermes') return writeHermes(provider)
+    if (client === 'grokbuild') return writeGrokBuild(provider)
+  }
+
+  function routedBaseUrl(client, routerUrl) {
+    const parsed = new URL(routerUrl)
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) throw new Error('路由接管地址必须是本机回环地址')
+    const prefixes = { codex: '/v1', opencode: '/opencode/v1', openclaw: '/openclaw/v1', hermes: '/hermes/v1', grokbuild: '/grokbuild/v1' }
+    return `${parsed.origin}${prefixes[client] || ''}`
+  }
+
+  async function applyRoutedProvider(client, provider, routerUrl) {
+    const routeCredential = await getRouteCredential()
+    const routedProvider = { ...provider, apiKey: routeCredential, baseUrl: routedBaseUrl(client, routerUrl) }
+    await applyProviderToClient(client, routedProvider)
+  }
+
   async function setClientRouting(client, enabled, routerUrl) {
     if (!['claude', 'codex', 'gemini', 'opencode', 'openclaw', 'hermes', 'grokbuild'].includes(client)) throw new Error(`${CLIENTS[client]?.name || client} 暂不支持本地路由接管`)
-    const store = await loadStore()
-    const current = store.routes[client]
-    if (enabled) {
-      if (current?.enabled) return { client, enabled: true, providerId: store.active[client] }
+    let rollback = async () => {}
+    return mutateStore(async (store) => {
+      const current = store.routes[client]
+      if (enabled) {
+        if (current?.enabled) return { client, enabled: true, providerId: store.active[client] }
+        const provider = store.providers.find((item) => item.id === store.active[client])
+        if (!provider) throw new Error(`请先为 ${CLIENTS[client].name} 启用一个 Provider`)
+        const parsed = new URL(routerUrl)
+        routedBaseUrl(client, parsed.origin)
+        const snapshots = await captureClientFiles(client)
+        rollback = () => restoreClientFiles(snapshots)
+        try { await applyRoutedProvider(client, provider, parsed.origin) }
+        catch (error) { await rollback().catch(() => {}); throw error }
+        store.routes[client] = { enabled: true, routerUrl: parsed.origin, snapshots, enabledAt: Date.now() }
+        return { client, enabled: true, providerId: provider.id }
+      }
+      if (!current?.enabled) return { client, enabled: false, providerId: store.active[client] || null }
       const provider = store.providers.find((item) => item.id === store.active[client])
-      if (!provider) throw new Error(`请先为 ${CLIENTS[client].name} 启用一个 Provider`)
-      const parsed = new URL(routerUrl)
-      if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) throw new Error('路由接管地址必须是本机回环地址')
-      const snapshots = await captureClientFiles(client)
-      const routePrefixes = { codex: '/v1', opencode: '/opencode/v1', openclaw: '/openclaw/v1', hermes: '/hermes/v1', grokbuild: '/grokbuild/v1' }
-      const routedProvider = {
-        ...provider,
-        baseUrl: `${parsed.origin}${routePrefixes[client] || ''}`
-      }
-      try {
-        if (sidecar && sidecar.isAvailable() && ['claude', 'codex', 'gemini'].includes(client) && !routedProvider.commonConfigEnabled) await sidecar.applyClient(client, homeDir, routedProvider)
-        else {
-          if (client === 'claude') await writeClaude(routedProvider)
-          if (client === 'codex') await writeCodex(routedProvider)
-          if (client === 'gemini') await writeGemini(routedProvider)
-          if (client === 'opencode') await writeOpenCode(routedProvider)
-          if (client === 'openclaw') await writeOpenClaw(routedProvider)
-          if (client === 'hermes') await writeHermes(routedProvider)
-          if (client === 'grokbuild') await writeGrokBuild(routedProvider)
-        }
-      } catch (error) {
-        await restoreClientFiles(snapshots).catch(() => {})
-        throw error
-      }
-      store.routes[client] = { enabled: true, routerUrl: parsed.origin, snapshots, enabledAt: Date.now() }
-      await saveStore(store)
-      return { client, enabled: true, providerId: provider.id }
-    }
-    if (!current?.enabled) return { client, enabled: false, providerId: store.active[client] || null }
-    await restoreClientFiles(current.snapshots)
-    delete store.routes[client]
-    await saveStore(store)
-    return { client, enabled: false, providerId: store.active[client] || null }
+      await restoreClientFiles(current.snapshots)
+      rollback = () => provider ? applyRoutedProvider(client, provider, current.routerUrl || routerUrl) : Promise.resolve()
+      delete store.routes[client]
+      return { client, enabled: false, providerId: store.active[client] || null }
+    }, { onSaveError: async () => rollback().catch(() => {}) })
   }
 
   async function switchProvider(client, providerId) {
     if (!CLIENTS[client]) throw new Error(`不支持的客户端: ${client}`)
-    const store = await loadStore()
-    const provider = store.providers.find((item) => item.id === providerId)
-    if (!provider) throw new Error('Provider 不存在')
-    if (!provider.clients.includes(client)) throw new Error(`${provider.name} 不支持 ${CLIENTS[client].name}`)
-    if (client === 'claude-desktop') {
-      if (!claudeDesktopManager) throw new Error('Claude Desktop 管理器未加载')
-      if (provider.id !== OFFICIAL_PROVIDER_ID && !provider.apiKey && !provider.authProvider) throw new Error('请先填写 API Key 或绑定登录账号')
-      await claudeDesktopManager.applyProvider(provider, await getRouterStatus())
+    let rollback = async () => {}
+    return mutateStore(async (store) => {
+      const provider = store.providers.find((item) => item.id === providerId)
+      if (!provider) throw new Error('Provider 不存在')
+      if (!provider.clients.includes(client)) throw new Error(`${provider.name} 不支持 ${CLIENTS[client].name}`)
+      if (client === 'claude-desktop') {
+        if (!claudeDesktopManager) throw new Error('Claude Desktop 管理器未加载')
+        if (provider.id !== OFFICIAL_PROVIDER_ID && !provider.apiKey && !provider.authProvider) throw new Error('请先填写 API Key 或绑定登录账号')
+        await claudeDesktopManager.applyProvider(provider, await getRouterStatus())
+        store.active[client] = provider.id
+        return { client, providerId, providerName: provider.name, routed: provider.claudeDesktopMode === 'proxy' }
+      }
+      const route = store.routes[client]
+      if (!provider.apiKey && !provider.authProvider) throw new Error('请先填写 API Key 或绑定登录账号')
+      if (!route?.enabled && provider.authProvider) throw new Error('订阅账号 Provider 需通过本地路由使用')
+      const before = await captureClientFiles(client)
+      rollback = () => restoreClientFiles(before)
+      try {
+        if (route?.enabled) await applyRoutedProvider(client, provider, route.routerUrl)
+        else await applyProviderToClient(client, provider)
+      } catch (error) { await rollback().catch(() => {}); throw error }
       store.active[client] = provider.id
-      await saveStore(store)
-      return { client, providerId, providerName: provider.name, routed: provider.claudeDesktopMode === 'proxy' }
-    }
-    if (!provider.apiKey) throw new Error('请先填写 API Key')
-
-    if (store.routes[client]?.enabled) {
-      store.active[client] = provider.id
-      await saveStore(store)
-      return { client, providerId, providerName: provider.name, routed: true }
-    }
-    if (sidecar && sidecar.isAvailable() && ['claude', 'codex', 'gemini'].includes(client) && !provider.commonConfigEnabled) {
-      await sidecar.applyClient(client, homeDir, provider)
-    } else {
-      // 开发环境和未提供当前平台二进制的源码运行保持可测试降级；
-      // 正式 build 会先强制生成并打包 sidecar。
-      if (client === 'claude') await writeClaude(provider)
-      if (client === 'codex') await writeCodex(provider)
-      if (client === 'gemini') await writeGemini(provider)
-      if (client === 'opencode') await writeOpenCode(provider)
-      if (client === 'openclaw') await writeOpenClaw(provider)
-      if (client === 'hermes') await writeHermes(provider)
-      if (client === 'grokbuild') await writeGrokBuild(provider)
-    }
-    store.active[client] = provider.id
-    await saveStore(store)
-    return { client, providerId, providerName: provider.name }
+      return { client, providerId, providerName: provider.name, ...(route?.enabled ? { routed: true } : {}) }
+    }, { onSaveError: async () => rollback().catch(() => {}) })
   }
 
   function modelsEndpoint(provider, client) {
@@ -1445,7 +1502,7 @@ function createConfigManager(options = {}) {
   }
 
   async function getClientStatus() {
-    const store = await detectActiveProviders(await loadStore())
+    const store = await mutateStore((value) => detectActiveProviders(value))
     const result = {}
     for (const [client, clientPaths] of Object.entries(paths)) {
       const entries = {}
@@ -1495,28 +1552,24 @@ function createConfigManager(options = {}) {
   }
 
   async function importClaudeDesktopProvidersFromClaude() {
-    const store = await loadStore()
-    const imported = []
-    for (const source of store.providers.filter((item) => item.clients.includes('claude') && item.id !== OFFICIAL_PROVIDER_ID)) {
-      if (source.clients.includes('claude-desktop')) continue
-      const requested = [source.claudeSonnetModel, source.claudeOpusModel, source.claudeHaikuModel, source.model].filter(Boolean)
-      const direct = source.apiType === 'anthropic' && !source.authProvider && !source.isFullUrl && requested.every((model) => /^((anthropic\/)?claude-)/i.test(model))
-      const routes = requested.map((model, index) => {
-        const normalizedModel = model.replace(/\s*\[1m\]\s*$/i, '')
-        return {
-        routeId: direct ? normalizedModel : ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5'][Math.min(index, 2)],
-        upstreamModel: normalizedModel,
-        labelOverride: direct ? '' : normalizedModel,
-        supports1m: /\[1m\]$/i.test(model)
-      } })
-      source.clients = [...source.clients, 'claude-desktop']
-      source.claudeDesktopMode = direct ? 'direct' : 'proxy'
-      source.claudeDesktopApiFormat = ({ openai_compat: 'openai_chat', responses: 'openai_responses', gemini: 'gemini_native' }[source.apiType] || 'anthropic')
-      source.claudeDesktopRoutes = normalizeRoutes(routes, source.claudeDesktopMode)
-      imported.push(source.id)
-    }
-    if (imported.length) await saveStore(store)
-    return { imported, skipped: store.providers.filter((item) => item.clients.includes('claude') && !imported.includes(item.id)).map((item) => item.id) }
+    return mutateStore(async (store) => {
+      const imported = []
+      for (const source of store.providers.filter((item) => item.clients.includes('claude') && item.id !== OFFICIAL_PROVIDER_ID)) {
+        if (source.clients.includes('claude-desktop')) continue
+        const requested = [source.claudeSonnetModel, source.claudeOpusModel, source.claudeHaikuModel, source.model].filter(Boolean)
+        const direct = source.apiType === 'anthropic' && !source.authProvider && !source.isFullUrl && requested.every((model) => /^((anthropic\/)?claude-)/i.test(model))
+        const routes = requested.map((model, index) => {
+          const normalizedModel = model.replace(/\s*\[1m\]\s*$/i, '')
+          return { routeId: direct ? normalizedModel : ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5'][Math.min(index, 2)], upstreamModel: normalizedModel, labelOverride: direct ? '' : normalizedModel, supports1m: /\[1m\]$/i.test(model) }
+        })
+        source.clients = [...source.clients, 'claude-desktop']
+        source.claudeDesktopMode = direct ? 'direct' : 'proxy'
+        source.claudeDesktopApiFormat = ({ openai_compat: 'openai_chat', responses: 'openai_responses', gemini: 'gemini_native' }[source.apiType] || 'anthropic')
+        source.claudeDesktopRoutes = normalizeRoutes(routes, source.claudeDesktopMode)
+        imported.push(source.id)
+      }
+      return { imported, skipped: store.providers.filter((item) => item.clients.includes('claude') && !imported.includes(item.id)).map((item) => item.id) }
+    })
   }
 
   async function getClaudeOnboardingStatus() {
@@ -1572,9 +1625,13 @@ function createConfigManager(options = {}) {
     getDataDir: () => dataDir,
     getClientPaths: () => paths,
     listProviders,
+    listPublicProviders,
+    savePublicProvider,
+    getRouteCredential,
     getActiveProvider,
     getProvider,
     activateProvider,
+    restoreActiveProvider,
     getProviderCandidates,
     getFailoverQueue,
     getAvailableProvidersForFailover,

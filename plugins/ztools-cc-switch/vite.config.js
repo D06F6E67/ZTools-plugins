@@ -11,6 +11,7 @@ export default defineConfig({
         { src: 'plugin.json', dest: '.' },
         { src: 'logo.svg', dest: '.' },
         { src: 'README.md', dest: '.' },
+        { src: 'CHANGELOG.md', dest: '.' },
         { src: 'LICENSE', dest: '.' },
         { src: 'THIRD_PARTY_NOTICES.md', dest: '.' },
         { src: 'public/default-rules.json', dest: '.' },

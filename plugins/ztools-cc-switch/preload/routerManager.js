@@ -183,9 +183,12 @@ function createRouterManager(options = {}) {
     return provider ? [provider] : []
   })
   const resolveProviderAuth = options.resolveProviderAuth || (async () => null)
+  const getRouteCredential = options.getRouteCredential || (async () => '')
+  const requireRouteAuth = typeof options.getRouteCredential === 'function'
   const getClaudeDesktopContext = options.getClaudeDesktopContext || (async () => ({ provider: null, gatewayToken: '' }))
   const fetchImpl = options.fetchImpl || globalThis.fetch
   let server = null
+  let startPromise = null
   let startedAt = null
   let activeConnections = 0
   let requestCount = 0
@@ -334,6 +337,12 @@ function createRouterManager(options = {}) {
           statusCode = 200
           return
         }
+      } else if (requireRouteAuth) {
+        const authorization = String(request.headers.authorization || '').replace(/^bearer\s+/i, '').trim()
+        const apiKey = String(request.headers['x-api-key'] || '').trim()
+        const queryKey = new URL(request.url || '/', 'http://local.invalid').searchParams.get('key') || ''
+        const supplied = authorization || apiKey || queryKey
+        if (!secureTokenEqual(supplied, await getRouteCredential())) throw Object.assign(new Error('本地路由令牌无效'), { statusCode: 401 })
       }
       const allCandidates = await getProviderCandidates(client)
       const candidates = config.failover.enabled[client] ? allCandidates : allCandidates.slice(0, 1)
@@ -414,13 +423,16 @@ function createRouterManager(options = {}) {
         Object.assign(headers, optimizerHeaders)
         const credential = managedAuth?.token || provider.apiKey
         if (!credential) throw new Error(`${provider.name} 缺少可用的认证凭据`)
+        // 入站凭据只用于认证本地路由，绝不能透传给上游 Provider。
+        delete headers.authorization
+        delete headers['x-api-key']
+        delete headers['x-goog-api-key']
         if (provider.authProvider === 'codex_oauth') {
           headers.authorization = `Bearer ${credential}`
           headers['chatgpt-account-id'] = managedAuth.accountId
           headers.originator = 'codex_cli_rs'
           headers.version = '0.115.0'
           headers['user-agent'] = 'codex_cli_rs/0.115.0'
-          delete headers['x-api-key']
         } else if (provider.authProvider === 'github_copilot') {
           headers.authorization = `Bearer ${credential}`
           headers['user-agent'] = 'GitHubCopilotChat/0.38.2'
@@ -428,12 +440,11 @@ function createRouterManager(options = {}) {
           headers['editor-plugin-version'] = 'copilot-chat/0.38.2'
           headers['copilot-integration-id'] = 'vscode-chat'
           headers['x-github-api-version'] = '2025-10-01'
-          delete headers['x-api-key']
         } else if (prepared.targetProtocol === 'anthropic') {
-          headers['x-api-key'] = credential; headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01'; delete headers.authorization
+          headers['x-api-key'] = credential; headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01'
         } else if (prepared.targetProtocol === 'gemini') {
-          upstream.searchParams.set('key', credential); delete headers.authorization
-        } else { headers.authorization = `Bearer ${credential}`; delete headers['x-api-key'] }
+          upstream.searchParams.set('key', credential)
+        } else { headers.authorization = `Bearer ${credential}` }
         const candidateBody = requestPayload ? Buffer.from(JSON.stringify(prepared.body)) : body
           upstreamResponse = await fetchImpl(upstream, { method: request.method, headers, body: ['GET', 'HEAD'].includes(request.method) ? undefined : candidateBody, redirect: 'manual' })
           const retryable = upstreamResponse.status === 408 || upstreamResponse.status === 429 || upstreamResponse.status >= 500
@@ -552,24 +563,40 @@ function createRouterManager(options = {}) {
 
   async function start() {
     if (server) return status()
-    const config = await loadConfig()
-    server = http.createServer((request, response) => {
-      handleRequest(request, response).catch((error) => {
-        console.error('[cc-switch] 路由请求异常:', error)
-        if (!response.headersSent) response.writeHead(500)
-        response.end()
+    if (startPromise) return startPromise
+    startPromise = (async () => {
+      const config = await loadConfig()
+      if (server) return status()
+      const candidate = http.createServer((request, response) => {
+        handleRequest(request, response).catch((error) => {
+          console.error('[cc-switch] 路由请求异常:', error)
+          if (!response.headersSent) response.writeHead(500)
+          response.end()
+        })
       })
-    })
-    server.requestTimeout = 10 * 60 * 1000
-    await new Promise((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(config.port, config.host, resolve)
-    }).catch((error) => { server = null; throw new Error(`路由服务启动失败: ${error.message}`) })
-    startedAt = Date.now()
-    return status()
+      candidate.requestTimeout = 10 * 60 * 1000
+      try {
+        await new Promise((resolve, reject) => {
+          const onError = (error) => { candidate.off('listening', onListening); reject(error) }
+          const onListening = () => { candidate.off('error', onError); resolve() }
+          candidate.once('error', onError)
+          candidate.once('listening', onListening)
+          candidate.listen(config.port, config.host)
+        })
+      } catch (error) {
+        if (candidate.listening) candidate.close()
+        throw new Error(`路由服务启动失败: ${error.message}`)
+      }
+      server = candidate
+      startedAt = Date.now()
+      return status()
+    })()
+    try { return await startPromise }
+    finally { startPromise = null }
   }
 
   async function stop() {
+    if (startPromise) await startPromise.catch(() => {})
     if (!server) return status()
     const current = server
     server = null

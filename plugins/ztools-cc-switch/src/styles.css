@@ -178,6 +178,8 @@ h1, h2, p { margin-top: 0; }
 .icon-button:hover svg { fill: #d0d9e4; }
 .icon-button.danger:hover { border-color: rgba(251,113,133,.35); background: rgba(251,113,133,.07); }
 .icon-button.danger:hover svg { fill: var(--red); }
+.text-danger-button { width: fit-content; padding: 0; border: 0; color: var(--red); background: transparent; font-size: 11px; cursor: pointer; }
+.text-danger-button:hover { text-decoration: underline; }
 .terminal-button { color: #718095; font: 600 8px 'JetBrains Mono',monospace; }.terminal-button:hover:not(:disabled) { color: var(--teal); border-color: rgba(94,234,212,.3); }
 .provider-state-badges { display: flex; align-items: center; gap: 6px; }
 .drag-grip { width: 18px; height: 24px; display: grid; grid-template-columns: repeat(2,3px); grid-auto-rows: 3px; place-content: center; gap: 3px; border-radius: 7px; color: var(--dim); cursor: grab; opacity: .52; transition: opacity .18s,background .18s; }
@@ -580,6 +582,8 @@ h1, h2, p { margin-top: 0; }
 .log-glyph { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(56,189,248,.24); border-radius: 9px; color: #38bdf8; background: rgba(56,189,248,.05); font: 700 11px 'JetBrains Mono',monospace; }.log-config-card { background: radial-gradient(circle at 92% 0,rgba(56,189,248,.06),transparent 34%),#0d141c; }.log-config-card > p { color: #647386; font-size: 9px; line-height: 1.6; }.log-policy-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }.log-policy-grid label { display: grid; gap: 6px; color: #657487; font-size: 7px; }.log-policy-grid input,.log-policy-grid select { width: 100%; height: 34px; padding: 0 9px; border: 1px solid #23313d; border-radius: 8px; color: #aab6c2; background: #091017; font: 500 8px 'JetBrains Mono',monospace; }.log-file-strip { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid #202d38; border-radius: 8px; background: #0a1118; }.log-file-strip span,.log-file-strip strong { color: #6f8092; font: 600 7px 'JetBrains Mono',monospace; }.log-file-strip strong { color: #38bdf8; }.log-file-strip small { justify-self: end; color: #526174; font-size: 7px; }
 .modal-header { padding: clamp(16px,2.8vh,24px) clamp(16px,3vw,30px); }
 .modal-actions { position: sticky; bottom: -1px; z-index: 2; margin: 2px calc(0px - var(--modal-pad-x)) calc(0px - var(--modal-pad-bottom)); padding: 14px var(--modal-pad-x) clamp(14px,2.5vh,22px); border-top: 1px solid #1b2530; background: linear-gradient(180deg,rgba(13,19,27,.94),#0d131b 30%); backdrop-filter: blur(14px); }
+.provider-config-modal > form { padding-bottom: 0; }
+.provider-config-modal > form > .modal-actions { bottom: 0; margin-bottom: 0; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .35; box-shadow: 0 0 0 5px rgba(121,167,255,.06); } }

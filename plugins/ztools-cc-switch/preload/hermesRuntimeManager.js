@@ -3,6 +3,7 @@
 const http = require('node:http')
 const { execFile: execFileCallback } = require('node:child_process')
 const { promisify } = require('node:util')
+const { launchLinuxTerminal } = require('./terminalLauncher')
 
 const defaultExecFile = promisify(execFileCallback)
 const HERMES_WEB_OFFLINE_ERROR = 'hermes_web_offline'
@@ -65,7 +66,7 @@ function createHermesRuntimeManager(options = {}) {
     } else if (platform === 'win32') {
       await execFile('powershell.exe', ['-NoProfile', '-Command', "Start-Process powershell.exe -ArgumentList @('-NoExit','-Command','hermes dashboard')"], { timeout: 10000 })
     } else {
-      await execFile('x-terminal-emulator', ['-e', 'bash', '-lc', 'exec hermes dashboard'], { timeout: 10000 })
+      await launchLinuxTerminal(execFile, 'exec hermes dashboard')
     }
     return { launched: true, command: 'hermes dashboard' }
   }
