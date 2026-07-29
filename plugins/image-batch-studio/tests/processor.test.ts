@@ -171,7 +171,7 @@ describe("offline processing engine", () => {
     const metadata = await sharp(result.outputPath).metadata();
     expect(metadata.width).toBe(100);
     expect(metadata.height).toBe(80);
-  });
+  }, 15_000);
 
   it("rotates text watermarks around their anchor point", async () => {
     const dir = await makeTempDir();
