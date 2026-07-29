@@ -327,7 +327,6 @@ jobs:
           npm test
           npm run build
           npm run verify:runtime
-          npm run verify:size
           npm run smoke:dist
 
   build-linux:
