@@ -15,6 +15,17 @@ window.officeSuite = {
   async getStatus() {
     return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.141' } };
   },
+  async installOfficeCli() {
+    window.__installCalls = (window.__installCalls || 0) + 1;
+    return { ok: true, data: { installed: true, binaryPath: '/Users/test/.local/bin/officecli', version: '1.0.142', release: 'v1.0.142', asset: 'officecli-mac-arm64' } };
+  },
+  async checkOfficeCliUpdate() {
+    return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.141', updateAvailable: false, checkedAt: '2026-07-27T00:00:00.000Z' } };
+  },
+  async updateOfficeCli() {
+    window.__updateCalls = (window.__updateCalls || 0) + 1;
+    return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.142', release: 'v1.0.142', asset: 'officecli-mac-arm64' } };
+  },
   async run(command) {
     const args = Array.isArray(command) ? command : [command];
     return {
@@ -36,7 +47,10 @@ window.officeSuite = {
       }
     };
   },
-  async runForAi(command) { return this.run(command); },
+  async runForAi(command, options) {
+    window.__lastAiAllowWrite = options.allowWrite;
+    return this.run(command);
+  },
   async getMcpStatus() {
     return { ok: true, data: { raw: 'Claude registered\nCursor not registered', targets: { claude: true, cursor: false } } };
   },
@@ -79,6 +93,7 @@ window.ztools = {
   },
   ai(options, onChunk) {
     window.__lastAiOptions = options;
+    window.__aiCallCount = (window.__aiCallCount || 0) + 1;
     const request = Promise.resolve().then(async () => {
       const toolResult = await window.office_document({
         operation: 'get',
@@ -159,10 +174,22 @@ def main() -> None:
         page.get_by_role("button", name="更换").click()
         page.get_by_role("heading", name="使用你已经配置的 AI。").wait_for()
         page.get_by_text("Replacement.docx", exact=True).wait_for()
-        write_toggle = page.locator(".ai-write-inline input[type='checkbox']")
-        write_toggle.check()
-        assert write_toggle.is_checked()
+        permission_trigger = page.get_by_role("button", name=re.compile(r"只读模式"))
+        permission_trigger.click()
+        permission_menu = page.get_by_role("menu", name="AI 文件权限模式")
+        permission_menu.wait_for()
+        assert page.get_by_role("menuitemradio", name=re.compile(r"始终允许修改")).is_visible()
+        page.wait_for_timeout(600)
+        page.screenshot(path=str(OUTPUT_DIR / "office-suite-ai-permission.png"), full_page=True)
+        page.keyboard.press("Escape")
+        permission_menu.wait_for(state="hidden")
+        permission_trigger.click()
+        page.get_by_role("menuitemradio", name=re.compile(r"本次允许修改")).click()
+        page.get_by_role("button", name=re.compile(r"本次允许修改")).wait_for()
         ai_prompt = page.get_by_role("textbox", name="向 Office AI 提问")
+        assert ai_prompt.evaluate("element => getComputedStyle(element).resize") == "none"
+        ai_prompt.fill("\n".join([f"第 {index} 行提示词" for index in range(20)]))
+        assert ai_prompt.evaluate("element => element.scrollHeight > element.clientHeight") is True
         ai_prompt.fill("检查当前文档")
         page.get_by_role("button", name="发送").click()
         page.get_by_text("已通过 ZTools AI 检查当前文档。").wait_for()
@@ -170,7 +197,26 @@ def main() -> None:
         assert page.evaluate("window.__lastAiOptions.tools[0].function.name") == "office_document"
         assert page.evaluate("window.__lastAiOptions.tools[0].function.parameters.properties.operation.enum.includes('view')") is True
         assert page.evaluate("window.__lastAiToolResult.ok") is True
-        assert write_toggle.is_checked() is False
+        assert page.evaluate("window.__lastAiAllowWrite") is True
+        page.get_by_role("button", name=re.compile(r"只读模式")).wait_for()
+        page.get_by_role("button", name=re.compile(r"只读模式")).click()
+        page.get_by_role("menuitemradio", name=re.compile(r"始终允许修改")).click()
+        page.get_by_role("button", name=re.compile(r"始终允许修改")).wait_for()
+        ai_prompt.fill("继续修改当前文档")
+        page.get_by_role("button", name="发送").click()
+        page.wait_for_function("window.__aiCallCount === 2")
+        page.get_by_role("button", name=re.compile(r"始终允许修改")).wait_for()
+        ai_hero_height = page.locator(".ai-hero").bounding_box()["height"]
+        assert ai_hero_height < 100
+        compact_result = page.locator(".result-drawer.ai-compact")
+        compact_result.wait_for()
+        assert compact_result.bounding_box()["height"] < 110
+        page.wait_for_timeout(300)
+        page.screenshot(path=str(OUTPUT_DIR / "office-suite-ai.png"), full_page=True)
+        compact_result.get_by_title("展开详情").click()
+        assert compact_result.get_by_title("收起详情").is_visible()
+        assert compact_result.bounding_box()["height"] < 370
+        compact_result.get_by_title("关闭").click()
 
         page.get_by_title("MCP 接入").click()
         page.get_by_role("heading", name="让 AI 直接操作 Office。").wait_for()
@@ -199,13 +245,55 @@ def main() -> None:
         outline = command_input.evaluate("element => getComputedStyle(element).outlineStyle")
         assert outline != "none"
 
+        missing_context = browser.new_context(viewport={"width": 1280, "height": 780}, device_scale_factor=1)
+        missing_context.add_init_script(MOCK_BRIDGE.replace(
+            "return { ok: true, data: { installed: true, binaryPath: '/opt/homebrew/bin/officecli', version: '1.0.141' } };",
+            "return { ok: true, data: { installed: false } };",
+        ))
+        missing_page = missing_context.new_page()
+        missing_page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        missing_page.on("pageerror", lambda error: page_errors.append(str(error)))
+        missing_page.goto(BASE_URL)
+        missing_page.get_by_role("button", name=re.compile(r"一键安装")).wait_for()
+        missing_page.wait_for_timeout(600)
+        missing_page.screenshot(path=str(OUTPUT_DIR / "office-suite-install.png"), full_page=True)
+        missing_page.get_by_role("button", name=re.compile(r"一键安装")).click()
+        missing_page.get_by_role("button", name=re.compile(r"OfficeCLI 1\.0\.142")).wait_for()
+        assert missing_page.evaluate("window.__installCalls") == 1
+        missing_context.close()
+
+        update_context = browser.new_context(viewport={"width": 1280, "height": 780}, device_scale_factor=1)
+        update_context.add_init_script(MOCK_BRIDGE.replace(
+            "return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.141', updateAvailable: false, checkedAt: '2026-07-27T00:00:00.000Z' } };",
+            "return { ok: true, data: { installed: true, currentVersion: '1.0.141', latestVersion: '1.0.142', updateAvailable: true, checkedAt: '2026-07-27T00:00:00.000Z' } };",
+        ))
+        update_page = update_context.new_page()
+        update_page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        update_page.on("pageerror", lambda error: page_errors.append(str(error)))
+        update_page.goto(BASE_URL)
+        update_badge = update_page.get_by_role("button", name=re.compile(r"可更新 1\.0\.142"))
+        update_badge.wait_for(timeout=5000)
+        update_badge.click()
+        update_dialog = update_page.get_by_role("dialog", name="OfficeCLI 运行时")
+        update_dialog.get_by_text("发现 OfficeCLI 1.0.142").wait_for()
+        update_page.wait_for_timeout(600)
+        update_page.screenshot(path=str(OUTPUT_DIR / "office-suite-update.png"), full_page=True)
+        update_dialog.get_by_role("button", name="一键更新").click()
+        update_page.get_by_role("button", name=re.compile(r"OfficeCLI 1\.0\.142")).wait_for()
+        assert update_page.evaluate("window.__updateCalls") == 1
+        update_context.close()
+
         browser.close()
 
     summary = {
         "screenshots": [
             str(OUTPUT_DIR / "office-suite-home.png"),
             str(OUTPUT_DIR / "office-suite-word.png"),
+            str(OUTPUT_DIR / "office-suite-ai.png"),
+            str(OUTPUT_DIR / "office-suite-ai-permission.png"),
             str(OUTPUT_DIR / "office-suite-mcp.png"),
+            str(OUTPUT_DIR / "office-suite-install.png"),
+            str(OUTPUT_DIR / "office-suite-update.png"),
         ],
         "console_errors": console_errors,
         "page_errors": page_errors,

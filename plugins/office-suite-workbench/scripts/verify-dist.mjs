@@ -22,9 +22,11 @@ for (const file of [
   "plugin.json",
   "logo.svg",
   "preload/services.cjs",
+  "preload/officecli-installer.cjs",
   "preload/officecli-runner.cjs",
   "preload/command-parser.cjs",
   "README.md",
+  "CHANGELOG.md",
   "LICENSE",
   "THIRD_PARTY_NOTICES.md"
 ]) {
@@ -47,7 +49,7 @@ if (manifest) {
   if (manifest.pluginSetting?.backgroundRunning !== true) failures.push("MCP plugin must enable backgroundRunning");
 }
 
-for (const file of ["services.cjs", "officecli-runner.cjs", "command-parser.cjs"]) {
+for (const file of ["services.cjs", "officecli-installer.cjs", "officecli-runner.cjs", "command-parser.cjs"]) {
   const source = await fs.readFile(path.join(root, "preload", file), "utf8");
   const packaged = await fs.readFile(path.join(dist, "preload", file), "utf8");
   if (source !== packaged) failures.push(`dist/preload/${file} is stale`);
