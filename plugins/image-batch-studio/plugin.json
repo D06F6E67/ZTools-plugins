@@ -7,7 +7,6 @@
   "version": "0.1.1",
   "main": "index.html",
   "preload": "preload/services.js",
-  "unpack": "@(preload/node_modules/**/*.node|preload/node_modules/**/*.dll|preload/node_modules/**/*.dylib)",
   "logo": "logo.svg",
   "platform": ["darwin", "win32"],
   "categories": ["media"],

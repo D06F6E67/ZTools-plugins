@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import sharp, { type OverlayOptions, type Sharp } from "sharp";
+import type { OverlayOptions, Sharp } from "sharp";
 import { PDFDocument } from "pdf-lib";
 import { GIFEncoder, applyPalette, quantize } from "gifenc";
 import type {
@@ -24,6 +24,7 @@ import {
   maxMergeSourcePixels,
   maxProcessSourcePixels
 } from "./processing-limits";
+import { sharp } from "./sharp-runtime";
 
 const imageExtensions = new Set(["jpg", "jpeg", "png", "webp", "avif", "heif", "heic", "tif", "tiff", "gif"]);
 

@@ -3,11 +3,14 @@ import type {
   ImageJobSettings,
   MergeImagesOptions,
   ProcessResult,
+  SharpRuntimeStatus,
   SourceFile
 } from "../shared/types";
 
 export interface ZToolsImageBatchServices {
   resolveFiles(paths: string[]): Promise<SourceFile[]>;
+  runtimeStatus(): Promise<SharpRuntimeStatus>;
+  installRuntime(): Promise<SharpRuntimeStatus>;
   processImages(paths: string[], settings: ImageJobSettings): Promise<ProcessResult[]>;
   mergePdfs(paths: string[], outputPath: string): Promise<string>;
   mergeImages(paths: string[], outputPath: string, options: MergeImagesOptions): Promise<string>;

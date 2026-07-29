@@ -7,9 +7,13 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const processorPath = path.join(root, "dist", "preload", "processor.js");
 const requireDist = createRequire(processorPath);
-const processor = requireDist(processorPath);
-const sharp = requireDist("sharp");
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "image-batch-dist-smoke-"));
+process.env.IMAGE_BATCH_RUNTIME_ROOT = path.join(directory, "runtime");
+const runtime = requireDist("./sharp-runtime.js");
+const runtimeStatus = await runtime.installSharpRuntime();
+if (runtimeStatus.state !== "ready") throw new Error(runtimeStatus.error || "Dynamic Sharp runtime installation failed");
+const processor = requireDist(processorPath);
+const sharp = runtime.getSharp();
 
 try {
   const inputPath = path.join(directory, "input.png");
@@ -36,7 +40,13 @@ try {
     throw new Error(`Unexpected dist output metadata: ${JSON.stringify(metadata)}`);
   }
 
-  console.log(JSON.stringify({ ok: true, platform: process.platform, arch: process.arch }, null, 2));
+  console.log(
+    JSON.stringify(
+      { ok: true, platform: process.platform, arch: process.arch, runtime: runtimeStatus.version },
+      null,
+      2
+    )
+  );
 } finally {
   sharp.cache(false);
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

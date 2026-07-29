@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import sharp from "sharp";
 import type { SourceFile } from "../shared/types";
+import { sharp } from "./sharp-runtime";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif", ".heif", ".heic", ".tif", ".tiff", ".gif"]);
 const pdfExtensions = new Set([".pdf"]);

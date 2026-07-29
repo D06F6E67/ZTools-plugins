@@ -3,75 +3,65 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const imgModules = path.join(root, "dist", "preload", "node_modules", "@img");
-const manifest = JSON.parse(await fs.readFile(path.join(root, "dist", "plugin.json"), "utf8"));
+const distPreload = path.join(root, "dist", "preload");
 const runtimeConfig = JSON.parse(
   await fs.readFile(path.join(root, "scripts", "sharp-runtime-targets.json"), "utf8")
 );
-
-async function containsArtifact(directory, extension) {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory() && (await containsArtifact(entryPath, extension))) return true;
-    if (entry.isFile() && entry.name.endsWith(extension)) return true;
-  }
-  return false;
-}
-
-const missing = [];
-const sharpPackage = JSON.parse(
-  await fs.readFile(path.join(root, "dist", "preload", "node_modules", "sharp", "package.json"), "utf8")
+const runtimeLock = JSON.parse(
+  await fs.readFile(path.join(root, "scripts", "runtime", "package-lock.json"), "utf8")
 );
+const manifest = JSON.parse(await fs.readFile(path.join(root, "dist", "plugin.json"), "utf8"));
+const sharpPackage = JSON.parse(
+  await fs.readFile(path.join(distPreload, "node_modules", "sharp", "package.json"), "utf8")
+);
+const errors = [];
+
 if (sharpPackage.version !== runtimeConfig.sharpVersion) {
-  missing.push(`sharp version ${sharpPackage.version} (expected ${runtimeConfig.sharpVersion})`);
+  errors.push(`sharp version ${sharpPackage.version} (expected ${runtimeConfig.sharpVersion})`);
 }
+
 for (const target of runtimeConfig.targets) {
   for (const runtimePackage of target.packages) {
-    const packageDirectory = path.join(imgModules, runtimePackage.name);
-    try {
-      const packageJson = JSON.parse(await fs.readFile(path.join(packageDirectory, "package.json"), "utf8"));
-      if (!packageJson.os?.includes(target.os) || !packageJson.cpu?.includes(target.cpu)) {
-        missing.push(`${runtimePackage.name} metadata for ${target.os}/${target.cpu}`);
-        continue;
-      }
-      for (const extension of runtimePackage.artifacts) {
-        if (!(await containsArtifact(packageDirectory, extension))) {
-          missing.push(`${runtimePackage.name} ${extension}`);
-        }
-      }
-    } catch {
-      missing.push(runtimePackage.name);
+    const lockEntry = runtimeLock.packages[`node_modules/${runtimePackage.name}`];
+    if (!lockEntry) {
+      errors.push(`${runtimePackage.name} missing from runtime lockfile`);
+      continue;
+    }
+    if (lockEntry.version !== runtimePackage.version) {
+      errors.push(`${runtimePackage.name} version ${runtimePackage.version} (lockfile ${lockEntry.version})`);
+    }
+    if (lockEntry.integrity !== runtimePackage.integrity) {
+      errors.push(`${runtimePackage.name} integrity mismatch`);
+    }
+    if (lockEntry.resolved !== runtimePackage.url) {
+      errors.push(`${runtimePackage.name} URL mismatch`);
+    }
+    if (!runtimePackage.url.startsWith("https://") || !runtimePackage.integrity.startsWith("sha512-")) {
+      errors.push(`${runtimePackage.name} must use HTTPS and SHA-512`);
     }
   }
 }
 
-if (missing.length > 0) {
-  throw new Error(`Missing Sharp runtime artifacts: ${missing.join(", ")}`);
+const bundledImgPackages = await fs.readdir(path.join(distPreload, "node_modules", "@img")).catch(() => []);
+const bundledNative = bundledImgPackages.filter((name) => name.startsWith("sharp-"));
+if (bundledNative.length > 0) {
+  errors.push(`native Sharp packages must be downloaded at runtime: ${bundledNative.join(", ")}`);
 }
 
+if (manifest.unpack) errors.push("plugin.json must not unpack runtime-downloaded native files");
 for (const platform of ["darwin", "win32"]) {
-  if (!manifest.platform?.includes(platform)) {
-    throw new Error(`plugin.json must enable ${platform}`);
-  }
+  if (!manifest.platform?.includes(platform)) errors.push(`plugin.json must enable ${platform}`);
 }
 
-for (const extension of [".node", ".dll", ".dylib"]) {
-  if (!manifest.unpack?.includes(extension)) {
-    throw new Error(`plugin.json unpack must include ${extension} native artifacts`);
-  }
-}
-
-if (!manifest.unpack.includes("preload/node_modules")) {
-  throw new Error("plugin.json unpack must target preload/node_modules");
-}
+if (errors.length > 0) throw new Error(`Sharp runtime verification failed: ${errors.join("; ")}`);
 
 console.log(
   JSON.stringify(
     {
       ok: true,
-      targets: runtimeConfig.targets.map((target) => `${target.os}/${target.cpu}`),
-      unpack: manifest.unpack
+      sharp: runtimeConfig.sharpVersion,
+      targets: runtimeConfig.targets.map((target) => `${target.platform}/${target.arch}`),
+      bundledNative: false
     },
     null,
     2
