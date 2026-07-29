@@ -1,0 +1,21 @@
+{
+  "name": "text-case-converter",
+  "author": {
+    "name": "UCPr",
+    "url": "https://github.com/UCPr251"
+  },
+  "version": "1.0.0",
+  "type": "commonjs",
+  "description": "剪贴板智能大小写转换",
+  "scripts": {
+    "build": "tsc && node scripts/svg-to-png.cjs && node scripts/assemble-dist.cjs",
+    "icons": "node scripts/svg-to-png.cjs",
+    "dev": "tsc -w --preserveWatchOutput"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^24.13.3",
+    "@ztools-center/ztools-api-types": "^1.0.1",
+    "typescript": "^7.0.2"
+  }
+}

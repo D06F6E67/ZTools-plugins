@@ -1,0 +1,77 @@
+{
+  "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
+  "name": "text-case-converter",
+  "title": "大小写转换",
+  "description": "剪贴板智能大小写转换",
+  "author": "UCPr",
+  "version": "1.0.0",
+  "preload": "preload.js",
+  "logo": "public/logo.png",
+  "features": [
+    {
+      "code": "smart",
+      "explain": "智能大小写转换（大写多则转小写，否则转大写）",
+      "icon": "public/smart.png",
+      "mainHide": true,
+      "cmds": [
+        "大小写",
+        "智能大小写",
+        "case",
+        {
+          "type": "regex",
+          "label": "智能大小写",
+          "match": "/[A-Za-z]/",
+          "minLength": 1
+        }
+      ]
+    },
+    {
+      "code": "upper",
+      "explain": "将文本转为大写",
+      "icon": "public/upper.png",
+      "mainHide": true,
+      "cmds": [
+        "转大写",
+        "uppercase",
+        {
+          "type": "regex",
+          "label": "转大写",
+          "match": "/[A-Za-z]/",
+          "minLength": 1
+        }
+      ]
+    },
+    {
+      "code": "lower",
+      "explain": "将文本转为小写",
+      "icon": "public/lower.png",
+      "mainHide": true,
+      "cmds": [
+        "转小写",
+        "lowercase",
+        {
+          "type": "regex",
+          "label": "转小写",
+          "match": "/[A-Za-z]/",
+          "minLength": 1
+        }
+      ]
+    },
+    {
+      "code": "invert",
+      "explain": "逐字符反转英文字母大小写",
+      "icon": "public/invert.png",
+      "mainHide": true,
+      "cmds": [
+        "大小写反转",
+        "invert case",
+        {
+          "type": "regex",
+          "label": "大小写反转",
+          "match": "/[A-Za-z]/",
+          "minLength": 1
+        }
+      ]
+    }
+  ]
+}
