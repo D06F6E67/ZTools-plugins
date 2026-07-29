@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -18,6 +19,12 @@ const pluginDir = resolve(scriptDir, '..')
 const upstreamDir = join(pluginDir, 'upstream')
 const lockPath = join(pluginDir, 'upstream.lock.json')
 const metaPath = join(pluginDir, 'compat', 'plugin-meta.json')
+const compatBuildScriptPath = join(
+  pluginDir,
+  'compat',
+  'upstream-scripts',
+  'utools-build.js'
+)
 const pluginManifestPath = join(pluginDir, 'plugin.json')
 const repository = 'https://github.com/eachann1024/goose-notes.git'
 
@@ -63,9 +70,19 @@ try {
     encoding: 'utf8'
   }).trim()
 
-  if (previousLock?.sha === sha && existsSync(upstreamDir) && !force) {
+  if (
+    previousLock?.sha === sha &&
+    existsSync(upstreamDir) &&
+    existsSync(compatBuildScriptPath) &&
+    !force
+  ) {
     console.log(`goose-notes 已是目标版本: ${sha}`)
     process.exit(0)
+  }
+
+  const checkoutBuildScriptPath = join(checkoutDir, 'scripts', 'utools-build.js')
+  if (!existsSync(checkoutBuildScriptPath)) {
+    throw new Error(`上游缺少构建脚本: ${checkoutBuildScriptPath}`)
   }
 
   const nextVersion = requestedVersion || (previousLock ? bumpPatch(meta.version) : meta.version)
@@ -79,6 +96,9 @@ try {
       return !['.git', 'node_modules', 'dist', 'dist-quicknote', 'output'].includes(name)
     }
   })
+
+  mkdirSync(dirname(compatBuildScriptPath), { recursive: true })
+  cpSync(checkoutBuildScriptPath, compatBuildScriptPath)
 
   const upstreamManifest = readJson(join(upstreamDir, 'plugin.json'))
   const upstreamPackage = readJson(join(upstreamDir, 'package.json'))

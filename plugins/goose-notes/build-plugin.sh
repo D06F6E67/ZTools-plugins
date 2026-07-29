@@ -3,6 +3,16 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAM_DIR="${PLUGIN_DIR}/upstream"
+UPSTREAM_BUILD_SCRIPT="${UPSTREAM_DIR}/scripts/utools-build.js"
+COMPAT_BUILD_SCRIPT="${PLUGIN_DIR}/compat/upstream-scripts/utools-build.js"
+
+if [ ! -f "${COMPAT_BUILD_SCRIPT}" ]; then
+  echo "缺少受控的上游构建脚本: ${COMPAT_BUILD_SCRIPT}" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "${UPSTREAM_BUILD_SCRIPT}")"
+cp "${COMPAT_BUILD_SCRIPT}" "${UPSTREAM_BUILD_SCRIPT}"
 
 if command -v bun >/dev/null 2>&1; then
   BUN_COMMAND=(bun)
