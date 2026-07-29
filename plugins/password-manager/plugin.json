@@ -7,7 +7,7 @@
   "logo": "logo.png",
   "main": "index.html",
   "preload": "preload.js",
-  "platform": ["win32"],
+  "platform": ["win32","darwin"],
   "features": [
     {
       "code": "password-manager",
