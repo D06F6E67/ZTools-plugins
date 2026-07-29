@@ -1,0 +1,7 @@
+dist/
+dist-quicknote-ztools/
+.tools/
+upstream/node_modules/
+upstream/dist/
+upstream/dist-quicknote/
+upstream/output/

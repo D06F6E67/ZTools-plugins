@@ -1,0 +1,449 @@
+/* 速记小窗专属样式（仅 quicknote.html 入口加载）。 */
+
+/* 无边框窗口：根容器填满。窗口圆角交给系统（createBrowserWindow roundedCorners）。 */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  /* 背景兜底：setSize 放大窗口的瞬间，web 内容若尚未重绘到新尺寸，
+     会露出窗口底层（表现为右侧/底部一条灰边）。让 html/body 与编辑器同色，
+     任何未绘制区域都是同一底色，消除灰色残影。 */
+  background: hsl(var(--goose-editor-bg));
+}
+
+.quicknote-root {
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100%;
+  width: 100vw;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.dark .quicknote-root {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* 标题行固定占据第一行，并位于缩放层外。正文滚动区从其下方开始，
+   因此任何缩放档位都不会把首块压到便签名下面。 */
+.quicknote-titlebar-reveal-zone {
+  position: relative;
+  flex: 0 0 36px;
+  height: 36px;
+  width: 100%;
+  z-index: 20;
+}
+
+/* 鼠标离开顶栏后，当前便签名始终以实色显示在左上角。
+   进入顶部热区时直接让位给保存 / 帮助按钮，不做半透明叠加。 */
+.quicknote-slot-name-display {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  max-width: min(180px, calc(50vw - 36px));
+  height: 36px;
+  overflow: hidden;
+  background: hsl(var(--goose-editor-bg));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 1;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quicknote-titlebar-reveal-zone:hover .quicknote-slot-name-display,
+.quicknote-titlebar-reveal-zone:focus-within .quicknote-slot-name-display {
+  visibility: hidden;
+}
+
+.quicknote-slot-name-input {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  top: 4px;
+  left: 8px;
+  width: calc(100% - 16px);
+  height: 28px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: hsl(var(--goose-selected-bg));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 28px;
+  box-shadow: none;
+}
+
+/* 标题栏控件默认隐藏，鼠标进入固定标题行后淡入。标题行本身始终占位；
+   控件仍作为拖动区，按钮单独 no-drag（见组件内联 style）。 */
+.quicknote-titlebar {
+  position: absolute;
+  inset: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  /* 顶栏下方拉一层与编辑器同色的渐变，避免浮现时直接压住正文造成割裂感。 */
+  background: linear-gradient(
+    to bottom,
+    hsl(var(--goose-editor-bg)) 60%,
+    hsl(var(--goose-editor-bg) / 0)
+  );
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: auto;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+/* 进入固定热区时立即显示；离开时仍保留短暂淡出，避免掠过顶部产生闪烁。 */
+.quicknote-titlebar-reveal-zone:hover .quicknote-titlebar,
+.quicknote-titlebar-reveal-zone:focus-within .quicknote-titlebar,
+.quicknote-titlebar:hover,
+.quicknote-titlebar:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+  transition-duration: 0s;
+}
+
+/* 改名时顶部只保留全宽输入框：隐藏整个标题栏，不让中间数字
+   或两侧按钮在 focus-within 规则下重新出现。 */
+.quicknote-titlebar-reveal-zone[data-renaming="true"] .quicknote-titlebar {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+}
+
+.quicknote-titlebar-btn {
+  cursor: default;
+}
+
+/* 标题行已在缩放层外固定占位，编辑区无需再用可缩放的顶部 padding 补偿。
+   共享编辑器自身的 8px 顶部内边距提供标题与首块之间的呼吸空间。 */
+.quicknote-editor-surface {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 100%;
+  padding-inline: 4px;
+  padding-top: 0;
+  padding-bottom: 16px;
+}
+
+/* BlockNote 的 contenteditable 默认只按内容撑高。小窗直接让编辑面填满
+   视口扣除标题行（36px）、surface 底部内边距（16px）与 workspace 顶部内边距
+   （8px）后的剩余空间。不改 bn-container 的布局，避免其内部空工具栏宿主
+   被 BlockNote 的 flex-basis: 100% 额外撑出一整屏。 */
+.quicknote-editor-surface .bn-editor {
+  box-sizing: border-box;
+  min-height: calc(100vh - 60px);
+  min-height: calc(100dvh - 60px);
+}
+
+/* 首块去掉 BlockNote 给 heading 的 18px 内置上间距：该间距是用来跟「上文」拉开
+   距离的，但首块前面没有内容，叠加 surface padding 后顶部会显出一大段死空白。
+   仅作用于首块，不影响文中其它 heading 的上间距。 */
+.quicknote-editor-surface
+  .bn-block-group
+  > .bn-block-outer:first-child
+  .bn-block-content[data-content-type="heading"] {
+  padding-top: 0;
+}
+/* 无侧边菜单（无把手/加号），收窄左右留白让正文贴近窗口。
+   需压过 editor-base.css 的 `.workspace-editor-surface.max-w-none .bn-editor`
+   (该 56px 是主窗为 side menu 预留的 gutter)——小窗内层仍带 workspace-editor-surface
+   全宽容器，故选择器要叠到同级或更高特异度才生效。 */
+.quicknote-editor-surface .workspace-editor-surface.max-w-none .bn-editor {
+  padding-inline: 8px;
+}
+
+.quicknote-toaster[data-sonner-toaster] {
+  left: 0 !important;
+  right: 0 !important;
+  width: 100vw !important;
+  transform: none !important;
+}
+
+/* toast 在窗口正中弹出（不贴底）：定位到视口垂直 / 水平居中，宽度按内容自适应
+   成一颗小胶囊，而非横贯整窗。 */
+.quicknote-toaster[data-sonner-toaster] [data-sonner-toast] {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  top: 50% !important;
+  bottom: auto !important;
+  width: max-content !important;
+  max-width: calc(100vw - 48px) !important;
+  margin-inline: 0 !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+/* 快捷键切换便签时，在右上角给出轻量确认；点击/拖动切换不触发提示。 */
+.quicknote-toaster[data-sonner-toaster]
+  [data-sonner-toast].quicknote-slot-switch-toast {
+  left: auto !important;
+  right: 16px !important;
+  top: 48px !important;
+  transform: none !important;
+}
+
+/* 速记滚动区：只保留纵向滚动；横向始终裁切，避免 Cmd+/- 缩放残留底栏滚动条。 */
+.quicknote-root .page-scroll-container {
+  scrollbar-width: thin;
+  overflow-x: hidden;
+}
+.quicknote-root .page-scroll-container::-webkit-scrollbar {
+  width: 6px;
+  height: 0;
+}
+.quicknote-root .page-scroll-container::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 3px;
+}
+.quicknote-root .page-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* 说明层受 Radix 计算出的可用高度约束。标题和改名入口固定，正文在矮窗中滚动。 */
+.quicknote-help-popover {
+  display: flex;
+  max-height: var(--radix-popover-content-available-height);
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  line-height: 1.6;
+}
+
+.quicknote-help-heading {
+  flex: 0 0 auto;
+}
+
+.quicknote-help-heading p {
+  margin: 4px 0 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.quicknote-help-rename {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--goose-interactive-hover);
+}
+
+.quicknote-help-rename:hover {
+  background: var(--goose-interactive-selected);
+}
+
+.quicknote-help-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  list-style: none;
+}
+
+.quicknote-help-list li + li {
+  margin-top: 8px;
+}
+
+.quicknote-help-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.quicknote-help-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: hsl(var(--muted-foreground) / 0.25);
+}
+
+.quicknote-help-list::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* 选中文字后的格式栏属于速记小窗：横向铺满并吸附窗口底边，不做悬浮胶囊。 */
+.goose-formatting-toolbar-dock [data-formatting-toolbar] {
+  width: 100%;
+  max-width: none;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  box-shadow: 0 -4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.goose-formatting-toolbar-dock [data-formatting-toolbar] > div {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.goose-formatting-toolbar-dock [data-formatting-toolbar] > div > * {
+  flex: 0 0 auto;
+}
+
+.goose-formatting-toolbar-dock
+  [data-formatting-toolbar]
+  > div::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goose-formatting-toolbar-dock {
+    transition: none;
+  }
+}
+
+/* 速记斜杠菜单：更紧凑行高；列表底部留白，避免滚到底最后一项贴边被裁切感 */
+.quicknote-root
+  [data-goose-slash-lite="true"]
+  [data-notion-slash-surface="true"] {
+  overflow: hidden;
+  /* uTools 旧内核会把大圆角外投影绘成直角灰块；小窗只留很轻的边界感。 */
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.quicknote-root [data-goose-slash-lite="true"] [data-goose-slash-item] {
+  background: transparent !important;
+  border-left: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.quicknote-root [data-goose-slash-lite="true"] [data-goose-slash-item]:active,
+.quicknote-root [data-goose-slash-lite="true"] [data-goose-slash-item]:focus,
+.quicknote-root
+  [data-goose-slash-lite="true"]
+  [data-goose-slash-item]:focus-visible,
+.quicknote-root
+  [data-goose-slash-lite="true"]
+  [data-goose-slash-selected="true"] {
+  background: transparent !important;
+  border-left: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.quicknote-root
+  [data-goose-slash-lite="true"]
+  [data-goose-slash-selected="true"] {
+  background: transparent !important;
+}
+
+.quicknote-root [data-goose-slash-lite="true"] [data-notion-slash-scroll] {
+  scroll-padding-bottom: 12px;
+}
+
+/* ── 1–5 便签切换器 ─────────────────────────────────────────────
+ * 顶栏居中，随标题栏整体浮现，始终完整显示 1–5。
+ * 不再有收起态；整组保留灰色胶囊底，当前槽位用轻高亮区分。
+ */
+.quicknote-slot-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 24px;
+  padding: 2px;
+  border-radius: 999px;
+  background: hsl(var(--foreground) / 0.06);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.07);
+}
+
+.quicknote-slot-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 1;
+  box-shadow: none;
+  transition:
+    opacity 0.14s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.quicknote-slot-switcher[data-scrubbing="true"],
+.quicknote-slot-switcher[data-scrubbing="true"] .quicknote-slot-btn {
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.quicknote-slot-btn-label {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+/* 当前项：轻高亮芯，不用实心白底+外阴影 */
+.quicknote-slot-btn[data-active="true"] {
+  color: hsl(var(--foreground));
+  background: hsl(var(--foreground) / 0.1);
+  box-shadow: none;
+}
+
+.quicknote-slot-btn:not([data-active="true"]):hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--foreground) / 0.05);
+}
+
+.quicknote-slot-btn:focus-visible {
+  outline: none;
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 0 0 2px hsl(var(--goose-editor-bg)),
+    0 0 0 3.5px hsl(var(--foreground) / 0.28);
+}
+
+.dark .quicknote-slot-btn[data-active="true"] {
+  color: hsl(var(--foreground));
+  background: hsl(var(--foreground) / 0.14);
+  box-shadow: none;
+}
+
+.dark .quicknote-slot-switcher {
+  background: hsl(var(--foreground) / 0.1);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quicknote-titlebar,
+  .quicknote-slot-switcher,
+  .quicknote-slot-btn {
+    transition: none;
+  }
+}

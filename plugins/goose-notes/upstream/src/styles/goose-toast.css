@@ -1,0 +1,258 @@
+/* ── 全局 Toast：错误态唯一视觉 ──────────────────────────────────────
+ * 所有 toast.error 必须走 goose-toast-error：
+ * 红字 + 圆底 ! + 右下角极简蜘蛛纹 + 轻量关闭按钮。
+ * 禁止业务侧另起错误浮层/控件替代这套全局错误提示。
+ */
+.goose-toaster [data-sonner-toast].goose-toast-error,
+.goose-toaster [data-sonner-toast][data-type="error"],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error,
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden !important;
+  color: #b31227 !important;
+  border-color: rgba(200, 25, 46, 0.18) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 243, 245, 0.9)) !important;
+  box-shadow:
+    0 12px 28px rgba(90, 12, 24, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error,
+.dark .goose-toaster [data-sonner-toast][data-type="error"],
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error,
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"] {
+  color: #ff6d7d !important;
+  border-color: rgba(255, 109, 125, 0.18) !important;
+  background:
+    radial-gradient(circle at 88% 120%, rgba(200, 25, 46, 0.18), transparent 42%),
+    linear-gradient(180deg, #1d1618 0%, #181214 100%) !important;
+  box-shadow: 0 16px 30px rgba(10, 4, 6, 0.3) !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error::before,
+.goose-toaster [data-sonner-toast][data-type="error"]::before,
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error::before,
+[data-sonner-toaster] [data-sonner-toast][data-type="error"]::before {
+  content: "";
+  position: absolute;
+  right: -6px;
+  bottom: -10px;
+  width: 92px;
+  height: 92px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  background-color: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Cpath d='M50 36c-7 0-12 5.2-12 12.2S44 62 50 62s12-6.8 12-13.8S57 36 50 36Z' fill='black'/%3E%3Cpath d='M38 44C28 38 20 28 16 18M62 44c10-6 18-16 22-26M35 53c-11 0-22 4-30 11M65 53c11 0 22 4 30 11M36 62c-9 5-17 14-20 23M64 62c9 5 17 14 20 23M42 68c-4 8-7 16-6 24M58 68c4 8 7 16 6 24' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Cpath d='M50 36c-7 0-12 5.2-12 12.2S44 62 50 62s12-6.8 12-13.8S57 36 50 36Z' fill='black'/%3E%3Cpath d='M38 44C28 38 20 28 16 18M62 44c10-6 18-16 22-26M35 53c-11 0-22 4-30 11M65 53c11 0 22 4 30 11M36 62c-9 5-17 14-20 23M64 62c9 5 17 14 20 23M42 68c-4 8-7 16-6 24M58 68c4 8 7 16 6 24' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error::before,
+.dark .goose-toaster [data-sonner-toast][data-type="error"]::before,
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error::before,
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"]::before,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error::before,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"]::before {
+  opacity: 0.22;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-title],
+.goose-toaster [data-sonner-toast][data-type="error"] [data-title],
+.goose-toaster [data-sonner-toast].goose-toast-error .goose-toast-error-title,
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-title],
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-title] {
+  color: #b31227 !important;
+  opacity: 1 !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-description],
+.goose-toaster [data-sonner-toast][data-type="error"] [data-description],
+.goose-toaster [data-sonner-toast].goose-toast-error .goose-toast-error-description,
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-description],
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-description] {
+  color: rgba(179, 18, 39, 0.84) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error [data-title],
+.dark .goose-toaster [data-sonner-toast][data-type="error"] [data-title],
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-title],
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-title],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error [data-title],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"] [data-title] {
+  color: #ff6d7d !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error [data-description],
+.dark .goose-toaster [data-sonner-toast][data-type="error"] [data-description],
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-description],
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-description],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error [data-description],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"] [data-description] {
+  color: rgba(255, 150, 160, 0.88) !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-icon],
+.goose-toaster [data-sonner-toast][data-type="error"] [data-icon],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-icon],
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  position: relative;
+  z-index: 1;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+}
+
+.goose-toast-error-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(179, 18, 39, 0.1);
+  color: #b31227;
+  box-shadow: inset 0 0 0 1px rgba(179, 18, 39, 0.14);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dark .goose-toast-error-mark,
+[data-sonner-toaster][data-sonner-theme="dark"] .goose-toast-error-mark {
+  background: rgba(255, 109, 125, 0.12);
+  color: #ff6d7d;
+  box-shadow: inset 0 0 0 1px rgba(255, 109, 125, 0.18);
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-close-button],
+.goose-toaster [data-sonner-toast][data-type="error"] [data-close-button],
+.goose-toaster [data-sonner-toast].goose-toast-error .goose-toast-error-close,
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-close-button],
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-close-button] {
+  position: absolute !important;
+  left: auto !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 22px !important;
+  height: 22px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: rgba(179, 18, 39, 0.55) !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+  z-index: 2;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-close-button]:hover,
+.goose-toaster [data-sonner-toast][data-type="error"] [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-close-button]:hover {
+  color: #8f0d1f !important;
+  background: rgba(179, 18, 39, 0.1) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error [data-close-button],
+.dark .goose-toaster [data-sonner-toast][data-type="error"] [data-close-button],
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-close-button],
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-close-button],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error [data-close-button],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"] [data-close-button] {
+  color: rgba(255, 168, 176, 0.72) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-error [data-close-button]:hover,
+.dark .goose-toaster [data-sonner-toast][data-type="error"] [data-close-button]:hover,
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-close-button]:hover,
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-close-button]:hover,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-error [data-close-button]:hover,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="error"] [data-close-button]:hover {
+  color: #fff !important;
+  background: rgba(255, 109, 125, 0.16) !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-error [data-content],
+.goose-toaster [data-sonner-toast][data-type="error"] [data-content],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-error [data-content],
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-content] {
+  position: relative;
+  z-index: 1;
+}
+
+/* 成功态保持干净，不加品牌水印/鹅纹 */
+.goose-toaster [data-sonner-toast].goose-toast-success,
+.goose-toaster [data-sonner-toast][data-type="success"],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-success,
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] {
+  background: #fff !important;
+  border-color: rgba(15, 122, 76, 0.14) !important;
+  color: #0f7a4c !important;
+  box-shadow: 0 10px 24px rgba(12, 72, 44, 0.08) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-success,
+.dark .goose-toaster [data-sonner-toast][data-type="success"],
+.dark [data-sonner-toaster] [data-sonner-toast].goose-toast-success,
+.dark [data-sonner-toaster] [data-sonner-toast][data-type="success"],
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast].goose-toast-success,
+[data-sonner-toaster][data-sonner-theme="dark"] [data-sonner-toast][data-type="success"] {
+  background: linear-gradient(180deg, #14201a 0%, #101915 100%) !important;
+  border-color: rgba(72, 187, 132, 0.22) !important;
+  color: #6ee7a8 !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-success [data-title],
+.goose-toaster [data-sonner-toast][data-type="success"] [data-title],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-success [data-title],
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-title] {
+  color: inherit !important;
+}
+
+.goose-toaster [data-sonner-toast].goose-toast-success [data-description],
+.goose-toaster [data-sonner-toast][data-type="success"] [data-description],
+[data-sonner-toaster] [data-sonner-toast].goose-toast-success [data-description],
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-description] {
+  color: inherit !important;
+  opacity: 0.84;
+}
+
+/* 成功反馈里的操作也属于同一个成功态；例如“删除 / 撤回”不会再落回旧的灰色按钮。 */
+.goose-toaster [data-sonner-toast].goose-toast-success .goose-toast-success-action,
+[data-sonner-toaster]
+  [data-sonner-toast].goose-toast-success
+  .goose-toast-success-action {
+  background: rgba(15, 122, 76, 0.1) !important;
+  border-color: rgba(15, 122, 76, 0.16) !important;
+  color: #0d6540 !important;
+}
+
+.goose-toaster
+  [data-sonner-toast].goose-toast-success
+  .goose-toast-success-action:hover,
+[data-sonner-toaster]
+  [data-sonner-toast].goose-toast-success
+  .goose-toast-success-action:hover {
+  background: rgba(15, 122, 76, 0.16) !important;
+}
+
+.dark .goose-toaster [data-sonner-toast].goose-toast-success .goose-toast-success-action,
+.dark [data-sonner-toaster]
+  [data-sonner-toast].goose-toast-success
+  .goose-toast-success-action,
+[data-sonner-toaster][data-sonner-theme="dark"]
+  [data-sonner-toast].goose-toast-success
+  .goose-toast-success-action {
+  background: rgba(110, 231, 168, 0.12) !important;
+  border-color: rgba(110, 231, 168, 0.16) !important;
+  color: #9af1c3 !important;
+}

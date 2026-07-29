@@ -1,0 +1,78 @@
+/* ──────────────────────────────────────────────────────────────────────────
+ * main-tree.css
+ * react-complex-tree 主树视觉覆盖：抹掉默认 outline / focus 边框，
+ * 让拖拽快照贴合行轮廓，避免出现"白边"。
+ * 该文件被 SidebarMainTree.tsx 直接 import。
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* 1) 容器：只抹掉鼠标焦点的默认边框，保留键盘焦点反馈。 */
+.rct-main-tree:focus:not(:focus-visible),
+.rct-main-tree *:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.rct-main-tree [data-rct-item-interactive]:focus-visible,
+.rct-main-tree [data-rct-item-focus="true"]:focus-visible {
+  outline: 2px solid hsl(var(--ring)) !important;
+  outline-offset: -2px !important;
+  box-shadow: none !important;
+}
+
+/* 2) <li> / 行容器：rct 自带类可能带 border/bg，全部去掉，由内部 row 自己管理 */
+.rct-main-tree .rct-tree-item-li,
+.rct-main-tree .rct-tree-item-title-container {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* 3) 拖拽快照：dragstart 时由 MainTreeItem 动态创建本胶囊并 setDragImage。
+ *    默认快照是整行大块，跟随鼠标会盖住目标行的拖入高亮；改用紧凑的
+ *    "图标+标题"胶囊，落点反馈不再被遮挡。
+ *    注意：颜色只用实色变量与 rgba 老语法（uTools 旧内核禁 /alpha）。 */
+.main-tree-drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background-color: var(--goose-interactive-selected);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  /* 不加 box-shadow：drag image 截图把阴影算进矩形 bounding box，
+     uTools 旧内核不做透明混合，圆角外会糊出四个灰色直角 */
+  pointer-events: none;
+}
+.main-tree-drag-ghost svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.main-tree-drag-ghost span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 4) drop 高亮态由 React 内联类控制；这里只兜底清掉 rct 默认的 dragging-over 颜色 */
+.rct-main-tree .rct-tree-item-li-dragging-over,
+.rct-main-tree .rct-tree-item-title-container-dragging-over,
+.rct-main-tree .rct-tree-item-button-dragging-over {
+  background: transparent !important;
+}
+
+/* 5) rct 的非键盘聚焦态仍不显示额外边框，避免与选中背景叠加。 */
+.rct-main-tree [data-rct-item-interactive]:focus:not(:focus-visible),
+.rct-main-tree [data-rct-item-focus="true"]:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
