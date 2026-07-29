@@ -26,7 +26,6 @@ export type SyncSettings = Readonly<{
   webdavCredentialAccount: string;
   vaultKeyAccount: string;
   vaultSaltHex?: string;
-  syncFileContents: boolean;
   status: SyncStatus;
 }>;
 
@@ -39,7 +38,6 @@ export const defaultSyncSettings: SyncSettings = {
   username: "",
   webdavCredentialAccount: WEBDAV_CREDENTIAL_ACCOUNT,
   vaultKeyAccount: VAULT_KEY_ACCOUNT,
-  syncFileContents: false,
   status: { state: "disabled", pendingObjects: 0 },
 };
 
@@ -101,7 +99,6 @@ function parsedSettings(value: unknown): SyncSettings | undefined {
     typeof value.username !== "string" ||
     value.webdavCredentialAccount !== WEBDAV_CREDENTIAL_ACCOUNT ||
     value.vaultKeyAccount !== VAULT_KEY_ACCOUNT ||
-    typeof value.syncFileContents !== "boolean" ||
     typeof status.state !== "string" ||
     !states.has(status.state) ||
     !Number.isSafeInteger(status.pendingObjects) ||
@@ -116,7 +113,6 @@ function parsedSettings(value: unknown): SyncSettings | undefined {
     webdavCredentialAccount: value.webdavCredentialAccount,
     vaultKeyAccount: value.vaultKeyAccount,
     ...(typeof value.vaultSaltHex === "string" ? { vaultSaltHex: value.vaultSaltHex } : {}),
-    syncFileContents: value.syncFileContents,
     status: {
       state: status.state as SyncStatus["state"],
       pendingObjects: Number(status.pendingObjects),

@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -361,6 +361,8 @@ async function runRetentionIfDue(): Promise<void> {
       days: settings.retention.days,
       maxBlobBytes: settings.retention.maxBlobBytes,
       now,
+    }, {
+      delete: (input) => syncRepository.deleteLocalBlob(input),
     });
     window.dispatchEvent(
       new CustomEvent("pasteboard-pro:retention-completed", { detail: result }),
@@ -390,11 +392,11 @@ function scheduleHistoryMirror(): void {
             privacy.rules,
           ),
       });
-      thumbnailService.invalidateRecordIndex();
       window.dispatchEvent(
         new CustomEvent("pasteboard-pro:history-mirrored", { detail: result }),
       );
       await runRetentionIfDue();
+      broadcastHistoryChanged();
       void scheduleVaultSync().catch(reportSynchronizationError);
     })
     .catch(reportSynchronizationError);
@@ -615,8 +617,13 @@ const bridge: PasteboardProBridge = {
       mediaType === undefined ||
       (!mediaType.startsWith("image/") && mediaType !== "application/pdf")
     ) return null;
+    const maximumPreviewBytes = 25 * 1_024 * 1_024;
+    const file = await stat(imagePath);
+    if (file.size > maximumPreviewBytes) {
+      throw new RangeError("PasteboardPro preview is limited to 25 MiB");
+    }
     const bytes = await readFile(imagePath);
-    if (bytes.byteLength > 25 * 1_024 * 1_024) {
+    if (bytes.byteLength > maximumPreviewBytes) {
       throw new RangeError("PasteboardPro preview is limited to 25 MiB");
     }
     return { mediaType, dataBase64: bytes.toString("base64") };

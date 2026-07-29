@@ -43,7 +43,6 @@ describe("sync configuration", () => {
         username: "alice",
         webdavPassword: "dav-secret",
         syncPassword: "sync-secret",
-        syncFileContents: false,
       },
       {
         randomBytes: () => new Uint8Array(16).fill(7),
@@ -98,7 +97,6 @@ describe("sync configuration", () => {
         username: "alice",
         webdavPassword: "dav-secret",
         syncPassword: "sync-secret",
-        syncFileContents: false,
       },
       { clientFactory: () => client },
     );
@@ -149,7 +147,6 @@ describe("sync configuration", () => {
           username: "alice",
           webdavPassword: "new-dav-secret",
           syncPassword: "wrong password",
-          syncFileContents: false,
         },
         { clientFactory: () => client },
       ),

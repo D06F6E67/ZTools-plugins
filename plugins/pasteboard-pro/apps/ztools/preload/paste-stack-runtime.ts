@@ -18,7 +18,10 @@ import {
 } from "./paste-stack-store";
 
 export type GlobalPasteHook = Readonly<{
-  start(callback: () => boolean): void;
+  start(
+    callback: () => boolean,
+    onStopped: (reason: "accessibility-required" | "exit" | "error") => void,
+  ): void;
   stop(): void;
 }>;
 
@@ -103,8 +106,9 @@ export function createZToolsGlobalPasteHook(options: Readonly<{
 }>): GlobalPasteHook | undefined {
   if (process.platform !== "darwin") return undefined;
   let child: ChildProcessWithoutNullStreams | undefined;
+  const intentionallyStopped = new WeakSet<ChildProcessWithoutNullStreams>();
   return {
-    start(callback) {
+    start(callback, onStopped) {
       if (child !== undefined) return;
       const monitor = spawn(
         options.pythonPath ?? "/usr/bin/python3",
@@ -114,9 +118,16 @@ export function createZToolsGlobalPasteHook(options: Readonly<{
       child = monitor;
       monitor.stderr.resume();
       monitor.stdin.on("error", () => undefined);
-      monitor.on("error", () => undefined);
+      let stopReason: "accessibility-required" | "exit" | "error" = "exit";
+      monitor.on("error", () => {
+        stopReason = "error";
+      });
       const lines = readline.createInterface({ input: monitor.stdout });
       lines.on("line", (line) => {
+        if (line === "accessibility-required") {
+          stopReason = "accessibility-required";
+          return;
+        }
         const match = /^paste:(\d+)$/u.exec(line);
         if (match === null || child !== monitor) return;
         const requestId = match[1]!;
@@ -137,14 +148,18 @@ export function createZToolsGlobalPasteHook(options: Readonly<{
           }, 20);
         }
       });
-      monitor.once("exit", () => {
+      monitor.once("close", () => {
         lines.close();
-        if (child === monitor) child = undefined;
+        if (child === monitor) {
+          child = undefined;
+          if (!intentionallyStopped.has(monitor)) onStopped(stopReason);
+        }
       });
     },
     stop() {
       const monitor = child;
       child = undefined;
+      if (monitor !== undefined) intentionallyStopped.add(monitor);
       monitor?.kill();
     },
   };
@@ -157,6 +172,8 @@ export class PasteStackRuntime {
   private generation = 0;
   private stateVersion = 0;
   private persistence = Promise.resolve();
+  private persistenceFailed = false;
+  private hookRestartTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   constructor(
     private readonly stackStore: ZToolsPasteStackStore,
@@ -204,6 +221,11 @@ export class PasteStackRuntime {
       await pending;
       if (pending === this.persistence) break;
     }
+    if (this.persistenceFailed) {
+      this.persistSnapshot(structuredClone(this.state));
+      await this.persistence;
+      if (this.persistenceFailed) return structuredClone(this.state);
+    }
     if (baselineVersion !== this.stateVersion) return structuredClone(this.state);
     const stored = await this.stackStore.get();
     if (baselineVersion !== this.stateVersion) return structuredClone(this.state);
@@ -218,6 +240,10 @@ export class PasteStackRuntime {
   }
 
   dispose(): void {
+    if (this.hookRestartTimer !== undefined) {
+      globalThis.clearTimeout(this.hookRestartTimer);
+      this.hookRestartTimer = undefined;
+    }
     if (this.hookStarted) this.hook?.stop();
     this.hookStarted = false;
   }
@@ -225,9 +251,12 @@ export class PasteStackRuntime {
   private syncHook(): void {
     const shouldStart = this.state.itemIds.length > 0 && this.hook !== undefined;
     if (shouldStart && !this.hookStarted) {
+      this.hookStarted = true;
       try {
-        this.hook?.start(() => this.handlePasteRequest());
-        this.hookStarted = true;
+        this.hook?.start(
+          () => this.handlePasteRequest(),
+          (reason) => this.handleHookStopped(reason),
+        );
       } catch {
         this.hookStarted = false;
       }
@@ -235,6 +264,16 @@ export class PasteStackRuntime {
       this.hook?.stop();
       this.hookStarted = false;
     }
+  }
+
+  private handleHookStopped(reason: "accessibility-required" | "exit" | "error"): void {
+    this.hookStarted = false;
+    if (this.state.itemIds.length === 0) return;
+    if (this.hookRestartTimer !== undefined) globalThis.clearTimeout(this.hookRestartTimer);
+    this.hookRestartTimer = globalThis.setTimeout(() => {
+      this.hookRestartTimer = undefined;
+      this.syncHook();
+    }, reason === "accessibility-required" ? 5_000 : 1_000);
   }
 
   private handlePasteRequest(): boolean {
@@ -257,10 +296,18 @@ export class PasteStackRuntime {
     globalThis.setTimeout(() => this.syncHook(), 100);
     const snapshot = structuredClone(this.state);
     this.onChange(snapshot);
-    const pending = this.persistence.then(async () => {
-      await this.stackStore.put(snapshot);
-    });
-    this.persistence = pending.catch(() => undefined);
+    this.persistSnapshot(snapshot);
     return true;
+  }
+
+  private persistSnapshot(snapshot: PasteStackState): void {
+    this.persistence = this.persistence.then(async () => {
+      try {
+        await this.stackStore.put(snapshot);
+        this.persistenceFailed = false;
+      } catch {
+        this.persistenceFailed = true;
+      }
+    });
   }
 }

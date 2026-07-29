@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PasteItem } from "@pasteboard-pro/core";
 
 import {
+  MAX_CLIPBOARD_TEXT_BYTES,
   mirrorHostHistory,
   normalizeHostClipboardItem,
   ZToolsCanonicalClipboardStore,
@@ -199,6 +200,15 @@ describe("ZTools clipboard adapter", () => {
         "device",
       ),
     ).toBeNull();
+  });
+
+  it("rejects oversized text imported from ZTools history", () => {
+    expect(normalizeHostClipboardItem({
+      id: "oversized-text",
+      type: "text",
+      timestamp: 1,
+      content: "x".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1),
+    }, "device")).toBeNull();
   });
 
   it("persists canonical records and cursors in isolated ZTools documents", async () => {

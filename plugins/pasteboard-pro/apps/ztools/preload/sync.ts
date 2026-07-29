@@ -130,6 +130,43 @@ export class VaultSyncError extends Error {
 const MAX_HTTP_RESPONSE_BYTES = 141 * 1_024 * 1_024;
 const HTTP_TIMEOUT_MS = 30_000;
 
+export async function readLimitedResponseBody(
+  response: Response,
+  maximumBytes = MAX_HTTP_RESPONSE_BYTES,
+): Promise<Uint8Array> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    await response.body?.cancel();
+    throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
+  }
+  if (response.body === null) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel();
+        throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 async function defaultTransport(request: WebDavRequest): Promise<WebDavResponse> {
   const response = await fetch(request.url, {
     method: request.method,
@@ -138,15 +175,7 @@ async function defaultTransport(request: WebDavRequest): Promise<WebDavResponse>
     redirect: "manual",
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
   });
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_HTTP_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
-  }
-  const body = new Uint8Array(await response.arrayBuffer());
-  if (body.byteLength > MAX_HTTP_RESPONSE_BYTES) {
-    throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
-  }
+  const body = await readLimitedResponseBody(response);
   return {
     status: response.status,
     headers: response.headers,

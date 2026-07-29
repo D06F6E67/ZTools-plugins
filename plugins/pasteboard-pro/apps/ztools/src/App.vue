@@ -577,7 +577,6 @@ async function saveSettings(
       syncInput.enabled !== currentSync.enabled ||
       syncInput.baseUrl.trim() !== currentSync.baseUrl ||
       syncInput.username.trim() !== currentSync.username ||
-      syncInput.syncFileContents !== currentSync.syncFileContents ||
       syncInput.webdavPassword !== undefined ||
       syncInput.syncPassword !== undefined;
     const [saved, savedPreferences, savedSync] = await Promise.all([
