@@ -9,7 +9,7 @@ ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹
 ## 平台支持
 
 - macOS：当前版本已支持 Apple Silicon M 系列（arm64）和 Intel（x64）。
-- Windows：支持 x64 与 ARM64，发布包内置对应 Sharp 运行时。
+- Windows：支持 x64 与 ARM64，首次使用图片能力时按当前架构安装 Sharp 运行组件。
 
 ## 功能
 
@@ -42,7 +42,7 @@ ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹
 
 - React + Vite 构建界面。
 - TypeScript 编写 UI、预加载层和处理器。
-- Sharp 处理图片压缩、转换、裁剪、水印、拼图、圆角等能力。
+- Sharp 处理图片压缩、转换、裁剪、水印、拼图、圆角等能力；运行组件安装后可离线使用。
 - pdf-lib 处理 PDF 合并。
 - gifenc 处理 GIF 合成。
 - 所有处理在 ZTools 插件本地预加载进程内完成。
@@ -67,4 +67,4 @@ npm run install:local
 npm run smoke:installed
 ```
 
-`verify:runtime` 会检测打包产物是否包含 macOS arm64/x64 与 Windows x64/ARM64 的 Sharp 运行时，以及各平台原生文件的 ASAR 解包配置。`smoke:installed` 会在当前系统生成测试图片和 PDF，验证图片处理、拼图、GIF 合成、PDF 合并以及 ZTools 安装记录。
+`verify:runtime` 会校验 macOS arm64/x64 与 Windows x64/ARM64 的固定下载地址、版本和 SHA-512，确认发布包未混入原生运行时。`verify:size` 会检查压缩产物不超过 EdgeOne 的 15MB 限制。`smoke:installed` 会在当前系统生成测试图片和 PDF，验证图片处理、拼图、GIF 合成、PDF 合并以及 ZTools 安装记录。
