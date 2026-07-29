@@ -87,7 +87,17 @@ function detectChangedPlugins() {
       }
     });
 
-    return Array.from(changedPlugins);
+    const existingPlugins = Array.from(changedPlugins).filter(name => {
+      const pluginPath = join(PLUGINS_DIR, name);
+      return existsSync(pluginPath) && statSync(pluginPath).isDirectory();
+    });
+    const deletedPlugins = Array.from(changedPlugins).filter(name => !existingPlugins.includes(name));
+
+    if (deletedPlugins.length > 0) {
+      console.log(`忽略已删除的插件目录: ${deletedPlugins.join(', ')}`);
+    }
+
+    return existingPlugins;
   } catch (error) {
     console.log('无法检测git变动，可能是首次提交，构建所有插件');
     return getAllPlugins();

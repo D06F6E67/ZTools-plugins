@@ -8,6 +8,12 @@ const pluginDir = resolve(scriptDir, '..')
 const upstreamDir = join(pluginDir, 'upstream')
 const mainDist = join(pluginDir, 'dist')
 const quicknoteDist = join(pluginDir, 'dist-quicknote-ztools')
+const compatBuildScript = join(
+  pluginDir,
+  'compat',
+  'upstream-scripts',
+  'utools-build.js'
+)
 const contract = JSON.parse(
   readFileSync(join(pluginDir, 'compat', 'api-contract.json'), 'utf8')
 )
@@ -15,6 +21,8 @@ const contract = JSON.parse(
 const assert = (condition, message) => {
   if (!condition) throw new Error(message)
 }
+
+assert(existsSync(compatBuildScript), `缺少受控的上游构建脚本: ${compatBuildScript}`)
 
 const walk = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const path = join(directory, entry.name)

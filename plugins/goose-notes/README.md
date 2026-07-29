@@ -12,6 +12,9 @@
 主插件产物位于 `dist/`。同一构建还会生成尚未发布的速记候选产物
 `dist-quicknote-ztools/`，用于后续独立窗口真机验证。
 
+上游通过自己的 `.gitignore` 排除了 `scripts/`。构建所需的 `utools-build.js`
+因此保存在 `compat/upstream-scripts/`，构建前会自动恢复到上游期望的位置。
+
 ## 同步上游
 
 ```bash
