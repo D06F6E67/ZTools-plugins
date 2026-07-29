@@ -12,10 +12,6 @@ on:
       runner:
         required: true
         type: string
-      include_ztools_sidecars:
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -52,14 +48,6 @@ jobs:
           name: pr-${{ inputs.pr_number }}-build-info
           path: release
 
-      - name: Download cross-platform ztools-cc-switch sidecars
-        if: inputs.include_ztools_sidecars
-        uses: actions/download-artifact@v4
-        with:
-          pattern: pr-${{ inputs.pr_number }}-ztools-cc-switch-sidecar-*
-          path: plugins/ztools-cc-switch/preload/bin
-          merge-multiple: true
-
       - name: Select platform build info
         run: |
           node -e "const fs = require('fs'); fs.copyFileSync('release/build-info.${{ inputs.platform_name }}.json', 'release/build-info.json')"
@@ -68,8 +56,6 @@ jobs:
         run: npm ci
 
       - name: Build changed plugins
-        env:
-          CC_SWITCH_UNIVERSAL_BUILD: ${{ inputs.include_ztools_sidecars && '1' || '0' }}
         run: node scripts/build-plugins.js
 
       - name: Upload plugin packages

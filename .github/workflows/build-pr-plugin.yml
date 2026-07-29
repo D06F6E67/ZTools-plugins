@@ -292,60 +292,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  build-ztools-cc-switch-sidecars:
-    needs: detect
-    if: contains(needs.detect.outputs.changed_plugins, 'ztools-cc-switch')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x64
-            runner: ubuntu-latest
-          - name: windows-x64
-            runner: windows-latest
-          - name: macos-universal
-            runner: macos-latest
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: Checkout PR code
-        shell: bash
-        env:
-          PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin "https://github.com/${REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head"
-          git checkout --force FETCH_HEAD
-          git clean -ffdx
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Build sidecar
-        working-directory: plugins/ztools-cc-switch
-        run: node scripts/build-sidecar.mjs
-      - name: Run native platform regression
-        working-directory: plugins/ztools-cc-switch
-        run: npm run test:platform
-      - name: Upload sidecar
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-${{ needs.detect.outputs.pr_number }}-ztools-cc-switch-sidecar-${{ matrix.name }}
-          path: plugins/ztools-cc-switch/preload/bin/cc-switch-sidecar-*
-          if-no-files-found: error
-          retention-days: 14
-
   build-linux:
-    needs: [detect, build-ztools-cc-switch-sidecars]
-    if: always() && needs.detect.outputs.has_linux == 'true' && (needs.build-ztools-cc-switch-sidecars.result == 'success' || needs.build-ztools-cc-switch-sidecars.result == 'skipped')
+    needs: detect
+    if: needs.detect.outputs.has_linux == 'true'
     uses: ./.github/workflows/build-pr-plugin-platform.yml
     with:
       pr_number: ${{ needs.detect.outputs.pr_number }}
       platform_name: linux
       runner: ubuntu-latest
-      include_ztools_sidecars: ${{ contains(needs.detect.outputs.linux_plugins, 'ztools-cc-switch') }}
 
   build-windows:
     needs: detect
