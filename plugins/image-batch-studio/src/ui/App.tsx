@@ -8,6 +8,7 @@ import {
   ChevronsUpDown,
   Clipboard,
   Crop,
+  Download,
   FileArchive,
   FileImage,
   FilePlus2,
@@ -33,6 +34,8 @@ import type {
   ImageJobSettings,
   MergeImagesOptions,
   ProcessResult,
+  SharpRuntimeProgress,
+  SharpRuntimeStatus,
   SourceFile,
   WatermarkPosition
 } from "../shared/types";
@@ -168,6 +171,13 @@ export function App() {
   const [dropActive, setDropActive] = useState(false);
   const [showFileTray, setShowFileTray] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState<SharpRuntimeStatus>({
+    state: "checking",
+    version: "",
+    target: "",
+    downloadBytes: 0
+  });
+  const [runtimeProgress, setRuntimeProgress] = useState<SharpRuntimeProgress | undefined>();
 
   const imageFiles = useMemo(() => files.filter((file) => file.type === "image"), [files]);
   const pdfFiles = useMemo(() => files.filter((file) => file.type === "pdf"), [files]);
@@ -188,11 +198,28 @@ export function App() {
       const custom = event as CustomEvent<{ completed: number; total: number }>;
       setProgress(`${custom.detail.completed}/${custom.detail.total}`);
     };
+    const onRuntimeProgress = (event: Event) => {
+      const custom = event as CustomEvent<SharpRuntimeProgress>;
+      setRuntimeProgress(custom.detail);
+      setRuntimeStatus((current) => ({ ...current, state: "installing", error: undefined }));
+    };
+    const onRuntimeStatus = (event: Event) => {
+      const custom = event as CustomEvent<SharpRuntimeStatus>;
+      setRuntimeStatus(custom.detail);
+      if (custom.detail.state !== "installing") setRuntimeProgress(undefined);
+    };
     window.addEventListener("image-batch-enter", onEnter);
     window.addEventListener("image-batch-progress", onProgress);
+    window.addEventListener("image-batch-runtime-progress", onRuntimeProgress);
+    window.addEventListener("image-batch-runtime-status", onRuntimeStatus);
+    window.services?.runtimeStatus?.().then(setRuntimeStatus).catch((error) => {
+      setRuntimeStatus((current) => ({ ...current, state: "error", error: errorMessage(error) }));
+    });
     return () => {
       window.removeEventListener("image-batch-enter", onEnter);
       window.removeEventListener("image-batch-progress", onProgress);
+      window.removeEventListener("image-batch-runtime-progress", onRuntimeProgress);
+      window.removeEventListener("image-batch-runtime-status", onRuntimeStatus);
     };
   }, []);
 
@@ -222,7 +249,27 @@ export function App() {
   }
 
   async function chooseFiles() {
-    addFiles(await window.services.chooseFiles());
+    try {
+      addFiles(await window.services.chooseFiles());
+    } catch (error) {
+      notify(errorMessage(error));
+    }
+  }
+
+  async function installRuntime() {
+    setRuntimeStatus((current) => ({ ...current, state: "installing", error: undefined }));
+    try {
+      const status = await window.services.installRuntime();
+      setRuntimeStatus(status);
+      if (status.state === "ready") notify("图像运行组件已安装");
+      else notify(status.error || "图像运行组件安装失败");
+    } catch (error) {
+      const message = errorMessage(error);
+      setRuntimeStatus((current) => ({ ...current, state: "error", error: message }));
+      notify(message);
+    } finally {
+      setRuntimeProgress(undefined);
+    }
   }
 
   async function chooseOutputDirectory() {
@@ -248,7 +295,11 @@ export function App() {
     const paths = Array.from(event.dataTransfer.files)
       .map((file) => window.services.getPathForFile(file))
       .filter(Boolean);
-    addFiles(await window.services.resolveFiles(paths));
+    try {
+      addFiles(await window.services.resolveFiles(paths));
+    } catch (error) {
+      notify(errorMessage(error));
+    }
   }
 
   async function processSelectedImageModule() {
@@ -601,6 +652,27 @@ export function App() {
                 <span>{successfulResults} 输出</span>
               </div>
             </div>
+          </div>
+          <div className={`runtime-status runtime-status--${runtimeStatus.state}`}>
+            <span className="runtime-dot" aria-hidden="true" />
+            <div className="runtime-copy">
+              <strong>{runtimeStatusLabel(runtimeStatus)}</strong>
+              <small>
+                {runtimeStatus.state === "installing"
+                  ? `${runtimeProgress?.percent ?? 0}%`
+                  : runtimeStatus.error || runtimeStatus.target}
+              </small>
+            </div>
+            {runtimeStatus.state === "installing" ? (
+              <div className="runtime-progress" aria-label="运行组件下载进度">
+                <span style={{ width: `${runtimeProgress?.percent ?? 0}%` }} />
+              </div>
+            ) : runtimeStatus.state !== "ready" && runtimeStatus.state !== "checking" && runtimeStatus.state !== "unsupported" ? (
+              <button className="runtime-install-button" onClick={installRuntime}>
+                <Download size={14} />
+                {formatBytes(runtimeStatus.downloadBytes)}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1168,4 +1240,18 @@ function notify(message: string) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return "安装";
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function runtimeStatusLabel(status: SharpRuntimeStatus) {
+  if (status.state === "checking") return "检查运行组件";
+  if (status.state === "installing") return "安装运行组件";
+  if (status.state === "ready") return `运行组件 ${status.version}`;
+  if (status.state === "unsupported") return "当前平台不支持";
+  if (status.state === "error") return "运行组件异常";
+  return "需要运行组件";
 }

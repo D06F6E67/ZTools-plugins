@@ -21,6 +21,23 @@ export interface SourceFile {
   format?: string;
 }
 
+export type SharpRuntimeState = "checking" | "missing" | "installing" | "ready" | "error" | "unsupported";
+
+export interface SharpRuntimeStatus {
+  state: SharpRuntimeState;
+  version: string;
+  target: string;
+  downloadBytes: number;
+  error?: string;
+}
+
+export interface SharpRuntimeProgress {
+  phase: "downloading" | "verifying" | "installing";
+  loaded: number;
+  total: number;
+  percent: number;
+}
+
 export interface OutputSettings {
   directory: string;
   namingPattern: string;
