@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="局域网设备发现">
+  <defs>
+    <linearGradient id="g" x1="32" y1="24" x2="222" y2="230" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17223b"/><stop offset="1" stop-color="#355c7d"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#g)"/>
+  <circle cx="128" cy="123" r="18" fill="#e8c547"/>
+  <path d="M76 92a73 73 0 0 1 104 0M52 66a108 108 0 0 1 152 0M94 113a48 48 0 0 1 68 0" fill="none" stroke="#f7f7f2" stroke-width="15" stroke-linecap="round"/>
+  <path d="M128 141v43M92 184h72" fill="none" stroke="#e8c547" stroke-width="15" stroke-linecap="round"/>
+</svg>
