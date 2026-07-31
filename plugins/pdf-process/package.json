@@ -4,6 +4,8 @@
   "description": "",
   "type": "module",
   "scripts": {
+    "postinstall": "npm install --prefix public/preload",
+    "prebuild": "npm install --prefix public/preload",
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
