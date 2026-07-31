@@ -3,7 +3,7 @@
   "title": "系统管家",
   "description": "集中查看软硬件状态，并管理应用卸载、开机启动、垃圾清理与局域网设备。",
   "author": "Harris",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "index.html",
   "preload": "preload/index.cjs",
   "logo": "logo.svg",

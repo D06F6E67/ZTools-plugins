@@ -22,8 +22,9 @@ system-manager/
 ├── modules/                 # 五个可独立测试、仅供套件组装的内部模块
 ├── scripts/                 # 顺序构建、组装、审计与 ZIP 生成
 ├── tests/                   # workspace、路由和最终发布物整合测试
+├── CHANGELOG.md             # 面向插件升级审核的版本更新记录
 ├── dist/                    # 单一 ZTools 发布目录（构建生成）
-└── release/system-manager-0.1.0.zip
+└── release/system-manager-0.2.0.zip
 ```
 
 最终 `dist` 只保留根 `plugin.json`。模块发布物位于 `dist/modules/<feature-code>/`，其嵌套 manifest 会在组装时删除。每个模块 HTML 都会注入位于文档流首部的统一 SuiteBar，共用 `_system-manager/navigation.js` 和 `_system-manager/navigation.css`。
