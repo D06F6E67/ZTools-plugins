@@ -7,6 +7,9 @@ const SUITE_ROOT = path.resolve(__dirname, '..')
 
 function loadFeatureService(featureCode, runtimeRequire = require) {
   switch (featureCode) {
+    case 'system-diagnostic-report':
+      runtimeRequire('../modules/system-diagnostic-report/preload/services.cjs')
+      return true
     case 'application-uninstaller':
       runtimeRequire('../modules/application-uninstaller/preload/services.cjs')
       return true

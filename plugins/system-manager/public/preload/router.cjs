@@ -4,6 +4,7 @@ const path = require('node:path')
 const { fileURLToPath, pathToFileURL } = require('node:url')
 
 const FEATURE_ROUTES = Object.freeze(Object.assign(Object.create(null), {
+  'system-diagnostic-report': 'modules/system-diagnostic-report/index.html',
   'application-uninstaller': 'modules/application-uninstaller/index.html',
   'startup-manager': 'modules/startup-manager/index.html',
   'system-cleaner': 'modules/system-cleaner/index.html',
@@ -32,7 +33,11 @@ function trustedPages(suiteRoot, platform = process.platform) {
   const dashboardPath = pathApi.join(root, 'index.html')
   const pages = new Map([[pathKey(dashboardPath, platform), Object.freeze({ kind: 'dashboard', featureCode: null, hashes: Object.freeze(['', '#modules']), filePath: dashboardPath, href: fileHref(dashboardPath, platform) })]])
   for (const [featureCode, route] of Object.entries(FEATURE_ROUTES)) {
-    const hashes = featureCode === 'system-cleaner' ? Object.freeze(['', '#main']) : Object.freeze([''])
+    const hashes = featureCode === 'system-cleaner'
+      ? Object.freeze(['', '#main'])
+      : featureCode === 'system-diagnostic-report'
+        ? Object.freeze(['', '#report-content'])
+        : Object.freeze([''])
     const filePath = pathApi.join(root, ...route.split('/'))
     pages.set(pathKey(filePath, platform), Object.freeze({ kind: 'module', featureCode, hashes, filePath, href: fileHref(filePath, platform) }))
   }

@@ -3,6 +3,7 @@ import { builtinModules, createRequire } from 'node:module'
 import path from 'node:path'
 
 import { distRoot, inside, limitBytes, modules, requireStrictSemver, root } from './config.mjs'
+import { verifyRuntimeDependencyDirectory } from './runtime-dependency-integrity.mjs'
 
 const strictProductionCsp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'"
 
@@ -41,6 +42,7 @@ for (const relative of [
 
 const manifest = JSON.parse(await readFile(path.join(distRoot, 'plugin.json'), 'utf8'))
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+const packageLock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'))
 requireStrictSemver(packageJson.version)
 if (manifest.name !== 'system-manager') throw new Error(`根插件 ID 错误：${manifest.name}`)
 if (manifest.version !== packageJson.version) throw new Error('plugin.json 与 package.json 版本不一致')
@@ -90,9 +92,45 @@ async function relativeExists(relative) {
 
 const files = await walk(distRoot)
 const relativeFiles = files.map((file) => path.relative(distRoot, file).split(path.sep).join('/'))
+const runtimeDependencyPrefixes = new Set()
+for (const module of modules) {
+  const modulePackage = JSON.parse(await readFile(path.join(root, 'modules', module.id, 'package.json'), 'utf8'))
+  for (const dependency of module.runtimeDependencies || []) {
+    const prefix = `modules/${module.id}/preload/node_modules/${dependency}/`
+    runtimeDependencyPrefixes.add(prefix)
+    const packagePath = `${prefix}package.json`
+    await requireFile(packagePath)
+    const installed = JSON.parse(await readFile(inside(distRoot, packagePath), 'utf8'))
+    const locked = packageLock.packages?.[`node_modules/${dependency}`]
+    const declared = modulePackage.dependencies?.[dependency]
+    if (!locked?.integrity || declared !== installed.version || locked.version !== installed.version || installed.name !== dependency) {
+      throw new Error(`${module.id} 的运行依赖 ${dependency} 未按根锁文件精确交付`)
+    }
+    await verifyRuntimeDependencyDirectory({
+      directory: inside(distRoot, prefix.slice(0, -1)),
+      dependency,
+      version: installed.version,
+      packageIntegrity: locked.integrity
+    })
+    if (typeof installed.license !== 'string' || !installed.license) throw new Error(`${dependency} 缺少许可证声明`)
+    for (const script of ['preinstall', 'install', 'postinstall']) {
+      if (installed.scripts?.[script]) throw new Error(`${dependency} 禁止包含 ${script} 生命周期脚本`)
+    }
+  }
+}
+
+function isAllowedRuntimeDependencyFile(relative) {
+  return [...runtimeDependencyPrefixes].some((prefix) => {
+    if (!relative.startsWith(prefix)) return false
+    return !/(?:^|\/)node_modules(?:\/|$)/.test(relative.slice(prefix.length))
+  })
+}
+
 const nestedManifests = relativeFiles.filter((relative) => relative !== 'plugin.json' && relative.endsWith('/plugin.json'))
 if (nestedManifests.length) throw new Error(`发布物包含嵌套 plugin.json：${nestedManifests.join(', ')}`)
-const forbidden = relativeFiles.filter((relative) => relative.endsWith('.map') || /(?:^|\/)(?:node_modules|src|tests)(?:\/|$)/.test(relative))
+const forbidden = relativeFiles.filter((relative) => relative.endsWith('.map')
+  || /(?:^|\/)(?:src|tests)(?:\/|$)/.test(relative)
+  || (/(?:^|\/)node_modules(?:\/|$)/.test(relative) && !isAllowedRuntimeDependencyFile(relative)))
 if (forbidden.length) throw new Error(`发布物包含开发文件：${forbidden.join(', ')}`)
 const moduleDocumentation = relativeFiles.filter((relative) => /^modules\/[^/]+\/(?:README\.md|SECURITY\.md|screenshots\/)/.test(relative))
 if (moduleDocumentation.length) throw new Error(`最终模块包含重复文档或截图：${moduleDocumentation.join(', ')}`)
@@ -113,12 +151,13 @@ const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `no
 const hostRuntimeModules = new Set(['electron'])
 for (const file of files.filter((target) => /(?:^|[/\\])preload[/\\].*\.(?:c?js)$/i.test(target))) {
   const source = await readFile(file, 'utf8')
-  const relative = path.relative(distRoot, file)
+  const relative = path.relative(distRoot, file).split(path.sep).join('/')
+  if (isAllowedRuntimeDependencyFile(relative)) continue
   if (/webpackBootstrap|__webpack_require__|sourceMappingURL|eval\s*\(/.test(source)) {
     throw new Error(`preload 不可审核：${relative}`)
   }
   const localRequire = createRequire(file)
-  for (const match of source.matchAll(/\brequire\(\s*["']([^"']+)["']\s*\)/g)) {
+  for (const match of source.matchAll(/\b(?:require|runtimeRequire)\(\s*["']([^"']+)["']\s*\)/g)) {
     const specifier = match[1]
     if (builtins.has(specifier) || hostRuntimeModules.has(specifier)) continue
     try { localRequire.resolve(specifier) } catch (error) {

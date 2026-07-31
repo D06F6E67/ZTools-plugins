@@ -9,6 +9,13 @@ export const limitBytes = 15 * 1024 * 1024
 
 export const modules = Object.freeze([
   Object.freeze({
+    id: 'system-diagnostic-report',
+    sourcePreload: 'preload/services.cjs',
+    finalPreload: 'preload/services.cjs',
+    bridge: 'systemReport',
+    runtimeDependencies: Object.freeze(['systeminformation']),
+  }),
+  Object.freeze({
     id: 'application-uninstaller',
     sourcePreload: 'preload/services.cjs',
     finalPreload: 'preload/services.cjs',

@@ -16,7 +16,7 @@ async function walk(directory) {
   return output
 }
 
-test('assembled manifest publishes four features and one root preload', async () => {
+test('assembled manifest publishes five features and one root preload', async () => {
   const manifest = JSON.parse(await readFile(path.join(distRoot, 'plugin.json'), 'utf8'))
   assert.equal(manifest.name, 'system-manager')
   assert.equal(manifest.preload, 'preload/index.cjs')
@@ -50,12 +50,17 @@ test('dashboard and every module route are present with accessible return naviga
   assert.match(dashboardScript, /window\.location\.assign\(fallback\)/)
 })
 
-test('release contains no nested manifests, source maps, node_modules or development trees', async () => {
+test('release contains no nested manifests, source maps or unexpected development dependencies', async () => {
   const files = await walk(distRoot)
   const relative = files.map((file) => path.relative(distRoot, file).split(path.sep).join('/'))
+  const runtimePrefixes = modules.flatMap((module) => (module.runtimeDependencies || [])
+    .map((dependency) => `modules/${module.id}/preload/node_modules/${dependency}/`))
+  const allowedRuntimeDependency = (file) => runtimePrefixes.some((prefix) => file.startsWith(prefix)
+    && !/(?:^|\/)node_modules(?:\/|$)/.test(file.slice(prefix.length)))
   assert.equal(relative.filter((file) => file.endsWith('plugin.json')).length, 1)
   assert.equal(relative.some((file) => file.endsWith('.map')), false)
-  assert.equal(relative.some((file) => /(?:^|\/)(?:node_modules|src|tests)(?:\/|$)/.test(file)), false)
+  assert.equal(relative.some((file) => /(?:^|\/)(?:src|tests)(?:\/|$)/.test(file)), false)
+  assert.equal(relative.some((file) => /(?:^|\/)node_modules(?:\/|$)/.test(file) && !allowedRuntimeDependency(file)), false)
   for (const module of modules) {
     assert.ok(relative.includes(`modules/${module.id}/index.html`))
     assert.ok(relative.includes(`modules/${module.id}/${module.finalPreload}`))
@@ -63,12 +68,16 @@ test('release contains no nested manifests, source maps, node_modules or develop
     assert.equal(relative.includes(`modules/${module.id}/SECURITY.md`), false)
     assert.equal(relative.some((file) => file.startsWith(`modules/${module.id}/screenshots/`)), false)
     if (module.sourcePreload !== module.finalPreload) assert.equal(relative.includes(`modules/${module.id}/${module.sourcePreload}`), false)
+    for (const dependency of module.runtimeDependencies || []) {
+      assert.ok(relative.includes(`modules/${module.id}/preload/node_modules/${dependency}/package.json`))
+    }
   }
   const bytes = (await Promise.all(files.map((file) => stat(file)))).reduce((sum, info) => sum + info.size, 0)
   assert.ok(bytes < limitBytes, `dist ${bytes} must be < ${limitBytes}`)
 })
 
-test('dashboard and four module pages use one strict production CSP only', async () => {
+
+test('dashboard and five module pages use one strict production CSP only', async () => {
   const pages = ['index.html', ...modules.map((module) => `modules/${module.id}/index.html`)]
   for (const page of pages) {
     const html = await readFile(path.join(distRoot, page), 'utf8')
