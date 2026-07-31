@@ -4,6 +4,8 @@
   "description": "",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/install-preload-deps.cjs",
+    "prebuild": "node scripts/install-preload-deps.cjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
