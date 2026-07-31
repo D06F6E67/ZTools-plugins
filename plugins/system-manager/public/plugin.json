@@ -1,0 +1,40 @@
+{
+  "name": "system-manager",
+  "title": "系统管家",
+  "description": "集中管理应用卸载、开机启动、垃圾清理与局域网设备发现。",
+  "author": "Harris",
+  "version": "0.1.0",
+  "main": "index.html",
+  "preload": "preload/index.cjs",
+  "logo": "logo.svg",
+  "features": [
+    {
+      "code": "application-uninstaller",
+      "explain": "卸载应用并清理关联残留",
+      "icon": "logo.svg",
+      "platform": ["darwin", "win32", "linux"],
+      "cmds": ["应用卸载", "彻底卸载", "软件卸载", "卸载助手"]
+    },
+    {
+      "code": "startup-manager",
+      "explain": "管理开机启动项",
+      "icon": "logo.svg",
+      "platform": ["darwin", "win32", "linux"],
+      "cmds": ["开机启动", "启动项", "登录项", "自启动管理"]
+    },
+    {
+      "code": "system-cleaner",
+      "explain": "扫描并安全清理系统垃圾",
+      "icon": "logo.svg",
+      "platform": ["darwin", "win32", "linux"],
+      "cmds": ["垃圾清理", "缓存清理", "释放空间", "系统清理"]
+    },
+    {
+      "code": "lan-device-discovery",
+      "explain": "发现当前局域网内的在线设备",
+      "icon": "logo.svg",
+      "platform": ["darwin", "win32", "linux"],
+      "cmds": ["局域网设备", "设备发现", "局域网扫描", "LAN", "网络设备"]
+    }
+  ]
+}
