@@ -132,6 +132,79 @@
         </a>
       </nav>
 
+      <section class="agent-access-panel" data-agent-access-state="loading" aria-labelledby="agent-access-title">
+        <div class="agent-access-copy">
+          <div class="agent-access-heading">
+            <h2 id="agent-access-title">Agent 短时授权</h2>
+            <span id="agent-access-badge" class="agent-access-badge">检测中</span>
+          </div>
+          <p>只读查看与预览无需授权；只有明确选择的副作用操作可在授权期内请求执行。</p>
+          <p class="agent-access-boundary">授权最多持续 10 分钟，可随时撤销；刷新、离开当前页面或重启会提前失效。授权不等于跳过每个工具的预览、确认与执行前复验。</p>
+        </div>
+        <div class="agent-access-controls">
+          <p id="agent-access-status" class="agent-access-status" aria-live="off">正在检查授权能力…</p>
+          <p id="agent-access-announcement" class="sr-only" role="status" aria-atomic="true"></p>
+          <button
+            id="agent-access-action"
+            class="agent-access-button agent-access-button-primary"
+            type="button"
+            aria-controls="agent-access-dialog"
+            aria-haspopup="dialog"
+            disabled
+          >正在检查…</button>
+        </div>
+      </section>
+
+      <dialog
+        id="agent-access-dialog"
+        class="agent-access-dialog"
+        aria-labelledby="agent-access-dialog-title"
+        aria-describedby="agent-access-dialog-description"
+      >
+        <form id="agent-access-form" class="agent-access-form" novalidate>
+          <header class="agent-access-dialog-header">
+            <p class="product-label">受控操作</p>
+            <h2 id="agent-access-dialog-title">选择 Agent 授权范围</h2>
+            <p id="agent-access-dialog-description">选择允许 Agent 在当前页面会话内、最多接下来 10 分钟请求执行的副作用操作。每个工具仍会保留预览、确认与执行前复验。</p>
+          </header>
+
+          <fieldset class="agent-scope-list" aria-describedby="agent-access-selection-hint">
+            <legend>授权范围</legend>
+            <label class="agent-scope-option">
+              <input type="checkbox" name="agent-scope" value="report_export" />
+              <span><strong>报告导出</strong><small>导出已经预览并确认的诊断报告</small></span>
+            </label>
+            <label class="agent-scope-option">
+              <input type="checkbox" name="agent-scope" value="lan_scan" />
+              <span><strong>主动局域网扫描（DNS 默认关闭）</strong><small>仅允许受限的主动发现，不执行端口扫描</small></span>
+            </label>
+            <label class="agent-scope-option">
+              <input type="checkbox" name="agent-scope" value="startup_changes" />
+              <span><strong>启动项变更/撤销</strong><small>变更受支持的当前用户启动项或撤销变更</small></span>
+            </label>
+            <label class="agent-scope-option">
+              <input type="checkbox" name="agent-scope" value="system_cleanup" />
+              <span><strong>垃圾移入废纸篓</strong><small>移动已预览、已选择的白名单垃圾项目</small></span>
+            </label>
+            <label class="agent-scope-option">
+              <input type="checkbox" name="agent-scope" value="application_removal" />
+              <span><strong>应用/残留处理</strong><small>仅将当前平台支持且已复验的所选项目移入废纸篓；部分平台只处理用户级残留</small></span>
+            </label>
+          </fieldset>
+
+          <p id="agent-access-selection-hint" class="agent-access-selection-hint" aria-live="polite">未选择任何范围。请至少选择一项。</p>
+          <div class="agent-access-dialog-actions">
+            <button id="agent-access-cancel" class="agent-access-button agent-access-button-secondary" type="button">取消</button>
+            <button
+              id="agent-access-confirm"
+              class="agent-access-button agent-access-button-primary"
+              type="submit"
+              aria-describedby="agent-access-selection-hint"
+              disabled
+            >授权 10 分钟</button>
+          </div>
+        </form>
+      </dialog>
 
       <footer class="suite-footer">
         <span>支持 macOS、Windows 与 Linux</span>
