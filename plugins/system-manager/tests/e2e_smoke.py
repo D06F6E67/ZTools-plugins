@@ -9,6 +9,7 @@ SCREENSHOT = ROOT / "screenshots" / "main.png"
 BASE_URL = os.environ.get("SYSTEM_MANAGER_E2E_URL", "http://127.0.0.1:8877").rstrip("/")
 CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 MODULES = [
+    "system-diagnostic-report",
     "application-uninstaller",
     "startup-manager",
     "system-cleaner",
@@ -39,7 +40,7 @@ with sync_playwright() as playwright:
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     page.goto(BASE_URL, wait_until="networkidle")
     page.get_by_role("heading", name="系统管家", exact=True).wait_for()
-    assert page.locator(".module-card").count() == 4
+    assert page.locator(".module-card").count() == 5
     assert len(page.locator(".module-grid").evaluate("el => getComputedStyle(el).gridTemplateColumns.split(' ')")) == 2
     assert_no_overflow(page)
     SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +58,17 @@ with sync_playwright() as playwright:
         home_link.wait_for()
         assert home_link.get_attribute("href") == "../../index.html"
         assert_no_overflow(page)
+        if module_id in {"system-diagnostic-report", "system-cleaner"}:
+            page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+            suite_box = page.locator(".system-manager-suitebar").bounding_box()
+            topbar_box = page.locator(".topbar").first.bounding_box()
+            assert suite_box and topbar_box, module_id
+            assert topbar_box["y"] >= suite_box["height"] - 1, {
+                "module": module_id,
+                "suitebar": suite_box,
+                "topbar": topbar_box,
+            }
+            page.evaluate("window.scrollTo(0, 0)")
         home_link.click()
         page.get_by_role("heading", name="系统管家", exact=True).wait_for()
 
@@ -65,7 +77,7 @@ with sync_playwright() as playwright:
     compact.on("console", lambda message: compact_errors.append(message.text) if message.type == "error" else None)
     compact.goto(BASE_URL, wait_until="networkidle")
     compact.get_by_role("heading", name="系统管家", exact=True).wait_for()
-    assert compact.locator(".module-card").count() == 4
+    assert compact.locator(".module-card").count() == 5
     assert len(compact.locator(".module-grid").evaluate("el => getComputedStyle(el).gridTemplateColumns.split(' ')")) == 1
     assert_no_overflow(compact)
     compact.close()

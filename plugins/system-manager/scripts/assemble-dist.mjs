@@ -24,7 +24,7 @@ function webRelative(fromDirectory, target) {
   return relative.startsWith('.') ? relative : `./${relative}`
 }
 
-async function injectNavigation(htmlPath) {
+async function injectNavigation(htmlPath, module) {
   let source = await readFile(htmlPath, 'utf8')
   if (source.includes('data-system-manager-navigation')) return
   if (!/<\/head\s*>/i.test(source) || !/<\/body\s*>/i.test(source)) {
@@ -34,8 +34,12 @@ async function injectNavigation(htmlPath) {
   const stylesheet = webRelative(directory, navigationStylePath)
   const script = webRelative(directory, navigationScriptPath)
   const home = webRelative(directory, path.join(distRoot, 'index.html'))
+  source = source.replace(/<body\b([^>]*)>/i, (tag, attributes) => {
+    if (/data-system-manager-module\s*=/.test(attributes)) throw new Error(`${module.id} 重复声明系统管家模块标识`)
+    return `<body${attributes} data-system-manager-module="${module.id}">`
+  })
   source = source.replace(/<\/head\s*>/i, `  <link rel="stylesheet" href="${stylesheet}" data-system-manager-navigation="style" />\n</head>`)
-  source = source.replace(/<\/body\s*>/i, `  <script src="${script}" data-system-manager-home="${home}" data-system-manager-navigation="script" defer></script>\n</body>`)
+  source = source.replace(/<\/body\s*>/i, `  <script src="${script}" data-system-manager-home="${home}" data-system-manager-feature="${module.id}" data-system-manager-navigation="script" defer></script>\n</body>`)
   await writeFile(htmlPath, source)
 }
 
@@ -88,7 +92,7 @@ for (const module of modules) {
     await rm(inside(target, relative), { recursive: true, force: true })
   }
   for (const html of await htmlFiles(target)) {
-    await injectNavigation(html)
+    await injectNavigation(html, module)
     await enforceProductionCsp(html)
   }
 }

@@ -13,7 +13,7 @@ const status = document.querySelector('.current-platform')
 
 if (platform) {
   document.querySelectorAll(`[data-platform="${platform.id}"]`).forEach((element) => element.classList.add('is-current'))
-  if (status) status.textContent = `当前平台：${platform.label} · 4 项能力可用`
+  if (status) status.textContent = `当前平台：${platform.label} · 5 项能力可用`
 } else if (status) {
   status.textContent = '当前平台未识别 · 请查看各模块支持范围'
 }

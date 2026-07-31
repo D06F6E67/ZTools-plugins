@@ -59,7 +59,10 @@
 
   <template id="candidateTemplate">
     <article class="candidate">
-      <input class="candidate-check" type="checkbox" />
+      <label class="candidate-select">
+        <input class="candidate-check" type="checkbox" name="cleanup-candidate" />
+        <span aria-hidden="true"></span>
+      </label>
       <div class="candidate-main"><div><strong class="candidate-label"></strong><span class="candidate-badge"></span></div><p class="candidate-location"></p></div>
       <div class="candidate-info"><strong class="candidate-size"></strong><span class="candidate-age"></span></div>
       <button class="reveal-button quiet" type="button">定位</button>

@@ -39,16 +39,20 @@ test('dashboard and every module route are present with accessible return naviga
     assert.match(html, /data-system-manager-navigation="style"/)
     assert.match(html, /data-system-manager-navigation="script"/)
     assert.match(html, /data-system-manager-home="\.\.\/\.\.\/index\.html"/)
+    assert.match(html, new RegExp(`data-system-manager-module=["']${module.id}["']`))
+    assert.match(html, new RegExp(`data-system-manager-feature=["']${module.id}["']`))
   }
   const navigation = await readFile(path.join(distRoot, '_system-manager', 'navigation.js'), 'utf8')
   assert.match(navigation, /aria-label', '返回系统管家首页'/)
-  assert.match(navigation, /textContent = '← 返回系统管家'/)
+  assert.match(navigation, /link\.textContent = '系统管家'/)
+  assert.match(navigation, /document\.body\.insertBefore\(bar, document\.body\.firstChild\)/)
   assert.match(navigation, /addEventListener\('auxclick', openInCurrentView\)/)
   assert.match(navigation, /window\.location\.assign\(link\.href\)/)
   const dashboardScript = await readFile(path.join(distRoot, 'dashboard', 'app.js'), 'utf8')
   assert.match(dashboardScript, /addEventListener\('auxclick', openInCurrentView\)/)
   assert.match(dashboardScript, /window\.location\.assign\(fallback\)/)
 })
+
 
 test('release contains no nested manifests, source maps or unexpected development dependencies', async () => {
   const files = await walk(distRoot)

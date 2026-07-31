@@ -120,24 +120,29 @@ onMounted(refreshInterfaces)
           <div><p class="eyebrow">DISCOVERED DEVICES</p><h2>发现的设备</h2></div>
           <small>结果为当前时刻的局部快照</small>
         </div>
-        <div class="table-wrap">
+        <div v-if="devices.length" class="table-wrap">
           <table>
             <thead><tr><th>IP 地址</th><th>设备名称</th><th>厂商</th><th>在线状态</th><th>判断依据</th></tr></thead>
             <tbody>
               <tr v-for="device in devices" :key="device.ip">
-                <td>
+                <td data-label="IP 地址">
                   <button class="ip-copy" type="button" :title="`复制 ${device.ip}`" @click="copyIp(device.ip)">
                     {{ device.ip }} <span>{{ copiedIp === device.ip ? '已复制' : '复制' }}</span>
                   </button>
                   <em v-if="device.isSelf">本机</em>
                 </td>
-                <td>{{ device.hostname || '—' }}</td>
-                <td>{{ device.vendor || '未知厂商' }}</td>
-                <td><span :class="['state-pill', `state-${device.onlineStatus}`]"><i />{{ statusLabel(device.onlineStatus) }}</span></td>
-                <td class="evidence">{{ evidenceLabel(device) }}</td>
+                <td data-label="设备名称">{{ device.hostname || '—' }}</td>
+                <td data-label="厂商">{{ device.vendor || '未知厂商' }}</td>
+                <td data-label="在线状态"><span :class="['state-pill', `state-${device.onlineStatus}`]"><i />{{ statusLabel(device.onlineStatus) }}</span></td>
+                <td class="evidence" data-label="判断依据">{{ evidenceLabel(device) }}</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div v-else class="result-empty" role="status">
+          <strong>未发现当前可见设备</strong>
+          <p>可以稍后重新扫描；部分设备可能处于休眠状态，或不会响应受限 ICMP 探测。</p>
+          <button class="secondary" type="button" @click="startScan">重新扫描</button>
         </div>
       </section>
     </template>

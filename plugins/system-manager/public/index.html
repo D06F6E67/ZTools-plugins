@@ -21,131 +21,121 @@
         <div class="brand-lockup">
           <img class="brand-logo" src="./logo.svg" width="48" height="48" alt="" />
           <div>
-            <p class="eyebrow">SYSTEM MANAGER</p>
+            <p class="product-label">系统工具</p>
             <h1>系统管家</h1>
           </div>
         </div>
-        <p class="suite-description">四项本地维护能力，共享清晰的预览、确认与回滚边界。</p>
+        <div class="suite-status" aria-label="运行边界">
+          <p class="privacy-note"><span aria-hidden="true"></span>设备数据仅在本机处理</p>
+          <p class="current-platform" aria-live="polite">正在识别当前平台…</p>
+        </div>
       </header>
 
-      <section class="section-heading" aria-labelledby="modules-title">
+      <section class="suite-intro" aria-labelledby="modules-title">
         <div>
-          <p class="section-index">01 / 工具套件</p>
-          <h2 id="modules-title">选择要处理的系统任务</h2>
+          <h2 id="modules-title">先了解状态，再执行维护</h2>
+          <p>查看软硬件与运行环境；涉及系统变更时，始终先预览范围并明确确认。</p>
         </div>
-        <p class="privacy-note"><span aria-hidden="true"></span>本地执行 · 不上传设备数据</p>
+        <ul class="boundary-list" aria-label="系统管家安全边界">
+          <li>本机执行</li>
+          <li>变更前预览</li>
+          <li>危险操作需确认</li>
+        </ul>
       </section>
 
       <nav id="modules" class="module-grid" aria-label="系统管家功能模块">
-        <a class="module-card" href="./modules/system-diagnostic-report/index.html" data-feature="system-diagnostic-report" data-platforms="darwin win32 linux">
+        <a class="module-card module-card-featured" href="./modules/system-diagnostic-report/index.html" data-feature="system-diagnostic-report">
           <div class="card-topline">
-            <span class="module-icon icon-network" aria-hidden="true">
+            <span class="module-icon icon-diagnostic" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M4 5h16v12H4zM8 21h8M12 17v4M8 9h2l1.5 4L14 7l1.5 4H18" /></svg>
             </span>
-            <span class="risk risk-low">低风险 · 只读诊断</span>
+            <span class="behavior behavior-readonly">只读 · 默认脱敏</span>
           </div>
           <div class="card-copy">
-            <p class="module-number">01</p>
             <h3>系统诊断报告</h3>
-            <p>查看软硬件与运行环境，生成默认脱敏的本地诊断报告。</p>
+            <p>集中查看操作系统、处理器、内存、存储、显卡、电池与运行环境，生成可复制或导出的安全报告。</p>
           </div>
-          <ul class="capabilities" aria-label="主要能力">
-            <li>软硬件摘要</li><li>安全导出</li>
-          </ul>
-          <div class="card-footer">
-            <span class="platforms" aria-label="支持 macOS、Windows、Linux"><i data-platform="darwin">macOS</i><i data-platform="win32">Windows</i><i data-platform="linux">Linux</i></span>
-            <span class="enter">进入模块 <b aria-hidden="true">↗</b></span>
-          </div>
+          <dl class="feature-facts" aria-label="诊断报告能力">
+            <div><dt>范围</dt><dd>12 类软硬件摘要</dd></div>
+            <div><dt>隐私</dt><dd>敏感标识默认移除</dd></div>
+            <div><dt>输出</dt><dd>Markdown / JSON</dd></div>
+          </dl>
+          <span class="enter">开始检查 <b aria-hidden="true">→</b></span>
         </a>
 
-        <a class="module-card" href="./modules/application-uninstaller/index.html" data-feature="application-uninstaller" data-platforms="darwin win32 linux">
-          <div class="card-topline">
-            <span class="module-icon icon-uninstall" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-3 4 1 14h10l1-14M10 11v6m4-6v6" /></svg>
-            </span>
-            <span class="risk risk-high">高风险 · 二次确认</span>
-          </div>
-          <div class="card-copy">
-            <p class="module-number">01</p>
-            <h3>应用彻底卸载</h3>
-            <p>定位应用关联的缓存、日志与配置，删除前展示完整范围。</p>
-          </div>
-          <ul class="capabilities" aria-label="主要能力">
-            <li>残留预览</li><li>安全卸载</li>
-          </ul>
-          <div class="card-footer">
-            <span class="platforms" aria-label="支持 macOS、Windows、Linux"><i data-platform="darwin">macOS</i><i data-platform="win32">Windows</i><i data-platform="linux">Linux</i></span>
-            <span class="enter">进入模块 <b aria-hidden="true">↗</b></span>
-          </div>
-        </a>
-
-        <a class="module-card" href="./modules/startup-manager/index.html" data-feature="startup-manager" data-platforms="darwin win32 linux">
-          <div class="card-topline">
-            <span class="module-icon icon-startup" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M12 3v9m-5-6.5a8 8 0 1 0 10 0" /></svg>
-            </span>
-            <span class="risk risk-medium">中风险 · 可撤销</span>
-          </div>
-          <div class="card-copy">
-            <p class="module-number">02</p>
-            <h3>开机启动管理</h3>
-            <p>查看登录项与后台服务，区分启用、运行和系统只读状态。</p>
-          </div>
-          <ul class="capabilities" aria-label="主要能力">
-            <li>安全启停</li><li>操作撤销</li>
-          </ul>
-          <div class="card-footer">
-            <span class="platforms" aria-label="支持 macOS、Windows、Linux"><i data-platform="darwin">macOS</i><i data-platform="win32">Windows</i><i data-platform="linux">Linux</i></span>
-            <span class="enter">进入模块 <b aria-hidden="true">↗</b></span>
-          </div>
-        </a>
-
-        <a class="module-card" href="./modules/system-cleaner/index.html" data-feature="system-cleaner" data-platforms="darwin win32 linux">
-          <div class="card-topline">
-            <span class="module-icon icon-cleaner" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="m14 4 6 6M13 5l2-2 6 6-2 2M4 20l8-8m-6 2 4 4m-8 2h12" /></svg>
-            </span>
-            <span class="risk risk-medium">中风险 · 先预览</span>
-          </div>
-          <div class="card-copy">
-            <p class="module-number">03</p>
-            <h3>垃圾清理</h3>
-            <p>扫描可安全处理的系统与应用缓存，按类别确认后移入废纸篓。</p>
-          </div>
-          <ul class="capabilities" aria-label="主要能力">
-            <li>缓存扫描</li><li>可恢复移除</li>
-          </ul>
-          <div class="card-footer">
-            <span class="platforms" aria-label="支持 macOS、Windows、Linux"><i data-platform="darwin">macOS</i><i data-platform="win32">Windows</i><i data-platform="linux">Linux</i></span>
-            <span class="enter">进入模块 <b aria-hidden="true">↗</b></span>
-          </div>
-        </a>
-
-        <a class="module-card" href="./modules/lan-device-discovery/index.html" data-feature="lan-device-discovery" data-platforms="darwin win32 linux">
+        <a class="module-card module-card-network" href="./modules/lan-device-discovery/index.html" data-feature="lan-device-discovery">
           <div class="card-topline">
             <span class="module-icon icon-network" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M12 18h.01M8.5 14.5a5 5 0 0 1 7 0M5 11a10 10 0 0 1 14 0M3 7.5a13 13 0 0 1 18 0" /></svg>
             </span>
-            <span class="risk risk-low">低风险 · 只读发现</span>
+            <span class="behavior behavior-readonly">只读 · 当前子网</span>
           </div>
           <div class="card-copy">
-            <p class="module-number">04</p>
             <h3>局域网设备发现</h3>
-            <p>以非攻击性探测发现在线设备，整理 IP、名称与厂商信息。</p>
+            <p>读取邻居表并使用受限 ICMP，整理当前网络中的可见设备与判断依据。</p>
           </div>
-          <ul class="capabilities" aria-label="主要能力">
-            <li>被动发现</li><li>厂商识别</li>
-          </ul>
           <div class="card-footer">
-            <span class="platforms" aria-label="支持 macOS、Windows、Linux"><i data-platform="darwin">macOS</i><i data-platform="win32">Windows</i><i data-platform="linux">Linux</i></span>
-            <span class="enter">进入模块 <b aria-hidden="true">↗</b></span>
+            <span>不执行端口扫描</span>
+            <span class="enter">进入 <b aria-hidden="true">→</b></span>
+          </div>
+        </a>
+
+        <a class="module-card" href="./modules/startup-manager/index.html" data-feature="startup-manager">
+          <div class="card-topline">
+            <span class="module-icon icon-startup" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 3v9m-5-6.5a8 8 0 1 0 10 0" /></svg>
+            </span>
+            <span class="behavior behavior-reversible">可撤销</span>
+          </div>
+          <div class="card-copy">
+            <h3>开机启动管理</h3>
+            <p>查看登录项与后台服务，只修改受支持的当前用户项目，系统项保持只读。</p>
+          </div>
+          <div class="card-footer">
+            <span>系统项只读</span>
+            <span class="enter">进入 <b aria-hidden="true">→</b></span>
+          </div>
+        </a>
+
+        <a class="module-card" href="./modules/system-cleaner/index.html" data-feature="system-cleaner">
+          <div class="card-topline">
+            <span class="module-icon icon-cleaner" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m14 4 6 6M13 5l2-2 6 6-2 2M4 20l8-8m-6 2 4 4m-8 2h12" /></svg>
+            </span>
+            <span class="behavior behavior-confirm">需预览</span>
+          </div>
+          <div class="card-copy">
+            <h3>垃圾清理</h3>
+            <p>扫描白名单缓存、日志与临时目录，逐项确认后移到系统废纸篓。</p>
+          </div>
+          <div class="card-footer">
+            <span>可恢复移除</span>
+            <span class="enter">进入 <b aria-hidden="true">→</b></span>
+          </div>
+        </a>
+
+        <a class="module-card" href="./modules/application-uninstaller/index.html" data-feature="application-uninstaller">
+          <div class="card-topline">
+            <span class="module-icon icon-uninstall" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-3 4 1 14h10l1-14M10 11v6m4-6v6" /></svg>
+            </span>
+            <span class="behavior behavior-danger">需输入名称确认</span>
+          </div>
+          <div class="card-copy">
+            <h3>应用彻底卸载</h3>
+            <p>先展示应用本体与关联残留的完整范围，再将明确选择的项目移到废纸篓。</p>
+          </div>
+          <div class="card-footer">
+            <span>声明型残留默认不选</span>
+            <span class="enter">进入 <b aria-hidden="true">→</b></span>
           </div>
         </a>
       </nav>
 
+
       <footer class="suite-footer">
-        <p>危险操作始终需要预览和明确确认。</p>
-        <p class="current-platform" aria-live="polite">正在识别当前平台…</p>
+        <span>支持 macOS、Windows 与 Linux</span>
+        <span>系统管家不会上传扫描或诊断结果</span>
       </footer>
     </main>
   </body>
