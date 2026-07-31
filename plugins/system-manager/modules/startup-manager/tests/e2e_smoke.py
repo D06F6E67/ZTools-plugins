@@ -38,10 +38,13 @@ with sync_playwright() as playwright:
         assert page.get_by_role("switch", name="启用 Cloud Sync").get_attribute("aria-checked") == "false"
         page.get_by_role("button", name="撤销").click()
         page.get_by_role("switch", name="停用 Cloud Sync").wait_for()
+        switch_box = page.get_by_role("switch", name="停用 Cloud Sync").bounding_box()
+        assert switch_box and switch_box["width"] >= 44 and switch_box["height"] >= 44
         overflow = page.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
         assert not overflow, f"horizontal overflow at {width}x{height}"
         assert not errors, errors
         if width == 720:
+            page.evaluate("window.scrollTo(0, 0)")
             (ROOT / "screenshots").mkdir(exist_ok=True)
             page.screenshot(path=str(ROOT / "screenshots" / "main.png"), full_page=True)
         page.close()

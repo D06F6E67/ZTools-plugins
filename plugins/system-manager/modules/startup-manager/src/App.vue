@@ -27,6 +27,13 @@ async function requestToggle(item: StartupItem) {
   await manager.toggle(item, enabled)
 }
 
+function resetFilters() {
+  filters.query = ''
+  filters.scope = 'all'
+  filters.state = 'all'
+  filters.kind = 'all'
+}
+
 onMounted(manager.scan)
 </script>
 
@@ -88,6 +95,8 @@ onMounted(manager.scan)
 
       <div v-if="!manager.loading.value && visibleItems.length === 0" class="empty">
         <span>○</span><h2>{{ items.length ? '没有符合条件的项目' : '没有发现启动项' }}</h2><p>{{ items.length ? '试试清除筛选条件。' : '部分系统可能需要额外权限才能读取登录项。' }}</p>
+        <button v-if="items.length" type="button" @click="resetFilters">重置筛选</button>
+        <button v-else type="button" :disabled="!manager.bridgeAvailable.value" @click="manager.scan">重新扫描</button>
       </div>
     </section>
 

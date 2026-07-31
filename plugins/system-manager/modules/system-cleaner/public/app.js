@@ -72,6 +72,7 @@ function render(result) {
     const article = fragment.querySelector('.candidate')
     const checkbox = fragment.querySelector('.candidate-check')
     checkbox.dataset.id = candidate.id
+    checkbox.setAttribute('aria-label', `选择 ${candidate.label}`)
     checkbox.checked = candidate.selectedByDefault
     checkbox.addEventListener('change', updateSelection)
     fragment.querySelector('.candidate-label').textContent = candidate.label
@@ -79,7 +80,9 @@ function render(result) {
     fragment.querySelector('.candidate-location').textContent = candidate.location
     fragment.querySelector('.candidate-size').textContent = formatBytes(candidate.sizeBytes)
     fragment.querySelector('.candidate-age').textContent = candidate.ageDays ? `${candidate.ageDays} 天未更新` : '近期项目'
-    fragment.querySelector('.reveal-button').addEventListener('click', () => api.reveal({ snapshotId: state.snapshotId, candidateId: candidate.id }))
+    const revealButton = fragment.querySelector('.reveal-button')
+    revealButton.setAttribute('aria-label', `在文件管理器中定位 ${candidate.label}`)
+    revealButton.addEventListener('click', () => api.reveal({ snapshotId: state.snapshotId, candidateId: candidate.id }))
     article.dataset.candidateId = candidate.id
     elements.candidateList.append(fragment)
   }

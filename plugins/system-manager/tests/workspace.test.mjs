@@ -19,7 +19,7 @@ async function testFiles(directory) {
 test('root package declares one workspace for every fixed system manager module', async () => {
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
   assert.equal(packageJson.name, 'system-manager')
-  assert.equal(packageJson.version, '0.1.0')
+  assert.equal(packageJson.version, '0.2.0')
   assert.deepEqual(packageJson.workspaces, ['modules/*'])
   assert.equal(packageJson.scripts.build, 'node scripts/build.mjs')
   assert.match(packageJson.scripts.test, /npm run build/)
@@ -56,7 +56,7 @@ test('workspace npm invocation uses Node plus an absolute npm CLI without a shel
   }
 })
 
-test('four module suites contain at least 121 independently declared tests', async () => {
+test('five module suites contain at least 160 independently declared tests', async () => {
   let count = 0
   const breakdown = {}
   for (const module of modules) {
@@ -69,6 +69,6 @@ test('four module suites contain at least 121 independently declared tests', asy
     breakdown[module.id] = moduleCount
     count += moduleCount
   }
-  assert.ok(count >= 121, `expected >=121 module tests, got ${count}: ${JSON.stringify(breakdown)}`)
+  assert.ok(count >= 160, `expected >=160 module tests, got ${count}: ${JSON.stringify(breakdown)}`)
   assert.ok(Object.values(breakdown).every((value) => value > 0))
 })

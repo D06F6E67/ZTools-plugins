@@ -2,11 +2,17 @@
 
 const path = require('node:path')
 const { installSuiteRouter } = require('./router.cjs')
+const { installAgentAccess } = require('./agent-access.cjs')
+const { buildToolHandlers, registerSystemManagerTools } = require('./mcp-tools.cjs')
+const { createSuiteRuntime } = require('./suite-runtime.cjs')
 
 const SUITE_ROOT = path.resolve(__dirname, '..')
 
 function loadFeatureService(featureCode, runtimeRequire = require) {
   switch (featureCode) {
+    case 'system-diagnostic-report':
+      runtimeRequire('../modules/system-diagnostic-report/preload/services.cjs')
+      return true
     case 'application-uninstaller':
       runtimeRequire('../modules/application-uninstaller/preload/services.cjs')
       return true
@@ -27,11 +33,38 @@ function loadFeatureService(featureCode, runtimeRequire = require) {
 function bootstrap(hostWindow, options = {}) {
   const suiteRoot = options.suiteRoot || SUITE_ROOT
   const installed = installSuiteRouter(hostWindow, suiteRoot, options.platform || process.platform)
-  if (!installed) return Object.freeze({ page: null, router: null, serviceLoaded: false })
+  if (!installed) return Object.freeze({
+    page: null,
+    router: null,
+    serviceLoaded: false,
+    mcpToolsRegistered: 0,
+    registeredToolNames: Object.freeze([]),
+    agentAccessInstalled: false,
+  })
+  const runtimeRequire = options.runtimeRequire || require
+  const access = installAgentAccess(hostWindow, installed.page, { now: options.now })
+  const runtime = createSuiteRuntime({
+    hostWindow,
+    page: installed.page,
+    suiteRoot,
+    runtimeRequire,
+    now: options.now,
+    agentAccess: access.controller,
+  })
+  const handlers = buildToolHandlers(runtime)
+  const registeredToolNames = registerSystemManagerTools(hostWindow, handlers)
   const serviceLoaded = installed.page.kind === 'module'
-    ? loadFeatureService(installed.page.featureCode, options.runtimeRequire || require)
+    ? loadFeatureService(installed.page.featureCode, runtimeRequire)
     : false
-  return Object.freeze({ page: installed.page, router: installed.router, serviceLoaded })
+  if (serviceLoaded) runtime.attachCurrentFeatureBridge()
+  return Object.freeze({
+    page: installed.page,
+    router: installed.router,
+    serviceLoaded,
+    mcpToolsRegistered: registeredToolNames.length,
+    registeredToolNames,
+    agentAccessInstalled: access.installed,
+  })
 }
 
 if (typeof window !== 'undefined') bootstrap(window)

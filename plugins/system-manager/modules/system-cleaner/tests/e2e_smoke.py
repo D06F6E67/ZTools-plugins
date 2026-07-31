@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from playwright.sync_api import sync_playwright
 
@@ -6,6 +7,7 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 SCREENSHOT = ROOT / "screenshots" / "main.png"
 CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+URL = os.environ.get("E2E_URL", "http://127.0.0.1:5178").rstrip("/")
 
 
 def assert_no_overflow(page):
@@ -43,9 +45,11 @@ with sync_playwright() as playwright:
     })()"""
     page.add_init_script(bridge_fixture)
 
-    page.goto("http://127.0.0.1:5178", wait_until="networkidle")
+    page.goto(URL, wait_until="networkidle")
     page.get_by_role("heading", name="清理预览").wait_for()
     assert page.locator(".candidate").count() == 3
+    select_box = page.locator(".candidate-select").first.bounding_box()
+    assert select_box and select_box["width"] >= 44 and select_box["height"] >= 44
     assert page.get_by_text("已选 3 项").is_visible()
     assert page.get_by_role("button", name="移到废纸篓").is_enabled()
     assert_no_overflow(page)
@@ -71,13 +75,13 @@ with sync_playwright() as playwright:
 
     compact = browser.new_page(viewport={"width": 360, "height": 480})
     compact.add_init_script(bridge_fixture)
-    compact.goto("http://127.0.0.1:5178", wait_until="networkidle")
+    compact.goto(URL, wait_until="networkidle")
     compact.get_by_role("heading", name="清理预览").wait_for()
     assert_no_overflow(compact)
     compact.close()
 
     missing_bridge = browser.new_page(viewport={"width": 720, "height": 480})
-    missing_bridge.goto("http://127.0.0.1:5178", wait_until="networkidle")
+    missing_bridge.goto(URL, wait_until="networkidle")
     missing_bridge.get_by_text("本地清理能力未加载").wait_for()
     assert missing_bridge.locator(".candidate").count() == 0
     missing_bridge.close()

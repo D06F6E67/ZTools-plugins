@@ -10,6 +10,14 @@ const require = createRequire(import.meta.url)
 const { FEATURE_ROUTES, createSuiteRouter, installSuiteRouter, resolveSuitePage } = require('../public/preload/router.cjs')
 const { bootstrap } = require('../public/preload/index.cjs')
 const suiteRoot = path.resolve('/trusted/system-manager')
+const TOOL_NAMES = Object.freeze([
+  'get_capabilities', 'collect_diagnostic_report', 'render_diagnostic_report', 'export_diagnostic_report',
+  'scan_applications', 'list_applications', 'inspect_application', 'prepare_application_removal',
+  'execute_application_removal', 'scan_startup_items', 'list_startup_items', 'prepare_startup_change',
+  'set_startup_item_enabled', 'undo_startup_change', 'scan_system_junk', 'list_system_junk',
+  'prepare_system_cleanup', 'clean_system_junk', 'list_network_interfaces', 'prepare_lan_scan',
+  'scan_lan_devices', 'get_operation_result',
+])
 
 function hrefFor(relativePath) {
   return pathToFileURL(path.join(suiteRoot, ...relativePath.split('/'))).href
@@ -37,7 +45,7 @@ test('exact root file page installs only the frozen suite router', () => {
   assert.deepEqual(Object.keys(installed.router), ['openFeature'])
 })
 
-test('four exact module file pages resolve to their fixed feature codes', () => {
+test('five exact module file pages resolve to their fixed feature codes', () => {
   for (const module of modules) {
     const page = resolveSuitePage(hrefFor(`modules/${module.id}/index.html`), suiteRoot)
     assert.equal(page.kind, 'module')
@@ -61,10 +69,13 @@ test('router navigates only by fixed code and unknown values return false withou
 test('only documented same-page skip fragments retain the exact page bridge', () => {
   assert.equal(resolveSuitePage(`${hrefFor('index.html')}#modules`, suiteRoot).kind, 'dashboard')
   assert.equal(resolveSuitePage(`${hrefFor('modules/system-cleaner/index.html')}#main`, suiteRoot).featureCode, 'system-cleaner')
+  assert.equal(resolveSuitePage(`${hrefFor('modules/system-diagnostic-report/index.html')}#report-content`, suiteRoot).featureCode, 'system-diagnostic-report')
   for (const href of [
     `${hrefFor('index.html')}#main`,
     `${hrefFor('modules/system-cleaner/index.html')}#modules`,
     `${hrefFor('modules/startup-manager/index.html')}#main`,
+    `${hrefFor('modules/system-diagnostic-report/index.html')}#main`,
+    `${hrefFor('modules/system-diagnostic-report/index.html')}#%72eport-content`,
     `${hrefFor('index.html')}#%6dodules`,
   ]) assert.equal(resolveSuitePage(href, suiteRoot), null, href)
 })
@@ -132,19 +143,50 @@ test('plugin entry lifecycle reads only allowlisted code and ignores payload pat
 
 test('bootstrap loads no service on dashboard and exactly one cjs service per module page', () => {
   const dashboardLoads = []
-  const dashboard = bootstrap(hostAt(hrefFor('index.html')).host, { suiteRoot, runtimeRequire: (value) => dashboardLoads.push(value) })
+  const registered = []
+  const { host: dashboardHost } = hostAt(hrefFor('index.html'))
+  dashboardHost.ztools = {
+    registerTool(name, handler) { registered.push([name, handler]) },
+  }
+  const dashboard = bootstrap(dashboardHost, { suiteRoot, runtimeRequire: (value) => dashboardLoads.push(value) })
   assert.equal(dashboard.serviceLoaded, false)
   assert.deepEqual(dashboardLoads, [])
+  assert.equal(dashboard.agentAccessInstalled, true)
+  assert.equal(dashboard.mcpToolsRegistered, TOOL_NAMES.length)
+  assert.deepEqual(dashboard.registeredToolNames, TOOL_NAMES)
+  assert.deepEqual(registered.map(([name]) => name), TOOL_NAMES)
+  assert.equal(registered.every(([, handler]) => typeof handler === 'function'), true)
+  assert.equal(Object.hasOwn(dashboardHost, 'systemManagerAgentAccess'), true)
 
   for (const module of modules) {
     const loads = []
-    const result = bootstrap(hostAt(hrefFor(`modules/${module.id}/index.html`)).host, {
+    const moduleRegistered = []
+    const { host: moduleHost } = hostAt(hrefFor(`modules/${module.id}/index.html`))
+    moduleHost.ztools = { registerTool(name) { moduleRegistered.push(name) } }
+    const result = bootstrap(moduleHost, {
       suiteRoot,
       runtimeRequire: (value) => loads.push(value),
     })
     assert.equal(result.serviceLoaded, true)
+    assert.equal(result.agentAccessInstalled, false)
+    assert.equal(result.mcpToolsRegistered, TOOL_NAMES.length)
+    assert.deepEqual(result.registeredToolNames, TOOL_NAMES)
+    assert.deepEqual(moduleRegistered, TOOL_NAMES)
+    assert.equal(Object.hasOwn(moduleHost, 'systemManagerAgentAccess'), false)
     assert.deepEqual(loads, [`../modules/${module.id}/preload/services.cjs`])
   }
+})
+
+test('dashboard on an older host keeps navigation and Agent access UI but skips tool registration', () => {
+  const { host } = hostAt(hrefFor('index.html'))
+  host.ztools = {}
+  const result = bootstrap(host, { suiteRoot })
+  assert.equal(result.serviceLoaded, false)
+  assert.equal(result.agentAccessInstalled, true)
+  assert.equal(result.mcpToolsRegistered, 0)
+  assert.deepEqual(result.registeredToolNames, [])
+  assert.equal(Object.hasOwn(host, 'systemManagerSuite'), true)
+  assert.equal(Object.hasOwn(host, 'systemManagerAgentAccess'), true)
 })
 
 test('bootstrap on unknown or non-file pages exposes neither router nor business service', () => {
@@ -155,7 +197,11 @@ test('bootstrap on unknown or non-file pages exposes neither router nor business
     assert.equal(result.page, null)
     assert.equal(result.router, null)
     assert.equal(result.serviceLoaded, false)
+    assert.equal(result.agentAccessInstalled, false)
+    assert.equal(result.mcpToolsRegistered, 0)
+    assert.deepEqual(result.registeredToolNames, [])
     assert.equal(Object.hasOwn(host, 'systemManagerSuite'), false)
+    assert.equal(Object.hasOwn(host, 'systemManagerAgentAccess'), false)
     assert.deepEqual(loads, [])
   }
 })
