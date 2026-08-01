@@ -5,7 +5,7 @@
   "description": "PDF 压缩、合并、拆分、水印、格式转换等工具",
   "author": "Taitres",
   "homepage": "https://github.com/Taitres/pdf-process",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
