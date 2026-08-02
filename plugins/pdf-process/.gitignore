@@ -33,11 +33,3 @@ dist-ssr
 
 # AI agent workspace artifacts
 .qwen/
-
-# Python conversion core (convert.py) build artifacts
-public/preload/build/
-public/preload/__pycache__/
-public/preload/*.spec
-.pytest_cache/
-# convert.exe is a large PyInstaller output (~380MB); rebuild via `npm run build:convert`
-public/bin/convert.exe

@@ -36,7 +36,7 @@ export function cutAfterFromEvery(pageCount: number, every: number): number[] {
 }
 
 /**
- * Convert cut-after pages to pdfcpu "split before" page numbers.
+ * Convert cut-after pages to backend "split before" page numbers.
  * cut after 1 → split before 2.
  */
 export function beforePagesFromCutAfter(cutAfterPages: Iterable<number>): number[] {
@@ -196,7 +196,7 @@ export type SplitPdfArgs =
 
 /**
  * Map UI split intent → window.services.splitPdf options.
- * Keeps pdfcpu option shapes out of React.
+ * Keeps backend option shapes out of React.
  */
 export function buildSplitInvocation(intent: SplitIntent): SplitPdfArgs {
   if (intent.mode === 'extract') {

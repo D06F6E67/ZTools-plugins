@@ -3,8 +3,9 @@ import WorkspaceFiles from '../components/WorkspaceFiles'
 import OperationResult from '../components/OperationResult'
 import FeatureLayout from '../components/FeatureLayout'
 import { useOperation } from '../hooks/useOperation'
-import { useSharedFiles, type SharedFile } from '../context/SharedFilesContext'
+import { useSharedFiles } from '../context/SharedFilesContext'
 import { generateTaskId, buildTaskOutputPath, buildConvertedFilename } from '../hooks/useTaskFolder'
+import { withInputPath } from '../utils/fileFromShared'
 import './index.css'
 
 interface WatermarkProps {
@@ -35,10 +36,6 @@ const POSITIONS: { key: PosKey; label: string }[] = [
 ]
 
 const DENSITY_LABELS = ['疏', '较疏', '中', '较密', '密']
-
-function resolvePath(file: SharedFile) {
-  return file.rawFile ? window.ztools.getPathForFile(file.rawFile) : file.path
-}
 
 export default function Watermark(_props: WatermarkProps) {
   const [text, setText] = useState('机密文件')
@@ -72,17 +69,19 @@ export default function Watermark(_props: WatermarkProps) {
           buildConvertedFilename(srcName, '.pdf'),
           taskId,
         )
-        await window.services.addWatermark(resolvePath(file), outputPath, {
-          text: text.trim(),
-          opacity: Math.min(1, Math.max(0.05, opacity / 100)),
-          points: fontSize,
-          rotation,
-          position: tile ? 'c' : position,
-          margin,
-          color,
-          tile,
-          density,
-        })
+        await withInputPath(file, (inputPath) =>
+          window.services.addWatermark(inputPath, outputPath, {
+            text: text.trim(),
+            opacity: Math.min(1, Math.max(0.05, opacity / 100)),
+            points: fontSize,
+            rotation,
+            position: tile ? 'c' : position,
+            margin,
+            color,
+            tile,
+            density,
+          }),
+        )
         outputs.push(outputPath)
       }
       window.ztools.showNotification('水印添加完成（' + outputs.length + ' 个）')

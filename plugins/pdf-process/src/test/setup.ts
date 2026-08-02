@@ -9,6 +9,7 @@ const mockServices = {
   splitPdf: vi.fn(),
   addWatermark: vi.fn(),
   convertPdf: vi.fn(),
+  convertPdfImages: vi.fn(),
   cancelCurrent: vi.fn(),
   resolveTaskPath: vi.fn((c: { feature: string; taskId: string; filename?: string }) => {
     const base = '/mock/downloads/pdf-' + c.feature + '/' + c.taskId
@@ -16,6 +17,7 @@ const mockServices = {
   }),
   statFile: vi.fn(() => ({ size: 4096 })),
   readFileBase64: vi.fn(() => ''),
+  writeFileBase64: vi.fn((_base64: string, outputPath: string) => outputPath),
   getPdfPageCount: vi.fn(async () => 3),
   getSettings: vi.fn(),
   saveSettings: vi.fn(),

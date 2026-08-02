@@ -4,6 +4,7 @@ import OperationResult from '../components/OperationResult'
 import { useOperation } from '../hooks/useOperation'
 import { useSharedFiles, type SharedFile } from '../context/SharedFilesContext'
 import { generateTaskId, buildTaskOutputDir } from '../hooks/useTaskFolder'
+import { withInputPath } from '../utils/fileFromShared'
 import { renderPdfAllPageThumbs } from '../utils/pdfThumb'
 import {
   beforePagesFromCutAfter,
@@ -340,7 +341,6 @@ export default function Split(_props: SplitProps) {
     execute(async () => {
       const taskId = generateTaskId(target.name || target.path)
       const outputDir = buildTaskOutputDir(window.ztools.getPath('downloads'), 'split', taskId)
-      const inputPath = resolvePath(target)
 
       const intent =
         mode === 'extract'
@@ -363,7 +363,9 @@ export default function Split(_props: SplitProps) {
                   } as const)
 
       const args = buildSplitInvocation(intent)
-      const out = await window.services.splitPdf(inputPath, outputDir, args)
+      const out = await withInputPath(target, (inputPath) =>
+        window.services.splitPdf(inputPath, outputDir, args),
+      )
 
       const list = Array.isArray(out) ? out : [out]
       window.ztools.showNotification(

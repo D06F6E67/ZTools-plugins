@@ -17,7 +17,7 @@ import {
   type PageSizePt,
 } from '../utils/strongCompress'
 import { pickPdfFiles } from '../utils/pickFiles'
-import { ensureBrowserFile } from '../utils/fileFromShared'
+import { ensureBrowserFile, withInputPath } from '../utils/fileFromShared'
 import './index.css'
 
 interface CompressProps {
@@ -41,10 +41,7 @@ function dirnameOf(filePath: string) {
 
 /**
  * Strong-compress in the RENDERER with DOM canvas + browser pdfjs.
- * Preload @napi-rs/canvas mixes with Electron DOM and throws:
- *   Value is non of these types `CanvasElement`, `SVGCanvas`, `Image`
- * and system font loading throws String|Path. Thumbs/PdfToImage already
- * prove this path works in ZTools.
+ * Thumbs/PdfToImage already prove this path works in ZTools.
  */
 async function strongCompressInRenderer(
   source: File,
@@ -193,7 +190,6 @@ export default function Compress(_props: CompressProps) {
       const outputs: string[] = []
       for (const file of targets) {
         const outputPath = buildOutputPath(file.name || file.path)
-        const inputPath = resolvePath(file)
         if (strongCompress) {
           // Renderer DOM canvas — do NOT call preload napi canvas path
           const browserFile = await ensureBrowserFile(file)
@@ -206,7 +202,9 @@ export default function Compress(_props: CompressProps) {
           )
           outputs.push(out)
         } else {
-          await window.services.compressPdf(inputPath, outputPath, { mode: 'optimize' })
+          await withInputPath(file, (inputPath) =>
+            window.services.compressPdf(inputPath, outputPath, { mode: 'optimize' }),
+          )
           outputs.push(outputPath)
         }
       }

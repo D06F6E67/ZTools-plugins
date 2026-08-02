@@ -1,6 +1,0 @@
-pdf2docx==0.5.13
-PyMuPDF==1.28.0
-python-pptx==1.0.2
-openpyxl==3.1.5
-pytest==9.1.1
-pyinstaller==6.21.0
