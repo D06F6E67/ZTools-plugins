@@ -4,6 +4,7 @@ import FeatureLayout from '../components/FeatureLayout'
 import { useOperation } from '../hooks/useOperation'
 import { useSharedFiles } from '../context/SharedFilesContext'
 import { generateTaskId, buildTaskOutputPath } from '../hooks/useTaskFolder'
+import { withInputPaths } from '../utils/fileFromShared'
 import './index.css'
 
 interface MergeProps { onBack?: () => void }
@@ -19,14 +20,15 @@ export default function Merge(_props: MergeProps) {
     }
     const taskId = generateTaskId('merged')
     execute(async () => {
-      const inputPaths = files.map((f) => f.path)
       const outputPath = buildTaskOutputPath(
         window.ztools.getPath('downloads'),
         'merge',
         'merged_' + Date.now() + '.pdf',
         taskId,
       )
-      await window.services.mergePdfs(inputPaths, outputPath)
+      await withInputPaths(files, (inputPaths) =>
+        window.services.mergePdfs(inputPaths, outputPath),
+      )
       window.ztools.showNotification('合并完成')
       return outputPath
     })

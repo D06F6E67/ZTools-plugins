@@ -4,6 +4,7 @@ const os = require('node:os')
 const path = require('node:path')
 const {
   convertPdfLocal,
+  convertPdfImages,
   textToDocument,
   textToExcelDocument,
 } = require('../convert-local.js')
@@ -40,22 +41,34 @@ describe('convertPdfLocal', () => {
     fs.unlinkSync(out)
   }, 30000)
 
-  it('uses page images when text is sparse (mocked render)', async () => {
+  it('requests renderer images when text is sparse', async () => {
+    await expect(
+      convertPdfLocal({
+        inputPath: 'in.pdf',
+        outputPath: 'out.docx',
+        format: 'word',
+        extractPdfText: async () => ({ totalChars: 2, pages: [{ page: 1, text: 'ab' }] }),
+      }),
+    ).rejects.toMatchObject({ code: 'SCAN_RENDER_REQUIRED' })
+  })
+
+  it('writes page images supplied by the renderer', async () => {
     const out = path.join(os.tmpdir(), 'local-img-' + Date.now() + '.docx')
-    // minimal valid-ish PNG 1x1
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
       'base64',
     )
-    await convertPdfLocal({
-      inputPath: 'in.pdf',
+    const pagePath = path.join(os.tmpdir(), 'scan-' + Date.now() + '.png')
+    fs.writeFileSync(pagePath, png)
+    await convertPdfImages({
+      pages: [{ path: pagePath, width: 100, height: 100 }],
       outputPath: out,
       format: 'word',
-      extractPdfText: async () => ({ totalChars: 2, pages: [{ page: 1, text: 'ab' }] }),
-      renderPdfPages: async () => [{ page: 1, png, width: 100, height: 100 }],
     })
     const buf = fs.readFileSync(out)
     expect(buf[0]).toBe(0x50)
+    expect(buf[1]).toBe(0x4b)
     fs.unlinkSync(out)
+    fs.unlinkSync(pagePath)
   })
 })

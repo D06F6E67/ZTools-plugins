@@ -11,13 +11,12 @@ interface Services {
   ) => Promise<string>
   cancelCurrent: () => void
   /**
-   * mode 'optimize' (default) = pdfcpu optimize.
-   * mode 'strong' = DPI raster JPEG re-encode (quality 1–100).
+   * mode 'optimize' (default) = rewrite PDF object streams with pdf-lib.
    */
   compressPdf: (
     inputPath: string,
     outputPath: string,
-    options?: { quality?: number; mode?: 'optimize' | 'strong' },
+    options?: { mode?: 'optimize' },
   ) => Promise<string>
   mergePdfs: (inputPaths: string[], outputPath: string) => Promise<string>
   splitPdf: (
@@ -47,6 +46,11 @@ interface Services {
   }) => Promise<string>
   deleteFile?: (filePath: string) => boolean
   convertPdf: (inputPath: string, outputPath: string, format: 'word' | 'ppt' | 'excel') => Promise<string>
+  convertPdfImages?: (
+    pages: Array<{ path: string; width: number; height: number }>,
+    outputPath: string,
+    format: 'word' | 'ppt',
+  ) => Promise<string>
   /** Resolve { feature, taskId, filename? } under downloads/pdf-*. */
   resolveTaskPath: (coords: {
     feature: string
@@ -55,8 +59,10 @@ interface Services {
   }) => string
   /** Best-effort file size for paths from the open dialog (no File handle). */
   statFile?: (filePath: string) => { size: number; mtimeMs?: number } | null
-  /** Read user-selected file bytes as base64 (path-only strong compress). */
+  /** Read user-selected file bytes as base64 for renderer-side PDF processing. */
   readFileBase64?: (filePath: string) => string
+  /** Materialize renderer-supplied bytes under a pdf-* task directory. */
+  writeFileBase64?: (base64: string, outputPath: string) => string
   /** Page count for path-only PDFs (no browser File). */
   getPdfPageCount?: (filePath: string) => Promise<number>
   getSettings: () => Promise<SettingsData | string | null>

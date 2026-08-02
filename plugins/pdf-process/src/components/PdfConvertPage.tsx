@@ -3,7 +3,8 @@ import OperationResult from '../components/OperationResult'
 import FeatureLayout from '../components/FeatureLayout'
 import ConvertWebRecommend from '../components/ConvertWebRecommend'
 import { useOperation } from '../hooks/useOperation'
-import { useSharedFiles } from '../context/SharedFilesContext'
+import { useSharedFiles, type SharedFile } from '../context/SharedFilesContext'
+import { ensureBrowserFile, withInputPath } from '../utils/fileFromShared'
 import {
   generateTaskId,
   buildTaskOutputPath,
@@ -29,6 +30,68 @@ interface PdfConvertPageProps {
   onOpenSettings?: () => void
 }
 
+function dirnameOf(filePath: string) {
+  const normalized = filePath.replace(/\\/g, '/')
+  const index = normalized.lastIndexOf('/')
+  return index > 0 ? filePath.slice(0, index) : filePath
+}
+
+async function renderPdfPages(file: SharedFile, outputPath: string) {
+  const source = await ensureBrowserFile(file)
+  const pdfjs = await import('pdfjs-dist')
+  pdfjs.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs'
+  const pdf = await pdfjs.getDocument({
+    data: new Uint8Array(await source.arrayBuffer()),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise
+  const taskDir = dirnameOf(outputPath)
+  const separator = taskDir.includes('\\') ? '\\' : '/'
+  const pages: Array<{ path: string; width: number; height: number }> = []
+
+  try {
+    const count = Math.min(pdf.numPages, 50)
+    for (let pageNumber = 1; pageNumber <= count; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber)
+      const viewport = page.getViewport({ scale: 1.5 })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      const context = canvas.getContext('2d', { alpha: false })
+      if (!context) throw new Error('Canvas 2D 不可用')
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: context, viewport }).promise
+      const imagePath = taskDir + separator + `scan-page-${pageNumber}.png`
+      const saved = window.services.writeImageFile(canvas.toDataURL('image/png'), imagePath)
+      if (!saved) throw new Error(`写入第 ${pageNumber} 页图像失败`)
+      pages.push({ path: saved, width: canvas.width, height: canvas.height })
+      canvas.width = 0
+      canvas.height = 0
+    }
+  } finally {
+    await pdf.destroy().catch(() => {})
+  }
+  return pages
+}
+
+async function convertWithScanFallback(file: SharedFile, outputPath: string, format: ConvertFormat) {
+  try {
+    return await withInputPath(file, (inputPath) =>
+      window.services.convertPdf(inputPath, outputPath, format),
+    )
+  } catch (error) {
+    if ((error as { code?: string })?.code !== 'SCAN_RENDER_REQUIRED') throw error
+    const pages = await renderPdfPages(file, outputPath)
+    try {
+      if (!window.services.convertPdfImages) throw new Error('页面图像转换服务不可用')
+      return await window.services.convertPdfImages(pages, outputPath, format as 'word' | 'ppt')
+    } finally {
+      for (const page of pages) window.services.deleteFile?.(page.path)
+    }
+  }
+}
+
 /** One Convert feature module parameterized by format (Word / PPT / Excel). */
 export default function PdfConvertPage({ format, onOpenSettings }: PdfConvertPageProps) {
   const meta = FORMAT_META[format]
@@ -49,7 +112,7 @@ export default function PdfConvertPage({ format, onOpenSettings }: PdfConvertPag
             buildConvertedFilename(file.name || file.path, meta.ext),
             taskId,
           )
-          await window.services.convertPdf(file.path, outputPath, format)
+          await convertWithScanFallback(file, outputPath, format)
           outputs.push(outputPath)
         }
         return outputs

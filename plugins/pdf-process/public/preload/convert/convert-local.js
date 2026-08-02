@@ -1,7 +1,7 @@
 /**
  * Local PDF → Office conversion (no convert.exe).
  * - Enough text: heuristic DocumentSchema → docx/xlsx/pptx writers
- * - Sparse text (scan): render page PNGs → Word images / PPT slides; Excel keeps residual text
+ * - Sparse text (scan): renderer supplies page PNGs for Word/PPT; Excel keeps residual text
  */
 const fs = require('node:fs')
 const path = require('node:path')
@@ -10,7 +10,6 @@ const {
 } = require('docx')
 const { normalizeDocument } = require('./schema')
 const { extractPdfText: defaultExtract } = require('./extract-pdf-text')
-const { renderPdfPages: defaultRender } = require('./render-pdf-pages')
 const { writeWord: defaultWriteWord } = require('./write-word')
 const { writeExcel: defaultWriteExcel } = require('./write-excel')
 const { writePpt: defaultWritePpt } = require('./write-ppt')
@@ -161,7 +160,8 @@ async function writePptFromPageImages(rendered, outputPath) {
     })
   }
   fs.mkdirSync(path.dirname(path.resolve(outputPath)), { recursive: true })
-  await pptx.writeFile({ fileName: outputPath })
+  const buf = await pptx.write({ outputType: 'nodebuffer' })
+  fs.writeFileSync(outputPath, buf)
   return outputPath
 }
 
@@ -171,7 +171,6 @@ async function convertPdfLocal(opts) {
     throw new Error('不支持的转换格式: ' + format)
   }
   const extractPdfText = opts.extractPdfText || defaultExtract
-  const renderPdfPages = opts.renderPdfPages || defaultRender
   const writeWord = opts.writeWord || defaultWriteWord
   const writeExcel = opts.writeExcel || defaultWriteExcel
   const writePpt = opts.writePpt || defaultWritePpt
@@ -189,26 +188,12 @@ async function convertPdfLocal(opts) {
     return writePpt(textToPptDocument(extracted), opts.outputPath)
   }
 
-  // Sparse text / scan: image-based local fallback
-  let rendered
-  try {
-    rendered = await renderPdfPages(opts.inputPath, { scale: 1.5, maxPages: 50 })
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e)
-    throw new Error(
-      '本地转换失败：PDF 文本不足且页图渲染失败（' + msg + '）。',
-    )
-  }
-  if (!rendered.length) {
-    throw new Error('本地转换失败：未能渲染任何 PDF 页面')
+  if (format === 'word' || format === 'ppt') {
+    const error = new Error('该 PDF 缺少可提取文本，需要在渲染器生成页面图像')
+    error.code = 'SCAN_RENDER_REQUIRED'
+    throw error
   }
 
-  if (format === 'word') {
-    return writeWordFromPageImages(rendered, opts.outputPath)
-  }
-  if (format === 'ppt') {
-    return writePptFromPageImages(rendered, opts.outputPath)
-  }
   // Excel: residual text + notice rows
   const notice = [
     ['说明'],
@@ -233,8 +218,25 @@ async function convertPdfLocal(opts) {
   return writeExcel(doc, opts.outputPath)
 }
 
+async function convertPdfImages(opts) {
+  if (!['word', 'ppt'].includes(opts.format)) {
+    throw new Error('页面图像转换仅支持 Word 或 PPT')
+  }
+  const rendered = (opts.pages || []).map((page, index) => ({
+    page: index + 1,
+    png: fs.readFileSync(page.path),
+    width: Math.max(1, Number(page.width) || 1),
+    height: Math.max(1, Number(page.height) || 1),
+  }))
+  if (!rendered.length) throw new Error('未收到任何 PDF 页面图像')
+  return opts.format === 'word'
+    ? writeWordFromPageImages(rendered, opts.outputPath)
+    : writePptFromPageImages(rendered, opts.outputPath)
+}
+
 module.exports = {
   convertPdfLocal,
+  convertPdfImages,
   textToDocument,
   textToExcelDocument,
   textToPptDocument,

@@ -38,7 +38,8 @@ async function writePpt(doc, outputPath) {
     })
   }
   fs.mkdirSync(path.dirname(path.resolve(outputPath)), { recursive: true })
-  await pptx.writeFile({ fileName: outputPath })
+  const buf = await pptx.write({ outputType: 'nodebuffer' })
+  fs.writeFileSync(outputPath, buf)
   return outputPath
 }
 
