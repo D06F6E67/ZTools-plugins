@@ -276,6 +276,8 @@ function unwrapBridge(result) {
     ITEM_CHANGED: 'ITEM_CHANGED',
     OPERATION_NOT_FOUND: 'OPERATION_NOT_FOUND',
     OPERATION_EXPIRED: 'OPERATION_NOT_FOUND',
+    STATE_UNKNOWN: 'STATE_UNKNOWN',
+    SHUTTING_DOWN: 'SHUTTING_DOWN',
   }[code]
   if (mapped) throw runtimeError(mapped, cleanText(result.error.message, 200) || 'The request is no longer valid')
   throw new Error('Business bridge operation failed')
@@ -381,6 +383,18 @@ function createSuiteRuntime(options = {}) {
   const journal = createOperationJournal(clock)
   let currentAppInventoryId = null
   let lastLanScanStartedAt = null
+  let lifecycle = 'active'
+  const inFlightWrites = new Set()
+  function hostStorage(namespace) {
+    const db = hostWindow && hostWindow.ztools && hostWindow.ztools.dbStorage
+    if (!db || typeof db.getItem !== 'function' || typeof db.setItem !== 'function') return undefined
+    const keyFor = (key) => namespace ? `${namespace}:${key}` : key
+    return {
+      get: (key) => db.getItem(keyFor(key)),
+      set: (key, value) => db.setItem(keyFor(key), value),
+      remove: (key) => typeof db.removeItem === 'function' ? db.removeItem(keyFor(key)) : db.setItem(keyFor(key), null),
+    }
+  }
 
   const moduleDomain = page.kind === 'module' ? FEATURE_DOMAINS[page.featureCode] : null
 
@@ -397,6 +411,41 @@ function createSuiteRuntime(options = {}) {
     if (!agentAccess.hasScope(scope)) {
       throw runtimeError('AUTHORIZATION_REQUIRED', `Active agent access with scope ${scope} is required`)
     }
+  }
+
+  function runtimeWriteError() {
+    return runtimeError('SHUTTING_DOWN', 'The plugin is shutting down; new write operations are rejected')
+  }
+
+  function runWriteJournal(tool, key, signature, task) {
+    const existing = journal._records.get(key)
+    if (!existing && lifecycle !== 'active') throw runtimeWriteError()
+    const result = journal.run(tool, key, signature, task)
+    if (!existing) {
+      inFlightWrites.add(result)
+      const release = () => { inFlightWrites.delete(result) }
+      result.then(release, release)
+    }
+    return result
+  }
+
+  async function shutdown() {
+    if (lifecycle === 'shutdown') return { state: lifecycle, drained: true }
+    lifecycle = 'shutting-down'
+    const pending = [...inFlightWrites]
+    const serviceShutdowns = [...serviceCache.values()]
+      .filter((value) => value && typeof value.shutdown === 'function')
+      .map((value) => Promise.resolve().then(() => value.shutdown()))
+    if (pending.length || serviceShutdowns.length) {
+      let timer
+      await Promise.race([
+        Promise.allSettled([...pending, ...serviceShutdowns]),
+        new Promise((resolve) => { timer = setTimeout(resolve, 200); if (timer && typeof timer.unref === 'function') timer.unref() }),
+      ])
+      if (timer) clearTimeout(timer)
+    }
+    lifecycle = 'shutdown'
+    return { state: lifecycle, drained: inFlightWrites.size === 0 }
   }
 
   function trimSnapshots(map, max) {
@@ -522,12 +571,12 @@ function createSuiteRuntime(options = {}) {
   function directApplicationService() {
     const { shell } = runtimeRequire('electron')
     const { createEngine } = runtimeRequire('../modules/application-uninstaller/preload/core/engine.cjs')
-    return createEngine({ trashItem: (target) => shell.trashItem(target), revealItem: (target) => shell.showItemInFolder(target) })
+    return createEngine({ storage: hostStorage(''), trashItem: (target) => shell.trashItem(target), revealItem: (target) => shell.showItemInFolder(target) })
   }
 
   function directStartupService() {
     const { createManager } = runtimeRequire('../modules/startup-manager/preload/core/manager.cjs')
-    return createManager()
+    return createManager({ storage: hostStorage('') })
   }
 
   function directCleanerService() {
@@ -689,7 +738,7 @@ function createSuiteRuntime(options = {}) {
     const defaultName = validation.optionalString(input.defaultName, 'defaultName', { min: 1, max: 160, pattern: /^[^\\/\u0000-\u001f]+$/ })
     const key = validation.idempotencyKey(input.idempotencyKey)
     const signature = JSON.stringify({ reportId, format, defaultName: defaultName || null })
-    return journal.run('export_diagnostic_report', key, signature, async () => {
+    return runWriteJournal('export_diagnostic_report', key, signature, async () => {
       requireAuthorization('report_export')
       const snapshot = reportSnapshot(reportId)
       return {
@@ -790,7 +839,7 @@ function createSuiteRuntime(options = {}) {
     const input = validation.plainObject(request, ['actionId', 'idempotencyKey'])
     const actionId = validation.id(input.actionId, 'actionId')
     const key = validation.idempotencyKey(input.idempotencyKey)
-    return journal.run('execute_application_removal', key, actionId, async () => {
+    return runWriteJournal('execute_application_removal', key, actionId, async () => {
       requireAuthorization('application_removal')
       const action = consumeAction(actionId, 'application_removal')
       const result = await service('applications').executePlan({ planId: action.planId, selectedIds: action.selectedIds, confirmation: action.appName })
@@ -813,6 +862,12 @@ function createSuiteRuntime(options = {}) {
     const includeCommandSummary = validation.optionalBoolean(input.includeCommandSummary, 'includeCommandSummary', false)
     const raw = unwrapBridge(await service('startup').scan())
     const snapshotId = validation.id(raw.snapshotId, 'snapshotId')
+    if (raw.recoveredOperationId) {
+      // The module has already enforced its own 10-minute journal TTL. Use
+      // this runtime's clock for the rehydrated metadata to avoid mixing
+      // wall-clock sources in tests or after a system clock adjustment.
+      startupOperations.set(raw.recoveredOperationId, { includeCommandSummary, expiresAt: clock() + INVENTORY_TTL_MS })
+    }
     const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 5000).map((item) => sanitizeStartupItem(item, includeCommandSummary))
     const snapshot = { snapshotId, items, includeCommandSummary, expiresAt: clock() + INVENTORY_TTL_MS }
     startupSnapshots.set(snapshotId, snapshot)
@@ -867,7 +922,7 @@ function createSuiteRuntime(options = {}) {
     const input = validation.plainObject(request, ['actionId', 'idempotencyKey'])
     const actionId = validation.id(input.actionId, 'actionId')
     const key = validation.idempotencyKey(input.idempotencyKey)
-    return journal.run('set_startup_item_enabled', key, actionId, async () => {
+    return runWriteJournal('set_startup_item_enabled', key, actionId, async () => {
       requireAuthorization('startup_changes')
       const action = consumeAction(actionId, 'startup_change')
       const result = unwrapBridge(await service('startup').setEnabled({ snapshotId: action.snapshotId, itemId: action.itemId, enabled: action.enabled }))
@@ -885,7 +940,7 @@ function createSuiteRuntime(options = {}) {
     const input = validation.plainObject(request, ['operationId', 'idempotencyKey'])
     const operationId = validation.id(input.operationId, 'operationId')
     const key = validation.idempotencyKey(input.idempotencyKey)
-    return journal.run('undo_startup_change', key, operationId, async () => {
+    return runWriteJournal('undo_startup_change', key, operationId, async () => {
       requireAuthorization('startup_changes')
       const metadata = startupOperations.get(operationId)
       if (!metadata || metadata.expiresAt <= clock()) throw runtimeError('OPERATION_NOT_FOUND', 'startup operation is unknown or expired')
@@ -955,7 +1010,7 @@ function createSuiteRuntime(options = {}) {
     const input = validation.plainObject(request, ['actionId', 'idempotencyKey'])
     const actionId = validation.id(input.actionId, 'actionId')
     const key = validation.idempotencyKey(input.idempotencyKey)
-    return journal.run('clean_system_junk', key, actionId, async () => {
+    return runWriteJournal('clean_system_junk', key, actionId, async () => {
       requireAuthorization('system_cleanup')
       const action = consumeAction(actionId, 'system_cleanup')
       const result = await service('cleaner').clean({ snapshotId: action.snapshotId, candidateIds: action.candidateIds, confirmation: '移到废纸篓' })
@@ -986,18 +1041,23 @@ function createSuiteRuntime(options = {}) {
   }
 
   async function prepare_lan_scan(request) {
-    const input = validation.plainObject(request, ['interfaceId', 'resolveHostnames'])
+    const input = validation.plainObject(request, ['interfaceId', 'resolveHostnames', 'confirmRestrictedInterface'])
     const interfaceId = validation.id(input.interfaceId, 'interfaceId')
     const resolveHostnames = validation.optionalBoolean(input.resolveHostnames, 'resolveHostnames', false)
+    const confirmRestrictedInterface = validation.optionalBoolean(input.confirmRestrictedInterface, 'confirmRestrictedInterface', false)
     requireAuthorization('lan_scan')
     const values = await service('network').listInterfaces()
     const selected = (Array.isArray(values) ? values : []).find((item) => item && item.id === interfaceId)
     if (!selected) throw runtimeError('INVALID_INTERFACE', 'interfaceId is not an active supported interface')
+    if (selected.requiresConfirmation && !confirmRestrictedInterface) {
+      throw runtimeError('CONFIRMATION_REQUIRED', 'This interface requires explicit confirmation before scanning')
+    }
     const safeInterface = sanitizeInterface(selected)
-    return createAction('lan_scan', { interfaceId, resolveHostnames, interface: safeInterface }, {
+    return createAction('lan_scan', { interfaceId, resolveHostnames, confirmRestrictedInterface, interface: safeInterface }, {
       interface: safeInterface,
       resolveHostnames,
       requiresConfirmation: Boolean(selected.requiresConfirmation),
+      confirmRestrictedInterface,
     })
   }
 
@@ -1005,7 +1065,7 @@ function createSuiteRuntime(options = {}) {
     const input = validation.plainObject(request, ['actionId', 'idempotencyKey'])
     const actionId = validation.id(input.actionId, 'actionId')
     const key = validation.idempotencyKey(input.idempotencyKey)
-    return journal.run('scan_lan_devices', key, actionId, async () => {
+    return runWriteJournal('scan_lan_devices', key, actionId, async () => {
       requireAuthorization('lan_scan')
       validateAction(actionId, 'lan_scan')
       if (lastLanScanStartedAt != null && clock() - lastLanScanStartedAt < LAN_SCAN_MIN_INTERVAL_MS) {
@@ -1019,7 +1079,7 @@ function createSuiteRuntime(options = {}) {
       const result = await service('network').scan({
         interfaceId: action.interfaceId,
         resolveHostnames: action.resolveHostnames,
-        confirmRestrictedInterface: true,
+        confirmRestrictedInterface: action.confirmRestrictedInterface === true,
       })
       return {
         scanId: cleanText(result && result.scanId, 200),
@@ -1079,8 +1139,10 @@ function createSuiteRuntime(options = {}) {
     prepare_lan_scan,
     scan_lan_devices,
     get_operation_result,
+    shutdown,
+    isShuttingDown: () => lifecycle !== 'active',
     attachCurrentFeatureBridge,
-    _state: Object.freeze({ actions, appInventories, appPlans, cleanerSnapshots, journal, reports, runtimeSessionId, serviceCache, startupOperations, startupSnapshots }),
+    _state: Object.freeze({ actions, appInventories, appPlans, cleanerSnapshots, journal, reports, runtimeSessionId, serviceCache, startupOperations, startupSnapshots, inFlightWrites, get lifecycle() { return lifecycle } }),
   })
 }
 

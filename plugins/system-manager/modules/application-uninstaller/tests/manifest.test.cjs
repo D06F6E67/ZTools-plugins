@@ -21,13 +21,14 @@ test('manifest has stable identity, entries and three-platform feature', () => {
   }
 })
 
-test('preload exposes only the opaque uninstall bridge', () => {
+test('preload exposes the opaque uninstall bridge plus lifecycle shutdown', () => {
   const source = fs.readFileSync(path.join(root, 'public', 'preload', 'services.cjs'), 'utf8')
   const match = source.match(/window\.applicationUninstaller\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/)
   assert.ok(match)
   const methods = [...match[1].matchAll(/^\s+(\w+):/gm)].map((item) => item[1])
-  assert.deepEqual(methods, ['scanApps', 'inspectApp', 'executePlan', 'revealPath'])
+  assert.deepEqual(methods, ['scanApps', 'inspectApp', 'executePlan', 'revealPath', 'shutdown'])
   assert.doesNotMatch(match[1], /\b(?:fs|exec|spawn|path)\b/)
+  assert.doesNotMatch(source, /\b(?:window\.)?ztools\.onPluginOut\s*\(/)
 })
 
 test('manifest version matches package version', () => {

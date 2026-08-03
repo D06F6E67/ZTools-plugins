@@ -3,6 +3,7 @@
 const crypto = require('node:crypto')
 const fs = require('node:fs/promises')
 const os = require('node:os')
+const path = require('node:path')
 const { opaqueId, sameFingerprint, secureFingerprint } = require('./safety.cjs')
 const { runFile } = require('./runner.cjs')
 const darwin = require('../platform/darwin.cjs')
@@ -12,6 +13,9 @@ const linux = require('../platform/linux.cjs')
 const DEFAULT_PLAN_TTL_MS = 2 * 60 * 1000
 const MAX_APPS = 5000
 const MAX_CANDIDATES = 200
+const JOURNAL_VERSION = 1
+const JOURNAL_FILE = '.ztools/system-manager/application-uninstall.json'
+const JOURNAL_TTL_MS = 10 * 60 * 1000
 
 function publicApp(app) {
   return {
@@ -27,6 +31,47 @@ function publicCandidate(candidate) {
     confidence: candidate.confidence, reason: candidate.reason,
     selectedByDefault: candidate.selectedByDefault, deletable: candidate.deletable,
   }
+}
+
+function createJournalStore(options, home, fileSystem) {
+  const storage = options.storage || options.journalStore
+  const getStored = storage && (storage.get || storage.getItem)
+  const setStored = storage && (storage.set || storage.setItem)
+  const removeStored = storage && (storage.remove || storage.removeItem)
+  const filePath = options.journalPath || path.join(home, JOURNAL_FILE)
+  async function read() {
+    if (typeof getStored === 'function') {
+      const value = await getStored.call(storage, 'application-uninstall-v1')
+      if (!value) return null
+      return typeof value === 'string' ? JSON.parse(value) : value
+    }
+    try { return JSON.parse(String(await fileSystem.readFile(filePath, 'utf8'))) } catch { return null }
+  }
+  async function write(value) {
+    const serialized = JSON.stringify(value)
+    if (typeof setStored === 'function') { await setStored.call(storage, 'application-uninstall-v1', serialized); return }
+    const directory = path.dirname(filePath)
+    if (typeof fileSystem.mkdir === 'function') await fileSystem.mkdir(directory, { recursive: true, mode: 0o700 })
+    const temp = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
+    try {
+      await fileSystem.writeFile(temp, serialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      if (typeof fileSystem.rename === 'function') await fileSystem.rename(temp, filePath)
+      else await fileSystem.writeFile(filePath, serialized, { encoding: 'utf8', mode: 0o600 })
+    } finally { try { if (typeof fileSystem.unlink === 'function') await fileSystem.unlink(temp) } catch {} }
+  }
+  async function clear() {
+    if (storage) {
+      if (typeof removeStored === 'function') await removeStored.call(storage, 'application-uninstall-v1')
+      else if (typeof setStored === 'function') await setStored.call(storage, 'application-uninstall-v1', null)
+      return
+    }
+    try { await fileSystem.unlink(filePath) } catch {}
+  }
+  return Object.freeze({ read, write, clear, filePath })
+}
+
+function serializable(value) {
+  try { return JSON.parse(JSON.stringify(value)) } catch { return null }
 }
 
 function createEngine(options = {}) {
@@ -46,11 +91,15 @@ function createEngine(options = {}) {
     now: options.now || (() => Date.now()),
     secret: options.secret || crypto.randomBytes(24).toString('hex'),
   }
+  const journalStore = createJournalStore(options, deps.home, deps.fs)
   const apps = new Map()
   const plans = new Map()
   let scanFlight = null
   let inspectFlight = null
   let activeAction = null
+  let shuttingDown = false
+  let journalLoaded = false
+  let persistedJournal = null
 
   function actionBusyError() {
     const error = new Error(`系统管家正在执行${activeAction || '其他操作'}，请稍后重试`)
@@ -59,9 +108,59 @@ function createEngine(options = {}) {
   }
 
   async function withAction(kind, task) {
+    if (shuttingDown && kind === '卸载处理') {
+      const error = new Error('插件正在退出，暂不接受新的卸载写入')
+      error.code = 'SHUTTING_DOWN'
+      throw error
+    }
     if (activeAction) throw actionBusyError()
     activeAction = kind
     try { return await task() } finally { activeAction = null }
+  }
+
+  async function loadJournal() {
+    if (journalLoaded) return persistedJournal
+    journalLoaded = true
+    const value = await journalStore.read()
+    if (value && value.version === JOURNAL_VERSION && value.operationId) persistedJournal = value
+    return persistedJournal
+  }
+
+  async function saveJournal(value) {
+    persistedJournal = value
+    await journalStore.write(value)
+  }
+
+  async function reconcileJournal(warnings) {
+    const journal = await loadJournal()
+    if (!journal) return
+    const startedAt = Date.parse(journal.startedAt || '')
+    const retainedAt = Date.parse(journal.completedAt || journal.updatedAt || journal.startedAt || '')
+    if (!Number.isFinite(startedAt) || (Number.isFinite(retainedAt) && deps.now() - retainedAt > JOURNAL_TTL_MS)) {
+      await journalStore.clear()
+      persistedJournal = null
+      warnings.push('上次卸载记录已过期，已清理；请重新扫描后操作')
+      return
+    }
+    if (journal.status === 'completed') return
+    const unresolved = []
+    for (const entry of Array.isArray(journal.entries) ? journal.entries : []) {
+      if (entry.status === 'pending') { unresolved.push(entry); continue }
+      if (entry.status !== 'in-progress') continue
+      try {
+        await deps.fs.lstat(entry.path)
+        unresolved.push(entry)
+      } catch (error) {
+        if (error && error.code === 'ENOENT') entry.status = 'trashed'
+        else unresolved.push(entry)
+      }
+    }
+    journal.status = unresolved.length ? 'recovery-required' : 'recovered'
+    journal.reconciledAt = new Date(deps.now()).toISOString()
+    await saveJournal(journal)
+    warnings.push(unresolved.length
+      ? `检测到上次卸载未完成，${unresolved.length} 个项目仍需核对；未自动重试`
+      : '已核对上次卸载记录，所有已开始项目均不在原位置')
   }
 
   async function scanApps() {
@@ -88,6 +187,7 @@ function createEngine(options = {}) {
       const warnings = Array.isArray(sourceWarnings) ? sourceWarnings.filter((item) => typeof item === 'string').slice(0, 20) : []
       if (source.length >= MAX_APPS) warnings.push('应用数量已达到安全上限')
       if (duplicateIds) warnings.push('检测到重复或无效的应用标识，相关条目已忽略')
+      await reconcileJournal(warnings)
       return { platform, scannedAt: new Date(deps.now()).toISOString(), apps: found.map(publicApp), warnings }
     })
     try { return await scanFlight } finally { scanFlight = null }
@@ -163,38 +263,74 @@ function createEngine(options = {}) {
     for (const id of selected) if (!allowed.has(id)) throw new Error('候选项不属于当前卸载计划')
     plan.used = true
     const results = []
+    const operationId = crypto.randomUUID()
+    const journal = {
+      version: JOURNAL_VERSION,
+      operationId,
+      status: 'running',
+      planId: plan.id,
+      appName: plan.app.name,
+      startedAt: new Date(deps.now()).toISOString(),
+      entries: request.selectedIds.map((id) => {
+        const candidate = allowed.get(id)
+        return { candidateId: id, path: candidate.path, fingerprint: serializable(candidate.fingerprint), status: 'pending', result: null }
+      }),
+    }
+    // The journal is durable before the first external command/file move.
+    try { await saveJournal(journal) } catch (error) { plan.used = false; throw error }
+    const persistResult = async (candidateId, result) => {
+      const entry = journal.entries.find((value) => value.candidateId === candidateId)
+      if (entry) { entry.status = result.status; entry.result = serializable(result) }
+      journal.updatedAt = new Date(deps.now()).toISOString()
+      await saveJournal(journal)
+    }
     let uninstallFailed = false
     try {
       const uninstallResult = await runRegisteredUninstaller(plan.app)
-      if (uninstallResult) results.push(uninstallResult)
+      if (uninstallResult) { results.push(uninstallResult); await persistResult(uninstallResult.candidateId || 'uninstaller', uninstallResult) }
     } catch (error) {
-      results.push({ candidateId: 'uninstaller', status: 'failed', message: `卸载器执行失败：${error.message}` })
+      const result = { candidateId: 'uninstaller', status: 'failed', message: `卸载器执行失败：${error.message}` }
+      results.push(result); journal.uninstaller = result; await saveJournal(journal)
       uninstallFailed = true
     }
     if (uninstallFailed) {
-      for (const id of request.selectedIds) results.push({ candidateId: id, status: 'skipped', message: '卸载器失败，未清理关联数据' })
-      return { planId: plan.id, completedAt: new Date(deps.now()).toISOString(), results }
+      for (const id of request.selectedIds) { const result = { candidateId: id, status: 'skipped', message: '卸载器失败，未清理关联数据' }; results.push(result); await persistResult(id, result) }
+      journal.status = 'completed'; journal.completedAt = new Date(deps.now()).toISOString(); await saveJournal(journal)
+      return { planId: plan.id, completedAt: journal.completedAt, results }
     }
     for (const id of request.selectedIds) {
       const item = allowed.get(id)
       if (!item.deletable || !item.fingerprint) {
-        results.push({ candidateId: id, status: 'skipped', message: '此项目仅供预览，不能自动处理' })
+        const result = { candidateId: id, status: 'skipped', message: '此项目仅供预览，不能自动处理' }
+        results.push(result); await persistResult(id, result)
         continue
       }
+      const entry = journal.entries.find((value) => value.candidateId === id)
+      if (entry) { entry.status = 'in-progress'; journal.status = 'in-progress'; journal.updatedAt = new Date(deps.now()).toISOString(); await saveJournal(journal) }
       try {
         const current = await secureFingerprint(item.path, deps, deps.fs)
         if (!sameFingerprint(item.fingerprint, current)) throw new Error('文件在预览后发生变化')
         await deps.trashItem(current.realPath)
-        results.push({ candidateId: id, status: 'trashed' })
+        const result = { candidateId: id, status: 'trashed' }
+        results.push(result); await persistResult(id, result)
       } catch (error) {
-        results.push({ candidateId: id, status: 'failed', message: error.message })
+        const result = { candidateId: id, status: 'failed', message: error.message }
+        results.push(result); await persistResult(id, result)
       }
     }
-    return { planId: plan.id, completedAt: new Date(deps.now()).toISOString(), results }
+    journal.status = 'completed'; journal.completedAt = new Date(deps.now()).toISOString(); await saveJournal(journal)
+    return { planId: plan.id, completedAt: journal.completedAt, results }
   }
 
   async function executePlan(request) {
     return withAction('卸载处理', () => executePlanUnlocked(request))
+  }
+
+  async function shutdown() {
+    shuttingDown = true
+    const started = Date.now()
+    while (activeAction === '卸载处理' && Date.now() - started < 200) await new Promise((resolve) => setTimeout(resolve, 5))
+    return { state: 'shutdown', drained: activeAction !== '卸载处理' }
   }
 
   function revealPath(pathId) {
@@ -206,7 +342,7 @@ function createEngine(options = {}) {
     return false
   }
 
-  return { executePlan, inspectApp, revealPath, scanApps }
+  return { executePlan, inspectApp, revealPath, scanApps, shutdown, _state: { apps, plans, journalStore, get journal() { return persistedJournal }, get shuttingDown() { return shuttingDown } } }
 }
 
-module.exports = { DEFAULT_PLAN_TTL_MS, createEngine, publicApp, publicCandidate }
+module.exports = { DEFAULT_PLAN_TTL_MS, JOURNAL_FILE, JOURNAL_TTL_MS, JOURNAL_VERSION, createEngine, publicApp, publicCandidate }

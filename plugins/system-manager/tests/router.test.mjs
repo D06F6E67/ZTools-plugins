@@ -161,8 +161,12 @@ test('bootstrap loads no service on dashboard and exactly one cjs service per mo
   for (const module of modules) {
     const loads = []
     const moduleRegistered = []
+    const lifecycleCallbacks = []
     const { host: moduleHost } = hostAt(hrefFor(`modules/${module.id}/index.html`))
-    moduleHost.ztools = { registerTool(name) { moduleRegistered.push(name) } }
+    moduleHost.ztools = {
+      registerTool(name) { moduleRegistered.push(name) },
+      onPluginOut(callback) { lifecycleCallbacks.push(callback) },
+    }
     const result = bootstrap(moduleHost, {
       suiteRoot,
       runtimeRequire: (value) => loads.push(value),
@@ -174,6 +178,7 @@ test('bootstrap loads no service on dashboard and exactly one cjs service per mo
     assert.deepEqual(moduleRegistered, TOOL_NAMES)
     assert.equal(Object.hasOwn(moduleHost, 'systemManagerAgentAccess'), false)
     assert.deepEqual(loads, [`../modules/${module.id}/preload/services.cjs`])
+    assert.equal(lifecycleCallbacks.length, 1, `${module.id} has one root lifecycle callback`)
   }
 })
 

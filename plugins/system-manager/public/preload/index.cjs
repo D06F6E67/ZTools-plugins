@@ -57,6 +57,15 @@ function bootstrap(hostWindow, options = {}) {
     ? loadFeatureService(installed.page.featureCode, runtimeRequire)
     : false
   if (serviceLoaded) runtime.attachCurrentFeatureBridge()
+  // ZTools keeps one onPluginOut callback per renderer. Register after the
+  // lazy module service so this coordinator remains the single shutdown
+  // owner and can drain both Agent journal entries and module recovery hooks.
+  const hostApi = hostWindow.ztools
+  let lifecycleInstalled = false
+  if (hostApi && typeof hostApi.onPluginOut === 'function') {
+    hostApi.onPluginOut(() => { void runtime.shutdown() })
+    lifecycleInstalled = true
+  }
   return Object.freeze({
     page: installed.page,
     router: installed.router,
@@ -64,6 +73,7 @@ function bootstrap(hostWindow, options = {}) {
     mcpToolsRegistered: registeredToolNames.length,
     registeredToolNames,
     agentAccessInstalled: access.installed,
+    lifecycleInstalled,
   })
 }
 

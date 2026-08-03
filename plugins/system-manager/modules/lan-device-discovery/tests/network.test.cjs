@@ -8,6 +8,7 @@ const test = require('node:test')
 const {
   addressScope,
   intToIPv4,
+  interfaceKind,
   ipv4ToInt,
   listInterfacesFromNode,
   prefixFromNetmask,
@@ -60,6 +61,28 @@ test('interface inventory includes usable IPv4 only and creates stable opaque id
   assert.equal(values[0].address, '192.168.1.50')
   assert.match(values[0].id, /^[a-f0-9]{16}$/)
   assert.equal(values[0].cidr, '192.168.1.50/24')
+})
+
+test('Linux container and overlay interface names are restricted before scanning', () => {
+  assert.equal(interfaceKind('cni0'), 'virtual')
+  assert.equal(interfaceKind('flannel.1'), 'virtual')
+  assert.equal(interfaceKind('podman0'), 'virtual')
+
+  const os = { networkInterfaces: () => ({
+    cni0: [{ address: '10.244.0.1', family: 4, internal: false, netmask: '255.255.0.0' }],
+    'flannel.1': [{ address: '10.245.0.1', family: 'IPv4', internal: false, netmask: '255.255.0.0' }],
+    podman0: [{ address: '10.88.0.1', family: 4, internal: false, netmask: '255.255.0.0' }],
+    custom0: [{ address: '192.168.44.1', family: 4, internal: false, netmask: '255.255.255.0' }],
+  }) }
+  const values = Object.fromEntries(listInterfacesFromNode(os).map((item) => [item.name, item]))
+  for (const name of ['cni0', 'flannel.1', 'podman0']) {
+    assert.equal(values[name].kind, 'virtual', name)
+    assert.equal(values[name].requiresConfirmation, true, name)
+    assert.equal(values[name].riskReason, '虚拟或桥接接口', name)
+  }
+  assert.equal(values.custom0.kind, 'physical')
+  assert.equal(values.custom0.requiresConfirmation, true)
+  assert.equal(values.custom0.riskReason, '无法确认接口类型，扫描前需确认')
 })
 
 test('subnet candidates are bounded and broad networks are reduced to local /24', () => {
