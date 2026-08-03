@@ -1,5 +1,13 @@
 # 更新日志
 
+## 1.2.0 - 2026-08-03
+
+- 扩展 ZTools 插件市场平台支持到 Windows 和 Linux。
+- Windows/Linux 使用系统安全存储保存同步凭据，使用 Tesseract OCR 和 ImageMagick 图片旋转。
+- 文件拖拽与队列剪贴板格式适配 Windows、Linux；多选队列在非 macOS 上按 Enter 逐项粘贴。
+- 文件预览在 Windows 使用资源管理器、Linux 使用系统默认打开器，macOS 继续使用 Quick Look。
+- 非 macOS 构建跳过 macOS Vision helper，避免平台构建失败。
+
 ## 1.1.1 - 2026-07-28
 
 - 修复宿主剪贴板历史已更新但列表未及时刷新的问题。
