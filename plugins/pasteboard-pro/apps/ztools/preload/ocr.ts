@@ -41,6 +41,13 @@ export type OcrClientOptions = Readonly<{
   timeoutMs?: number;
 }>;
 
+export type TesseractOcrClientOptions = Readonly<{
+  platform?: NodeJS.Platform;
+  spawn?: OcrSpawn;
+  stat?: (path: string) => Promise<Readonly<{ isFile(): boolean }>>;
+  timeoutMs?: number;
+}>;
+
 export interface OcrClient {
   recognize(imagePath: string): Promise<string>;
 }
@@ -60,6 +67,8 @@ const IMAGE_EXTENSIONS = new Set([
   ".tiff",
   ".bmp",
 ]);
+
+const MAX_TESSERACT_OUTPUT_BYTES = 1 * 1_024 * 1_024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -207,6 +216,92 @@ export function createOcrClient(options: OcrClientOptions): OcrClient {
         });
 
         child.stdin.end(`${JSON.stringify(request)}\n`);
+      });
+    },
+  };
+}
+
+/**
+ * Uses the portable Tesseract CLI on Windows/Linux. The executable is kept
+ * external so the plugin does not ship platform-specific native binaries.
+ */
+export function createTesseractOcrClient(
+  options: TesseractOcrClientOptions = {},
+): OcrClient {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32" && platform !== "linux") {
+    throw new Error("Tesseract OCR 仅用于 Windows/Linux");
+  }
+  const command = platform === "win32" ? "tesseract.exe" : "tesseract";
+  const spawn = options.spawn ?? defaultSpawn;
+  const stat = options.stat ?? nodeStat;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError("OCR timeout must be finite and positive");
+  }
+
+  return {
+    async recognize(imagePath) {
+      if (!path.isAbsolute(imagePath)) {
+        throw new TypeError("OCR imagePath must be absolute");
+      }
+      if (!IMAGE_EXTENSIONS.has(path.extname(imagePath).toLowerCase())) {
+        throw new TypeError("OCR input must use a supported image extension");
+      }
+      const file = await stat(imagePath);
+      if (!file.isFile()) throw new TypeError("OCR imagePath must point to a file");
+      return await new Promise<string>((resolve, reject) => {
+        let child: OcrProcess;
+        try {
+          child = spawn(command, [imagePath, "stdout"], {
+            shell: false,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        let settled = false;
+        let outputBytes = 0;
+        const output: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        const finish = (callback: () => void): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          callback();
+        };
+        const timer = setTimeout(() => {
+          child.kill();
+          finish(() => reject(new Error(`Tesseract OCR timed out after ${timeoutMs} ms`)));
+        }, timeoutMs);
+        child.stdout.on("data", (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+          outputBytes += buffer.length;
+          if (outputBytes > MAX_TESSERACT_OUTPUT_BYTES) {
+            child.kill();
+            finish(() => reject(new RangeError("OCR response cannot exceed 1 MiB")));
+            return;
+          }
+          output.push(buffer);
+        });
+        child.stderr.on("data", (chunk) => {
+          if (Buffer.concat(stderr).length < 8_192) {
+            stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+          }
+        });
+        child.on("error", (error) => finish(() => reject(error)));
+        child.on("close", (code) => {
+          finish(() => {
+            if (code !== 0) {
+              const message = Buffer.concat(stderr).toString("utf8").trim();
+              reject(new Error(message || `Tesseract OCR exited with code ${code}`));
+              return;
+            }
+            resolve(Buffer.concat(output).toString("utf8").trim());
+          });
+        });
+        child.stdin.end();
       });
     },
   };

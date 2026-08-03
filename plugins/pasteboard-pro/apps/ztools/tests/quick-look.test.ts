@@ -68,9 +68,22 @@ describe("Quick Look", () => {
     ).rejects.toThrow("launch failed");
   });
 
-  it("rejects Quick Look on non-macOS platforms", async () => {
-    await expect(
-      openQuickLook("/tmp/example.pdf", { platform: "linux" }),
-    ).rejects.toThrow("Quick Look 仅支持 macOS");
+  it("opens files with the platform default viewer on Windows and Linux", async () => {
+    for (const [platform, command] of [["win32", "explorer.exe"], ["linux", "xdg-open"]] as const) {
+      const child = new FakeProcess();
+      const calls: unknown[][] = [];
+      const spawn: QuickLookSpawn = (...args) => {
+        calls.push(args);
+        queueMicrotask(() => child.emit("spawn"));
+        return child;
+      };
+      await openQuickLook("/tmp/example.pdf", {
+        platform,
+        spawn,
+        stat: async () => ({ isFile: () => true }),
+      });
+      expect(calls[0]?.[0]).toBe(command);
+      expect(calls[0]?.[1]).toEqual(["/tmp/example.pdf"]);
+    }
   });
 });

@@ -14,6 +14,13 @@ import type { PasteStackState } from "@pasteboard-pro/core";
 declare global {
   interface Window {
     pasteboardPro?: Readonly<{
+      getPlatformCapabilities(): {
+        platform: NodeJS.Platform;
+        supportsGlobalPasteQueue: boolean;
+        supportsQuickLook: boolean;
+        supportsSystemOcr: boolean;
+        supportsImageRotation: boolean;
+      };
       searchHistory(
         query?: string,
         limit?: number,

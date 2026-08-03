@@ -152,13 +152,17 @@ async function pasteItem(
   }
 }
 
-async function pasteItems(itemIds: readonly string[], plainText = false): Promise<void> {
+async function pasteItems(
+  itemIds: readonly string[],
+  plainText = false,
+  combineText = true,
+): Promise<void> {
   const items = itemIds.flatMap((itemId) => {
     const item = visibleItems.value.find((candidate) => candidate.id === itemId);
     return item === undefined ? [] : [item];
   });
   const combinedContent =
-    items.length === itemIds.length && items.length > 1
+    combineText && items.length === itemIds.length && items.length > 1
       ? combinedTextPasteContent(items)
       : undefined;
   if (combinedContent !== undefined) {
@@ -294,6 +298,12 @@ async function handleEffect(effect: PasteboardKeyboardEffect | null): Promise<vo
     !effect.plainText &&
     windowPreferences.value.multiPasteMode === "queue"
   ) {
+    const capabilities = window.pasteboardPro?.getPlatformCapabilities();
+    if (capabilities !== undefined && !capabilities.supportsGlobalPasteQueue) {
+      status.value = "当前平台不支持全局快捷键队列，正在按选择顺序逐项粘贴";
+      await pasteItems(effect.itemIds, effect.plainText, false);
+      return;
+    }
     await syncPasteStackToSelection();
     if (isShelfMode) window.close();
     return;
@@ -525,7 +535,7 @@ async function rotateImage(itemId: string, quarterTurns: -1 | 1): Promise<void> 
 async function quickLookItem(itemId: string): Promise<void> {
   try {
     await window.pasteboardPro?.quickLookItem(itemId);
-    status.value = "已在 Quick Look 中打开";
+    status.value = "已打开文件";
   } catch (error) {
     status.value = error instanceof Error ? error.message : "Quick Look 打开失败";
   }
@@ -687,7 +697,18 @@ onMounted(async () => {
   const settings = await window.pasteboardPro?.getPrivacySettings();
   paused.value = settings?.pause.paused ?? false;
   const pasteStack = await window.pasteboardPro?.getPasteStack();
-  if (pasteStack !== undefined) state.setPasteStack(pasteStack);
+  const platformCapabilities = window.pasteboardPro?.getPlatformCapabilities();
+  if (
+    pasteStack !== undefined &&
+    (platformCapabilities?.supportsGlobalPasteQueue ?? true)
+  ) {
+    state.setPasteStack(pasteStack);
+  } else if (pasteStack !== undefined && pasteStack.itemIds.length > 0) {
+    const cleared = { direction: pasteStack.direction, itemIds: [] as string[] };
+    state.setPasteStack(cleared, true);
+    await window.pasteboardPro?.savePasteStack(cleared);
+    status.value = "已清理仅支持 macOS 的旧粘贴队列";
+  }
   await loadHistory();
   await loadPinboards();
 });

@@ -23,6 +23,22 @@ export type QuickLookOptions = Readonly<{
 const QUICK_LOOK_PATH = "/usr/bin/qlmanage";
 const DEFAULT_TIMEOUT_MS = 5_000;
 
+function previewCommand(platform: NodeJS.Platform, filePath: string): Readonly<{
+  command: string;
+  args: readonly string[];
+}> {
+  if (platform === "darwin") {
+    return { command: QUICK_LOOK_PATH, args: ["-p", filePath] };
+  }
+  if (platform === "win32") {
+    return { command: "explorer.exe", args: [filePath] };
+  }
+  if (platform === "linux") {
+    return { command: "xdg-open", args: [filePath] };
+  }
+  throw new Error("当前平台不支持文件预览");
+}
+
 const defaultSpawn: QuickLookSpawn = (command, args, options) =>
   nodeSpawn(command, [...args], options) as QuickLookProcess;
 
@@ -30,9 +46,6 @@ export async function openQuickLook(
   filePath: string,
   options: QuickLookOptions = {},
 ): Promise<void> {
-  if ((options.platform ?? process.platform) !== "darwin") {
-    throw new Error("Quick Look 仅支持 macOS");
-  }
   if (!path.isAbsolute(filePath)) {
     throw new TypeError("Quick Look path must be absolute");
   }
@@ -44,11 +57,12 @@ export async function openQuickLook(
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError("Quick Look timeout must be finite and positive");
   }
+  const command = previewCommand(options.platform ?? process.platform, filePath);
 
   await new Promise<void>((resolve, reject) => {
     let child: ReturnType<QuickLookSpawn>;
     try {
-      child = (options.spawn ?? defaultSpawn)(QUICK_LOOK_PATH, ["-p", filePath], {
+      child = (options.spawn ?? defaultSpawn)(command.command, command.args, {
         shell: false,
         stdio: "ignore",
         detached: true,

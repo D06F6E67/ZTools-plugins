@@ -11,6 +11,7 @@ export type ImageRotationInput = Readonly<{
 }>;
 
 export type ImageRotationOptions = Readonly<{
+  platform?: NodeJS.Platform;
   spawn?: OcrSpawn;
   stat?: (path: string) => Promise<Readonly<{ isFile(): boolean; size?: number }>>;
   timeoutMs?: number;
@@ -52,13 +53,21 @@ export async function rotateImageFile(
   }
   const spawn = options.spawn ?? defaultSpawn;
   const degrees = input.quarterTurns > 0 ? "90" : "-90";
-
-  await new Promise<void>((resolve, reject) => {
-    let child: OcrProcess;
-    try {
-      child = spawn(
-        "/usr/bin/sips",
-        [
+  const platform = options.platform ?? process.platform;
+  const command =
+    platform === "darwin"
+      ? "/usr/bin/sips"
+      : platform === "win32"
+        ? "magick.exe"
+        : platform === "linux"
+          ? "magick"
+          : undefined;
+  if (command === undefined) {
+    throw new Error("当前平台不支持图片旋转");
+  }
+  const args =
+    platform === "darwin"
+      ? [
           "--rotate",
           degrees,
           "--setProperty",
@@ -67,7 +76,20 @@ export async function rotateImageFile(
           input.sourcePath,
           "--out",
           input.destinationPath,
-        ],
+        ]
+      : [
+          input.sourcePath,
+          "-rotate",
+          degrees,
+          `png:${input.destinationPath}`,
+        ];
+
+  await new Promise<void>((resolve, reject) => {
+    let child: OcrProcess;
+    try {
+      child = spawn(
+        command,
+        args,
         { shell: false, stdio: ["pipe", "pipe", "pipe"] },
       );
     } catch (error) {

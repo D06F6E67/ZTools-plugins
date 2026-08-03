@@ -217,7 +217,7 @@ function save(): void {
                   <span>{{ option[1] }}</span>
                 </label>
               </div>
-              <small>一次性模式按 Enter 合并粘贴；逐一模式按 Enter 生成队列，再连续按 Command-V。</small>
+              <small>一次性模式按 Enter 合并粘贴；macOS 逐一模式可连续按 Command-V，Windows/Linux 按 Enter 逐项粘贴。</small>
             </fieldset>
           </section>
 
@@ -244,7 +244,7 @@ function save(): void {
               <label class="settings-field"><span>WebDAV 密码</span><input v-model="form.webdavPassword" :disabled="!form.syncEnabled" type="password" placeholder="未修改" autocomplete="current-password" /></label>
               <label class="settings-field settings-field--wide"><span>剪贴板同步密码</span><input v-model="form.syncPassword" :disabled="!form.syncEnabled" type="password" placeholder="用于端到端加密；丢失后无法恢复" autocomplete="new-password" /></label>
             </div>
-            <p class="settings-note">密码和派生密钥只保存在 macOS 钥匙串；插件数据库不保存明文秘密。</p>
+            <p class="settings-note">密码和派生密钥只保存在系统安全存储；插件数据库不保存明文秘密。</p>
           </section>
         </div>
 

@@ -12,6 +12,7 @@ const helperPath = path.join(
   "dist",
   "pasteboard-vision",
 );
+const includeVisionHelper = process.platform === "darwin";
 const outputRoot = path.resolve(appRoot, "../../dist/ztools");
 
 async function filesRecursively(root, prefix = "") {
@@ -34,14 +35,16 @@ export async function verifyAssembledPackage(root) {
     manifest.preload,
     manifest.logo,
     "package.json",
-    "pasteboard-vision",
+    ...(includeVisionHelper ? ["pasteboard-vision"] : []),
   ]) {
     assert.equal(typeof relative, "string");
     assert.equal((await stat(path.join(root, relative))).isFile(), true);
   }
 
-  const helper = await stat(path.join(root, "pasteboard-vision"));
-  assert.notEqual(helper.mode & 0o111, 0, "Vision helper must be executable");
+  if (includeVisionHelper) {
+    const helper = await stat(path.join(root, "pasteboard-vision"));
+    assert.notEqual(helper.mode & 0o111, 0, "Vision helper must be executable");
+  }
 
   const files = await filesRecursively(root);
   const forbidden = files.filter(
@@ -58,7 +61,9 @@ export async function assemblePackage() {
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
   await cp(buildRoot, outputRoot, { recursive: true });
-  await cp(helperPath, path.join(outputRoot, "pasteboard-vision"));
+  if (includeVisionHelper) {
+    await cp(helperPath, path.join(outputRoot, "pasteboard-vision"));
+  }
   return verifyAssembledPackage(outputRoot);
 }
 
