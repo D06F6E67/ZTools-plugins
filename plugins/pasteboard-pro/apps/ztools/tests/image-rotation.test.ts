@@ -37,6 +37,7 @@ describe("image rotation", () => {
         quarterTurns: -1,
       },
       {
+        platform: "darwin",
         spawn,
         stat: async () => ({ isFile: () => true, size: 128 }),
       },
