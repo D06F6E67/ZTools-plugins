@@ -14,6 +14,8 @@
 
 五个 Feature 均显式支持 macOS、Windows 和 Linux。实际可见项目和系统命令仍受当前平台、权限与桌面环境影响。
 
+插件升级或退出时会先进入关闭状态：新的 Agent 副作用请求会返回 `SHUTTING_DOWN`，已开始的请求最多等待 200ms；应用卸载和启动项修改会把中断进度写入受限恢复记录，下一次进入只核对状态，不会自动重试。垃圾清理仍只把项目移入可恢复的系统废纸篓，局域网扫描有 12 秒上限且可取消，系统诊断 helper 也有独立超时与进程树清理；升级边界之外若已有底层系统调用，结果以模块返回值或恢复记录为准。
+
 ## 单插件结构
 
 ```text
@@ -24,7 +26,7 @@ system-manager/
 ├── tests/                   # workspace、路由和最终发布物整合测试
 ├── CHANGELOG.md             # 面向插件升级审核的版本更新记录
 ├── dist/                    # 单一 ZTools 发布目录（构建生成）
-└── release/system-manager-0.2.0.zip
+└── release/system-manager-0.2.1.zip
 ```
 
 最终 `dist` 只保留根 `plugin.json`。模块发布物位于 `dist/modules/<feature-code>/`，其嵌套 manifest 会在组装时删除。每个模块 HTML 都会注入位于文档流首部的统一 SuiteBar，共用 `_system-manager/navigation.js` 和 `_system-manager/navigation.css`。
@@ -44,6 +46,8 @@ window.systemManagerAgentAccess.revoke()
 
 Agent 工具要求 **ZTools 2.4 或更高版本**。宿主从 `plugin.json.tools` 读取声明，通过根 preload 的 `window.ztools.registerTool(name, handler)` 同步注册；对外名称由宿主自动加上 `system_manager_` 前缀。旧版宿主会安全跳过工具注册，图形界面与模块路由仍可使用。冷启动只需加载根 preload；22 个 handler 会在宿主的 5 秒等待窗口内完成注册，五个业务模块直到对应工具或页面实际使用时才按需加载。
 
+已针对 **ZTools 3.0.2** 验证：主题色变量动态注入、单一 `onPluginOut` 生命周期回调、插件运行中升级，以及更新入口不会改变现有 MCP 注册和页面路由。3.0.2 目前没有要求系统管家迁移到新的用户资料、文件剪贴板或截图参数 API；这些能力仍按插件现有边界保持未使用。
+
 工具默认是只读的：能力查询、诊断采集/渲染、应用/启动项/垃圾清单及局域网接口查询均不需要授权。产生写入或主动网络流量前，用户必须在系统管家 dashboard 明确授予以下一个或多个 scope：
 
 | Scope | 允许的副作用 |
@@ -54,7 +58,7 @@ Agent 工具要求 **ZTools 2.4 或更高版本**。宿主从 `plugin.json.tools
 | `system_cleanup` | 仅将白名单内、复验通过且属于当前用户的垃圾项目移入废纸篓 |
 | `lan_scan` | 在选定接口上发送有界 ICMP；最多每 15 秒启动一次，可选 DNS 解析默认关闭，不做端口、公网或漏洞扫描 |
 
-scope 授权最长 10 分钟，可随时撤销，并且只保存在当前 dashboard renderer 的内存中；离开或刷新 dashboard、重启插件都会立即失效。应用处理、新的启动项启停、垃圾清理与 LAN 扫描还必须先调用对应 `prepare_*` 工具取得带摘要与摘要指纹的单次 `actionId`；action 90 秒后失效，执行时会再次复验。启动项撤销则只接受最近一次成功变更返回且仍有效的 `operationId`。副作用调用要求 8–128 字符的 `idempotencyKey`；当前 renderer 会话内最近 10 分钟最多保留 100 条执行记录，可用 `get_operation_result` 查询且不会重放操作。`get_capabilities` 与查询结果都会返回 `runtimeSessionId`；刷新、导航或重启后该值变化，旧会话的操作结果与撤销元数据无法恢复。授权不足或 LAN 限速这类 action 消费前失败不会占用幂等键，action 一旦消费，其成功或失败结果都会保持稳定。
+scope 授权最长 10 分钟，可随时撤销，并且只保存在当前 dashboard renderer 的内存中；离开或刷新 dashboard、重启插件都会立即失效。应用处理、新的启动项启停、垃圾清理与 LAN 扫描还必须先调用对应 `prepare_*` 工具取得带摘要与摘要指纹的单次 `actionId`；action 90 秒后失效，执行时会再次复验。启动项撤销则只接受最近一次成功变更返回且仍有效的 `operationId`。副作用调用要求 8–128 字符的 `idempotencyKey`；当前 renderer 会话内最近 10 分钟最多保留 100 条执行记录，可用 `get_operation_result` 查询且不会重放操作。`get_capabilities` 与查询结果都会返回 `runtimeSessionId`；根 MCP 结果仍是会话内存数据，但启动项 rollback 与应用卸载逐项 operation/result 会在 preload 私有 journal 中短暂持久化并在新会话 reconcile/核对。授权不足或 LAN 限速这类 action 消费前失败不会占用幂等键，action 一旦消费，其成功或失败结果都会保持稳定。
 
 ZTools 的 `registerTool` 当前不提供逐调用宿主审批提示，因此系统管家不把注册本身当作用户同意。安全补偿包括：dashboard 短时 scope、默认只读、90 秒预览 action、执行前复验、幂等日志、有界缓存/分页/数组、固定平台 allowlist、错误脱敏，以及应用处理和清理仅移入可人工恢复的废纸篓。`copyText`、`revealPath`/`reveal` 和 `cancelScan` 仍是 UI-only 辅助能力，不注册为 Agent 业务工具。
 

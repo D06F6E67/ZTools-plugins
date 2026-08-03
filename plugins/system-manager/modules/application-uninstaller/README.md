@@ -23,7 +23,7 @@ Windows 不使用 `Win32_Product`，避免它触发 MSI 自修复；注册表扫
 7. 目录使用 `opendir` 流式生成递归内容摘要，并限制 50,000 项、64 层、5 秒和同一设备；任一限制触发即不可自动删除。预览后任意深度的新建、删除或元数据变化都会阻止整体处理。
 8. 符号链接、根目录、Home 本身、系统目录、共享容器和越界路径均拒绝自动处理。
 9. 文件优先进入系统废纸篓/回收站，不使用 `rm -rf` 或等价命令。
-10. preload 只暴露 `scanApps`、`inspectApp`、`executePlan`、`revealPath` 四个业务接口；扫描异常通过结构化 warning 显示，不伪装成“0 个应用”。
+10. preload 只暴露 `scanApps`、`inspectApp`、`executePlan`、`revealPath` 四个业务接口及生命周期用的 `shutdown`；扫描异常通过结构化 warning 显示，不伪装成“0 个应用”。
 11. macOS 与 Linux 应用枚举共享约 15 秒总预算；每次目录读取、元数据读取和外部解析都只使用剩余预算，超时返回已完成的部分结果及 warning。
 12. 用户可写的 `Info.plist` 与 `.desktop` 必须是非符号链接普通文件且不超过 1 MiB；两者都通过文件句柄有界读取并检测读取期变化。macOS `plutil` 只解析已捕获的 stdin 字节，不再按路径二次打开；保留到应用目录中的字段会截断并强制复制，避免短字符串继续引用超大元数据缓冲区。
 

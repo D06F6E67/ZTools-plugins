@@ -43,4 +43,4 @@ npm test --workspace system-diagnostic-report
 npm run build:dist --workspace system-diagnostic-report
 ```
 
-模块 `dist/plugin.json` 会被共享 finalizer 删除；唯一可加载和发布的产物是系统管家根目录生成的 `dist/` 与 `release/system-manager-0.2.0.zip`。
+模块 `dist/plugin.json` 会被共享 finalizer 删除；唯一可加载和发布的产物是系统管家根目录生成的 `dist/` 与 `release/system-manager-0.2.1.zip`。
