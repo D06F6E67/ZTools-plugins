@@ -64,12 +64,18 @@ dist/
 ├── plugin.json
 ├── preload.js
 ├── case-convert.js
+├── naming.js
 └── public/
     ├── logo.png
     ├── smart.png
     ├── upper.png
     ├── lower.png
-    └── invert.png
+    ├── invert.png
+    ├── title.png
+    ├── camel.png
+    ├── pascal.png
+    ├── snake.png
+    └── screaming.png
 ```
 
 ## 相关文档
