@@ -39,7 +39,7 @@ test('createZip rejects duplicate entries and symlink inputs', async (context) =
 })
 
 test('inspectZip compares central method, CRC, sizes and local offset with local records', async () => {
-  const original = await readFile(path.join(releaseRoot, 'system-manager-0.2.0.zip'))
+  const original = await readFile(path.join(releaseRoot, 'system-manager-0.2.1.zip'))
   const endOffset = original.length - 22
   assert.equal(original.readUInt32LE(endOffset), 0x06054b50)
   const centralOffset = original.readUInt32LE(endOffset + 16)

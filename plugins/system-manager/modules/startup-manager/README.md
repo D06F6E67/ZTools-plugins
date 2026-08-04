@@ -21,7 +21,7 @@
 - Linux `.desktop` 同步维护 `Hidden` 与 `X-GNOME-Autostart-enabled`，使用同目录临时文件和原子替换；rename 前再次复核目标及父目录，撤销前再次校验内容。
 - Windows Run 注册表值保持只读，避免插件崩溃后丢失恢复数据；计划任务由系统原生保存启用状态。
 - 每次成功修改生成一次性 `operationId`；撤销记录 10 分钟后过期，且不会覆盖外部改动。
-- 新操作会使上一条 `operationId` 立即失效；内存中只保留 UI 可见的最新一条撤销记录。操作和撤销完成后均权威重扫启用与运行状态。
+- 新操作会使上一条 `operationId` 立即失效；最新一条撤销记录会在写入前保存到隔离 journal，并在新会话扫描时按权威状态恢复或标记需核对，10 分钟后自动清理。操作和撤销完成后均权威重扫启用与运行状态。
 - 子进程只使用绝对系统工具路径、受控 `PATH` 和参数数组；PowerShell 使用静态 Base64 脚本和环境变量传值，严禁 shell 拼接。
 - macOS 扫描以 `opendir` 流式读取、10 秒总时限和 8 路并发解析有界 plist；它只读取 launchd 状态用于展示，不执行 `enable`、`disable`、`bootstrap` 或 `bootout`。这是因为相同 Label 可能对应标准目录外动态加载的服务，现有公开信息不足以建立可信来源绑定。
 - Windows 计划任务操作前后核对 XML（忽略 Enabled 位）、Principal、Actions 与 URI 指纹，定义变化即拒绝操作。

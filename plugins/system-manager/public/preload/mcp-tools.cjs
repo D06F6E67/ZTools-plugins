@@ -42,6 +42,8 @@ const SAFE_CODES = new Set([
   'SAVE_CANCELLED',
   'SAVE_UNAVAILABLE',
   'SNAPSHOT_EXPIRED',
+  'SHUTTING_DOWN',
+  'STATE_UNKNOWN',
 ])
 
 function boundedMessage(value, fallback) {

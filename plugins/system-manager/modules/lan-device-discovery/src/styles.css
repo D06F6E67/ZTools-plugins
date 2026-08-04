@@ -6,14 +6,14 @@
   --text: #202a2f;
   --text-muted: #5f6879;
   --border: #bac4c7;
-  --accent: #315f78;
-  --accent-strong: #244b63;
+  --accent: var(--plugin-primary-color, #315f78);
+  --accent-strong: var(--plugin-primary-color, #244b63);
   --accent-contrast: #ffffff;
   --success: #39705b;
   --warning: #8f5f18;
   --danger: #9a4642;
   --danger-contrast: #ffffff;
-  --focus: #315f78;
+  --focus: var(--plugin-primary-color, #315f78);
   --shadow: none;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
   color: var(--text);
@@ -30,14 +30,14 @@
     --text: #e2e8e9;
     --text-muted: #abb7ba;
     --border: #4a585c;
-    --accent: #83abc0;
-    --accent-strong: #a7c6d5;
+    --accent: var(--plugin-primary-color, #83abc0);
+    --accent-strong: var(--plugin-primary-color, #a7c6d5);
     --accent-contrast: #151b1e;
     --success: #82b49e;
     --warning: #d5a85f;
     --danger: #dc8d88;
     --danger-contrast: #151b1e;
-    --focus: #83abc0;
+    --focus: var(--plugin-primary-color, #83abc0);
     --shadow: none;
   }
 }

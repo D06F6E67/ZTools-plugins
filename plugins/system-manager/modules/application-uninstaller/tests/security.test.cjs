@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const test = require('node:test')
-const { createEngine } = require('../public/preload/core/engine.cjs')
+const { createEngine, JOURNAL_TTL_MS, JOURNAL_VERSION } = require('../public/preload/core/engine.cjs')
 const { assertCanonicalSafeUserPath, assertSafeUserPath, isInside, snapshotDirectory } = require('../public/preload/core/safety.cjs')
 
 const tempRoot = path.join(__dirname, '.tmp')
@@ -301,6 +301,85 @@ test('only one execute action can revalidate or trash at a time', async (t) => {
   await assert.rejects(engine.scanApps(), (error) => error.code === 'ENGINE_BUSY')
   releaseTrash()
   await first
+})
+
+test('uninstall journal records each in-progress item before moving it', async (t) => {
+  const { home, adapter } = await fixture(t)
+  const storage = new Map()
+  const journalStore = {
+    async get(key) { return storage.get(key) || null },
+    async set(key, value) { storage.set(key, value) },
+    async remove(key) { storage.delete(key) },
+  }
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const engine = createEngine({ platform: 'linux', home, adapter, storage: journalStore, secret: 'journal', trashItem: async () => gate })
+  const scan = await engine.scanApps()
+  const plan = await engine.inspectApp(scan.apps[0].id)
+  const execution = engine.executePlan({ planId: plan.id, selectedIds: [plan.candidates[0].id], confirmation: 'Acme' })
+  let journal
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve))
+    journal = JSON.parse(storage.get('application-uninstall-v1'))
+    if (journal.entries[0].status === 'in-progress') break
+  }
+  assert.equal(journal.status, 'in-progress')
+  assert.equal(journal.entries[0].status, 'in-progress')
+  release()
+  await execution
+  const completed = JSON.parse(storage.get('application-uninstall-v1'))
+  assert.equal(completed.status, 'completed')
+})
+
+test('new session treats pending uninstall entries as recovery-required without retrying', async (t) => {
+  const { home, target, adapter } = await fixture(t)
+  const values = new Map([['application-uninstall-v1', JSON.stringify({
+    version: JOURNAL_VERSION,
+    operationId: 'operation-pending',
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    entries: [{ candidateId: 'candidate-pending', path: target, status: 'pending', result: null }],
+  })]])
+  const storage = {
+    async get(key) { return values.get(key) || null },
+    async set(key, value) { values.set(key, value) },
+    async remove(key) { values.delete(key) },
+  }
+  const engine = createEngine({ platform: 'linux', home, adapter, storage, secret: 'pending' })
+  const scan = await engine.scanApps()
+  assert.match(scan.warnings.join(' '), /未完成.*未自动重试/)
+  const reconciled = JSON.parse(values.get('application-uninstall-v1'))
+  assert.equal(reconciled.status, 'recovery-required')
+})
+
+test('expired uninstall journal is removed during the next inventory scan', async (t) => {
+  const { home, adapter } = await fixture(t)
+  const values = new Map([['application-uninstall-v1', JSON.stringify({
+    version: JOURNAL_VERSION,
+    operationId: 'operation-expired',
+    status: 'completed',
+    startedAt: new Date(Date.now() - JOURNAL_TTL_MS - 1).toISOString(),
+    completedAt: new Date(Date.now() - JOURNAL_TTL_MS - 1).toISOString(),
+    entries: [],
+  })]])
+  const storage = {
+    async get(key) { return values.get(key) || null },
+    async set(key, value) { values.set(key, value) },
+    async remove(key) { values.delete(key) },
+  }
+  const engine = createEngine({ platform: 'linux', home, adapter, storage, secret: 'expired' })
+  const scan = await engine.scanApps()
+  assert.match(scan.warnings.join(' '), /过期.*清理/)
+  assert.equal(values.has('application-uninstall-v1'), false)
+})
+
+test('shutdown rejects a new uninstall write', async (t) => {
+  const { home, adapter } = await fixture(t)
+  const engine = createEngine({ platform: 'linux', home, adapter, secret: 'shutdown' })
+  const scan = await engine.scanApps()
+  const plan = await engine.inspectApp(scan.apps[0].id)
+  await engine.shutdown()
+  await assert.rejects(engine.executePlan({ planId: plan.id, selectedIds: [plan.candidates[0].id], confirmation: 'Acme' }), (error) => error.code === 'SHUTTING_DOWN')
 })
 
 test('duplicate adapter IDs are filtered before public rows can diverge from the inspect map', async () => {

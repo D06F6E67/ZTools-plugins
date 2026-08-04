@@ -12,7 +12,7 @@
   --ink-faint: #5f6879;
   --line: #d5dbdc;
   --line-strong: #bac4c7;
-  --accent: #315f78;
+  --accent: var(--plugin-primary-color, #315f78);
   --accent-contrast: #f8fbfc;
   --accent-wash: #e1ebf0;
   --healthy: #39705b;
@@ -36,7 +36,7 @@
   --ink-faint: #98a5a8;
   --line: #333e42;
   --line-strong: #4a585c;
-  --accent: #83abc0;
+  --accent: var(--plugin-primary-color, #83abc0);
   --accent-contrast: #151b1e;
   --accent-wash: #243842;
   --healthy: #82b49e;

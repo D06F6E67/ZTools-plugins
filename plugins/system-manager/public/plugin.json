@@ -3,7 +3,7 @@
   "title": "系统管家",
   "description": "集中查看软硬件状态，并管理应用卸载、开机启动、垃圾清理与局域网设备。",
   "author": "Harris",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "main": "index.html",
   "preload": "preload/index.cjs",
   "logo": "logo.svg",
@@ -502,13 +502,14 @@
       }
     },
     "prepare_lan_scan": {
-      "description": "需要用户在系统管家界面短时授权；预览一次会产生主动 ICMP 网络流量的受限局域网扫描，最多覆盖本机 /24；可选 DNS 解析默认关闭，90 秒后 action 失效。",
+      "description": "需要用户在系统管家界面短时授权；预览一次会产生主动 ICMP 网络流量的受限局域网扫描，最多覆盖本机 /24。虚拟、VPN、共享或未知接口还必须在 prepare 请求中显式确认；可选 DNS 解析默认关闭，90 秒后 action 失效。",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {
+      "properties": {
           "interfaceId": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$" },
-          "resolveHostnames": { "type": "boolean", "default": false }
+          "resolveHostnames": { "type": "boolean", "default": false },
+          "confirmRestrictedInterface": { "type": "boolean", "default": false, "description": "受限或虚拟接口必须显式确认后才能扫描" }
         },
         "required": ["interfaceId"]
       },
@@ -526,7 +527,7 @@
       }
     },
     "scan_lan_devices": {
-      "description": "需要用户在系统管家界面短时授权；消费 90 秒 action 并对选定接口发送有界 ICMP 探测，最多每 15 秒启动一次并产生主动局域网流量；仅在预览启用时执行 DNS 解析，不做端口或公网扫描。",
+      "description": "需要用户在系统管家界面短时授权；消费 90 秒 action 并对选定接口发送有界 ICMP 探测，最多每 15 秒启动一次并产生主动局域网流量。受限接口只能使用已在 prepare 阶段显式确认的 action；仅在预览启用时执行 DNS 解析，不做端口或公网扫描。",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,

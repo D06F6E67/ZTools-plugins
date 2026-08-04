@@ -241,3 +241,32 @@ test('verified mutation keeps fallback state and undo journal when rescan fails'
   assert.equal(changed.item.running, false)
   assert.equal(manager._state.operations.has(changed.operationId), true)
 })
+
+test('rollback journal survives a new manager session and reconciles undo', async () => {
+  const storage = new Map()
+  const journalStore = {
+    async get(key) { return storage.get(key) || null },
+    async set(key, value) { storage.set(key, value) },
+    async remove(key) { storage.delete(key) },
+  }
+  const adapter = createAdapter()
+  const first = createManager({ platform: 'linux', adapter, storage: journalStore, clock: () => 1_700_000_000_000 })
+  const scan = await first.scan()
+  const changed = await first.setEnabled({ snapshotId: scan.snapshotId, itemId: scan.items[0].id, enabled: false })
+  assert.equal(storage.has('startup-rollback-v1'), true)
+
+  const second = createManager({ platform: 'linux', adapter, storage: journalStore, clock: () => 1_700_000_000_000 })
+  const resumed = await second.scan()
+  assert.match(resumed.warnings.join(' '), /恢复.*撤销记录/)
+  assert.equal(second._state.operations.has(changed.operationId), true)
+  await second.undo({ operationId: changed.operationId })
+  assert.equal(storage.has('startup-rollback-v1'), false)
+})
+
+test('shutdown rejects new startup writes while allowing the active call to drain', async () => {
+  const adapter = createAdapter()
+  const manager = createManager({ platform: 'linux', adapter })
+  const scan = await manager.scan()
+  await manager.shutdown()
+  await assert.rejects(manager.setEnabled({ snapshotId: scan.snapshotId, itemId: scan.items[0].id, enabled: false }), (error) => error.code === 'SHUTTING_DOWN')
+})

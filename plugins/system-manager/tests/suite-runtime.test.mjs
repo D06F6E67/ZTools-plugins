@@ -39,6 +39,8 @@ function createHarness(overrides = {}) {
     cleanerClean: 0,
     networkScan: 0,
     startupSet: 0,
+    applicationShutdown: 0,
+    startupShutdown: 0,
   }
 
   const app = {
@@ -85,6 +87,10 @@ function createHarness(overrides = {}) {
         completedAt: new Date(current).toISOString(),
         results: request.selectedIds.map((candidateId) => ({ candidateId, status: 'trashed' })),
       }
+    },
+    async shutdown() {
+      calls.applicationShutdown += 1
+      return { state: 'shutdown', drained: true }
     },
   })
 
@@ -148,6 +154,10 @@ function createHarness(overrides = {}) {
         },
       }
     },
+    async shutdown() {
+      calls.startupShutdown += 1
+      return { state: 'shutdown', drained: true }
+    },
   })
 
   const cleanerBridge = Object.freeze({
@@ -192,8 +202,8 @@ function createHarness(overrides = {}) {
     prefixLength: 24,
     scope: 'private',
     kind: 'physical',
-    requiresConfirmation: false,
-    riskReason: null,
+    requiresConfirmation: Boolean(overrides.restrictedInterface),
+    riskReason: overrides.restrictedInterface ? '虚拟或桥接接口' : null,
   })
   const networkBridge = Object.freeze({
     async listInterfaces() { return [networkInterface] },
@@ -259,6 +269,58 @@ function createHarness(overrides = {}) {
     },
   }
 }
+
+test('runtime shutdown drains the loaded feature bridge and rejects new writes', async () => {
+  const harness = createHarness({ featureCode: 'application-uninstaller' })
+  const result = await harness.runtime.shutdown()
+  assert.deepEqual(result, { state: 'shutdown', drained: true })
+  assert.equal(harness.calls.applicationShutdown, 1)
+  await assert.rejects(
+    harness.runtime.execute_application_removal({ actionId: 'action_1', idempotencyKey: 'idempotency_1' }),
+    expectCode('SHUTTING_DOWN'),
+  )
+  assert.equal(harness.runtime._state.lifecycle, 'shutdown')
+})
+
+test('LAN restricted interfaces require explicit confirmation in the prepared action', async () => {
+  const harness = createHarness({ featureCode: 'lan-device-discovery', restrictedInterface: true })
+  harness.grant('lan_scan')
+  await assert.rejects(
+    harness.runtime.prepare_lan_scan({ interfaceId: 'interface_main' }),
+    expectCode('CONFIRMATION_REQUIRED'),
+  )
+  const prepared = await harness.runtime.prepare_lan_scan({ interfaceId: 'interface_main', confirmRestrictedInterface: true })
+  assert.equal(prepared.summary.requiresConfirmation, true)
+  assert.equal(prepared.summary.confirmRestrictedInterface, true)
+})
+
+test('reconciled startup rollback is registered for root MCP undo in a new runtime session', async () => {
+  let undoCalls = 0
+  const startupBridge = Object.freeze({
+    async scan() {
+      return {
+        snapshotId: 'startup_recovered_001', platform: 'linux', generatedAt: new Date().toISOString(),
+        recoveredOperationId: 'startup_recovered_operation_001', recoveredOperationCreatedAt: Date.now(), warnings: [],
+        items: [{ id: 'startup_item_001', name: 'Recovered service', scope: 'user', kind: 'systemd-unit', source: { label: 'systemd' }, trigger: 'login', enabled: false, running: false, status: 'disabled', impact: { reasons: [] }, action: { canToggle: true, requiresElevation: false } }],
+      }
+    },
+    async setEnabled() { throw new Error('not used') },
+    async undo(request) {
+      undoCalls += 1
+      return { restored: true, item: { id: request.operationId, name: 'Recovered service', scope: 'user', kind: 'systemd-unit', source: { label: 'systemd' }, enabled: true, running: false, status: 'idle', impact: { reasons: [] }, action: { canToggle: true, requiresElevation: false } } }
+    },
+  })
+  const hostWindow = { ztools: {} }
+  Object.defineProperty(hostWindow, 'startupManager', { configurable: false, enumerable: true, value: startupBridge })
+  const runtime = createSuiteRuntime({
+    hostWindow,
+    page: Object.freeze({ kind: 'module', featureCode: 'startup-manager' }),
+    agentAccess: Object.freeze({ hasScope(scope) { return scope === 'startup_changes' }, getState() { return {} } }),
+  })
+  await runtime.scan_startup_items({ pageSize: 1 })
+  await runtime.undo_startup_change({ operationId: 'startup_recovered_operation_001', idempotencyKey: 'startup_recovered_undo_001' })
+  assert.equal(undoCalls, 1)
+})
 
 async function applicationPlan(runtime) {
   const inventory = await runtime.scan_applications({ pageSize: 1 })

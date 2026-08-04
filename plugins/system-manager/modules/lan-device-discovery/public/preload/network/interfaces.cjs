@@ -59,18 +59,35 @@ function stableInterfaceId(name, address, prefixLength) {
   return crypto.createHash('sha256').update(`${name}\0${address}\0${prefixLength}`).digest('hex').slice(0, 16)
 }
 
+// Keep the allow-list for automatically trusted physical names deliberately
+// narrow. Linux distributions and Windows/macOS drivers use a predictable
+// set of names, while a custom name must require the same confirmation as a
+// known virtual adapter until we can identify it with confidence.
+const TYPICAL_PHYSICAL_INTERFACE = /^(?:en\d+|en[opsx][\w-]+|eth\d+|wlan\d+|wl[\w-]+|ib\d+|usb\d+|lan\d+|wi-?fi(?:[\s_-].*)?|ethernet(?:[\s_-].*)?)$/i
+
+// These prefixes are emitted by common Linux container/CNI runtimes and
+// desktop hypervisors. They are name-based hints only; all virtual and VPN
+// matches still require an explicit scan confirmation below.
+const VIRTUAL_INTERFACE = /^(?:bridge[\w.-]*|br(?:idge)?[-_.]?[\w.-]*|docker[\w.-]*|podman(?:\d+|[-_.][\w.-]+)?|cni(?:\d+|[-_.][\w.-]+)?|flannel(?:\d+|[-_.][\w.-]+)?|cali[\w.-]*|kube(?:[-_.][\w.-]+)?|veth[\w.-]*|virbr[\w.-]*|lxcbr[\w.-]*|lxdbr[\w.-]*|vmnet[\w.-]*|vbox[\w.-]*|vnet[\w.-]*|q(?:vb|vo|br|tr)[\w.-]*|hyper-v[\w.-]*|macvlan[\w.-]*|ipvlan[\w.-]*|dummy\d*|ifb\d*|weave[\w.-]*|vxlan[\w.-]*|ovs(?:[-_.][\w.-]+)?|bond\d*|team\d*|awdl\d*|p2p\d*|llw\d*)$/i
+
+const VPN_INTERFACE = /^(?:utun[\w.-]*|tun[\w.-]*|tap[\w.-]*|wg[\w.-]*|ppp[\w.-]*|ipsec[\w.-]*|tailscale[\w.-]*|zt[\w.-]*|ham[\w.-]*)$/i
+
 function interfaceRank(name) {
   const value = String(name || '').toLowerCase()
-  if (/^(?:en\d+|eth\d+|wlan\d+|wi-?fi|ethernet)/.test(value)) return 0
-  if (/^(?:bridge|utun|tun|tap|docker|veth|vmnet|vbox|hyper-v)/.test(value)) return 2
+  if (interfaceKind(value) === 'physical' && isTypicalPhysicalInterface(value)) return 0
+  if (interfaceKind(value) !== 'physical') return 2
   return 1
 }
 
 function interfaceKind(name) {
-  const value = String(name || '').toLowerCase()
-  if (/^(?:utun|tun|tap|wg|ppp|ipsec)/.test(value) || /vpn/.test(value)) return 'vpn'
-  if (/^(?:bridge|docker|veth|vmnet|vbox|virbr|br-|hyper-v)/.test(value)) return 'virtual'
+  const value = String(name || '').trim().toLowerCase()
+  if (VPN_INTERFACE.test(value) || /vpn/.test(value)) return 'vpn'
+  if (VIRTUAL_INTERFACE.test(value)) return 'virtual'
   return 'physical'
+}
+
+function isTypicalPhysicalInterface(name) {
+  return TYPICAL_PHYSICAL_INTERFACE.test(String(name || '').trim())
 }
 
 function exactInterfaceMatch(left, right) {
@@ -110,7 +127,11 @@ function listInterfacesFromNode(nodeOs) {
       // A directly assigned public address must never become an implicit sweep.
       if (scope === 'other') continue
       const kind = interfaceKind(name)
-      const requiresConfirmation = scope === 'shared' || kind !== 'physical'
+      const typicalPhysical = kind === 'physical' && isTypicalPhysicalInterface(name)
+      // A physical-looking but non-standard name is not enough evidence that
+      // this is a user LAN adapter. Keep confirmation-first behavior for
+      // custom Linux bridges, tunnel providers, and localized/driver names.
+      const requiresConfirmation = scope === 'shared' || kind !== 'physical' || !typicalPhysical
       result.push({
         id: stableInterfaceId(name, address, prefixLength),
         name: String(name).slice(0, 120),
@@ -126,7 +147,9 @@ function listInterfacesFromNode(nodeOs) {
             ? 'VPN 或隧道接口'
             : kind === 'virtual'
               ? '虚拟或桥接接口'
-              : null,
+              : !typicalPhysical
+                ? '无法确认接口类型，扫描前需确认'
+                : null,
       })
     }
   }
@@ -154,6 +177,7 @@ module.exports = {
   exactInterfaceMatch,
   interfaceKind,
   interfaceRank,
+  isTypicalPhysicalInterface,
   ipv4ToInt,
   isUsableUnicast,
   listInterfacesFromNode,

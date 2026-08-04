@@ -26,10 +26,11 @@ test('manifest entries stay within plugin and point to source files', () => {
   }
 })
 
-test('preload exposes only scan, setEnabled, and undo', () => {
+test('preload exposes scan, setEnabled, undo, and lifecycle shutdown', () => {
   const source = fs.readFileSync(path.join(root, 'public/preload/services.js'), 'utf8')
   const bridge = source.match(/window\.startupManager\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/)
   assert.ok(bridge)
-  assert.deepEqual([...bridge[1].matchAll(/^\s*(\w+):/gm)].map((match) => match[1]), ['scan', 'setEnabled', 'undo'])
+  assert.deepEqual([...bridge[1].matchAll(/^\s*(\w+):/gm)].map((match) => match[1]), ['scan', 'setEnabled', 'undo', 'shutdown'])
   assert.doesNotMatch(source, /window\.startupManager.*(?:exec|runFile|readFile|writeFile)/s)
+  assert.doesNotMatch(source, /\b(?:window\.)?ztools\.onPluginOut\s*\(/)
 })

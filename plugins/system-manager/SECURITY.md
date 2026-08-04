@@ -13,6 +13,7 @@
 - 开机启动：只修改 Linux/Windows 上明确支持且可回滚的用户级项目；macOS、系统级与未知来源项目保持只读。扫描、修改和撤销全局串行，避免跨项目并发放大本地校验或子进程调用。
 - 垃圾清理：只扫描白名单缓存、日志和临时目录；近期项目仍可预览但默认不选择，符号链接、其他用户内容、系统目录或无法完整复验的项目会安全跳过。
 - 局域网发现：只读取邻居表并发送有界 ICMP Echo；禁止端口扫描、服务识别、漏洞探测和公网扫描。
+- 升级/退出生命周期：ZTools 3.0.2 的单一 `onPluginOut` 回调由套件根 preload 统一协调；进入关闭状态后拒绝新的 Agent 写入，最多等待 200ms。应用卸载与启动项修改使用带 TTL 的原子恢复记录并在新会话中只核对不重试；垃圾清理的废纸篓移动、LAN 的可取消限时扫描和诊断 helper 的进程树清理分别按模块边界收敛，升级中断后需以页面结果或恢复记录为准。
 
 ## Agent / MCP 边界
 
@@ -22,7 +23,7 @@ Agent 工具要求 ZTools 2.4+。根 preload 在冷启动时同步注册 manifes
 
 默认授权状态为关闭，所有读取工具保持只读。有副作用能力被拆成五个独立 scope：`report_export`、`application_removal`、`startup_changes`、`system_cleanup`、`lan_scan`。只能由用户在系统管家 dashboard 授予，最长 10 分钟且可立即撤销；授权只保存在当前 dashboard renderer 的内存中，不写入 `dbStorage` 或业务结果。离开或刷新 dashboard、renderer 重建和插件重启都会立即清除授权，任何调用都不会延长过期时间。
 
-应用处理、新的启动项启停、垃圾清理和 LAN 扫描使用 prepare/execute 两阶段协议。prepare 返回绑定规范化参数的 `actionId`、`actionDigest`、摘要与过期时间，90 秒后失效且单次消费；execute 重新检查 scope、action、快照及底层文件/接口状态。启动项撤销只接受最近一次成功变更返回且仍有效的 `operationId`。副作用调用使用 8–128 字符 `idempotencyKey`；当前 renderer 会话内最多 100 条结果保留 10 分钟，重复键不会重放操作，`get_operation_result` 仅查询既有状态。`runtimeSessionId` 用于识别刷新、导航或重启造成的会话重建；旧会话 journal 与撤销元数据不会持久化，也无法恢复。授权不足或 LAN 限速发生在 action 消费前时不保留临时 journal 记录，条件恢复后可用同键重试；action 一旦消费，可能已产生副作用的成功或失败结果都会固定保留。诊断报告最多缓存 3 份、5 分钟。
+应用处理、新的启动项启停、垃圾清理和 LAN 扫描使用 prepare/execute 两阶段协议。prepare 返回绑定规范化参数的 `actionId`、`actionDigest`、摘要与过期时间，90 秒后失效且单次消费；execute 重新检查 scope、action、快照及底层文件/接口状态。启动项撤销只接受最近一次成功变更返回且仍有效的 `operationId`。副作用调用使用 8–128 字符 `idempotencyKey`；当前 renderer 会话内最多 100 条结果保留 10 分钟，重复键不会重放操作，`get_operation_result` 仅查询既有状态。`runtimeSessionId` 用于识别刷新、导航或重启造成的会话重建；根 MCP journal 仍为会话内存数据。启动项 preload 会在写入前将单条 rollback journal 原子保存到隔离 `dbStorage`（无该能力时使用用户目录受限文件），新会话扫描时按权威状态 reconcile，凭据 10 分钟后清理；应用卸载则逐项保存 operation/result，最多保留一条且 10 分钟后清理，重启后只报告需核对状态，不会自动重试。授权不足或 LAN 限速发生在 action 消费前时不保留临时 journal 记录，条件恢复后可用同键重试；action 一旦消费，可能已产生副作用的成功或失败结果都会固定保留。诊断报告最多缓存 3 份、5 分钟。
 
 具体副作用仍受模块边界约束：导出只接受缓存 `reportId` 并打开系统保存对话框，不接收任意路径或正文；应用/残留与垃圾项目仅移入可人工恢复的系统废纸篓；启动项只操作受支持的用户项并可能立即启停用户服务；LAN 只对已复验接口执行最多本机 /24 的 ICMP、最多每 15 秒启动一次，DNS 默认关闭。剪贴板复制、路径 reveal 和扫描 cancel 是 UI-only 辅助接口，不注册为 Agent 业务工具。
 
