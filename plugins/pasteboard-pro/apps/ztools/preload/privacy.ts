@@ -56,21 +56,32 @@ export type RetentionPrunePlan = Readonly<{
   overBudget: boolean;
 }>;
 
-export type ClipboardWriteContent = Readonly<{
-  type: string;
-  content: unknown;
-}>;
+export type ClipboardWriteContent =
+  | Readonly<{ type: "text"; content: string }>
+  | Readonly<{ type: "image"; content: string }>
+  | Readonly<{ type: "file"; content: string | readonly string[] }>;
+
+export type ClipboardWriteResult =
+  | boolean
+  | Readonly<{ success: boolean }>;
+
+export function clipboardWriteSucceeded(result: ClipboardWriteResult): boolean {
+  return (
+    result === true ||
+    (typeof result === "object" && result.success === true)
+  );
+}
 
 export type DirectPasteTarget =
   | Readonly<{ type: "host"; hostItemId: string }>
   | Readonly<{ type: "content"; content: ClipboardWriteContent }>;
 
 export interface ClipboardPasteHost {
-  write(id: string, shouldPaste: boolean): Promise<void>;
+  write(id: string, shouldPaste: boolean): Promise<ClipboardWriteResult>;
   writeContent(
     input: ClipboardWriteContent,
     shouldPaste: boolean,
-  ): Promise<void>;
+  ): Promise<ClipboardWriteResult>;
 }
 
 export type DirectPasteResult =
@@ -488,22 +499,33 @@ export async function performDirectPaste(
   target: DirectPasteTarget,
   host: ClipboardPasteHost,
 ): Promise<DirectPasteResult> {
-  const write = async (shouldPaste: boolean): Promise<void> => {
-    if (target.type === "host") {
-      await host.write(target.hostItemId, shouldPaste);
-    } else {
-      await host.writeContent(target.content, shouldPaste);
-    }
+  const write = async (
+    currentTarget: DirectPasteTarget,
+    shouldPaste: boolean,
+  ): Promise<boolean> => {
+    const result =
+      currentTarget.type === "host"
+        ? await host.write(currentTarget.hostItemId, shouldPaste)
+        : await host.writeContent(currentTarget.content, shouldPaste);
+    return clipboardWriteSucceeded(result);
   };
 
+  let directPasteError: unknown = new Error("ZTools 未能写入所选剪贴板内容");
   try {
-    await write(true);
-    return { status: "pasted" };
-  } catch (directPasteError) {
-    await write(false);
-    return {
-      status: "accessibility_required",
-      directPasteError: errorMessage(directPasteError),
-    };
+    if (await write(target, true)) {
+      return { status: "pasted" };
+    }
+  } catch (error) {
+    directPasteError = error;
   }
+
+  if (!(await write(target, false))) {
+    throw new Error("ZTools 未能复制所选剪贴板内容", {
+      cause: directPasteError,
+    });
+  }
+  return {
+    status: "accessibility_required",
+    directPasteError: errorMessage(directPasteError),
+  };
 }

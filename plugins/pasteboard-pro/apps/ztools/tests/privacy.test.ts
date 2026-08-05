@@ -277,8 +277,8 @@ describe("retention", () => {
 
 describe("direct paste", () => {
   it("uses the host-native write path when available", async () => {
-    const write = vi.fn(async () => undefined);
-    const writeContent = vi.fn(async () => undefined);
+    const write = vi.fn(async () => true);
+    const writeContent = vi.fn(async () => true);
 
     await expect(
       performDirectPaste(
@@ -294,7 +294,7 @@ describe("direct paste", () => {
     const write = vi
       .fn()
       .mockRejectedValueOnce(new Error("paste denied"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(true);
 
     await expect(
       performDirectPaste(
@@ -310,7 +310,7 @@ describe("direct paste", () => {
   });
 
   it("writes canonical content for synced or plugin-owned items", async () => {
-    const writeContent = vi.fn(async () => undefined);
+    const writeContent = vi.fn(async () => true);
 
     await expect(
       performDirectPaste(
@@ -321,6 +321,28 @@ describe("direct paste", () => {
     expect(writeContent).toHaveBeenCalledWith(
       { type: "text", content: "hello" },
       true,
+    );
+  });
+
+  it("does not report success when every clipboard write returns false", async () => {
+    const write = vi.fn(async () => ({ success: false }));
+    const writeContent = vi.fn(async () => ({ success: false }));
+
+    await expect(
+      performDirectPaste(
+        { type: "content", content: { type: "text", content: "selected history" } },
+        { write, writeContent },
+      ),
+    ).rejects.toThrow("ZTools 未能复制所选剪贴板内容");
+    expect(writeContent).toHaveBeenNthCalledWith(
+      1,
+      { type: "text", content: "selected history" },
+      true,
+    );
+    expect(writeContent).toHaveBeenNthCalledWith(
+      2,
+      { type: "text", content: "selected history" },
+      false,
     );
   });
 });
