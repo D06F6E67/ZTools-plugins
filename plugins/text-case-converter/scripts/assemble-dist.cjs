@@ -14,7 +14,7 @@ if (!fs.existsSync(distDir)) {
   process.exit(1)
 }
 
-const requiredJs = ['preload.js', 'case-convert.js']
+const requiredJs = ['preload.js', 'case-convert.js', 'naming.js']
 for (const file of requiredJs) {
   if (!fs.existsSync(path.join(distDir, file))) {
     console.error(`Missing dist/${file} — run tsc first`)

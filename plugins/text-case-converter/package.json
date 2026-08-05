@@ -4,13 +4,16 @@
     "name": "UCPr",
     "url": "https://github.com/UCPr251"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "commonjs",
-  "description": "剪贴板智能大小写转换",
+  "description": "智能大小写转换。支持智能转大小写、转大写、转小写、大小写反转、首字母大写、小驼峰命名、大驼峰命名、蛇形命名、尖叫蛇形命名\n可在 插件详情-指令列表 设置全局快捷键或禁用无用指令",
   "scripts": {
-    "build": "tsc && node scripts/svg-to-png.cjs && node scripts/assemble-dist.cjs",
+    "prebuild": "pnpm icons",
+    "build": "tsc",
+    "postbuild": "node scripts/assemble-dist.cjs",
     "icons": "node scripts/svg-to-png.cjs",
-    "dev": "tsc -w --preserveWatchOutput"
+    "dev": "tsc -w --preserveWatchOutput",
+    "test": "pnpm run build && node --test \"test/*.test.cjs\""
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
