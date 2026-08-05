@@ -47,34 +47,46 @@ var hintAlpha = 1;
 var stickGrad = null, tubeGrad = null;
 var winX = 0, winY = 0;
 
-/* ---------- 光标跟踪（DIP 坐标） ---------- */
+/* ---------- 光标跟踪（DIP 坐标） ----------
+   ztools.getCursorScreenPoint / getDisplayNearestPoint / getPrimaryDisplay 经主进程
+   Electron screen 提供，macOS / Windows 上都安全。唯一要在 Windows 上才调用的是
+   screenToDipPoint（把物理像素换算成 DIP），macOS 上调用它会触发主进程崩溃，所以必须跳过。 */
 var Z = window.ztools;
+var IS_WIN = (typeof process !== 'undefined' && process.platform === 'win32') ||
+             /win/i.test(navigator.platform || '');
+
 function getCursor() {
-  try {
-    if (Z && Z.getCursorScreenPoint) {
+  if (Z && Z.getCursorScreenPoint) {
+    try {
       var p = Z.getCursorScreenPoint();
-      if (Z.screenToDipPoint) p = Z.screenToDipPoint(p);
+      if (IS_WIN && Z.screenToDipPoint) p = Z.screenToDipPoint(p);
       return p;
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
   return null;
 }
 
-/* 让窗口铺满光标所在的显示器；跨屏时自动跟随 */
-function syncWindow() {
-  if (!Z) return;
+/* 让窗口铺满光标所在的显示器；跨屏时自动跟随。
+   pt 为当前光标点（DIP）。getDisplayNearestPoint 是同步 IPC，做 250ms 节流，
+   显示器切换不频繁，避免每帧同步调用拖慢渲染。 */
+var lastDispCheckAt = -999999;
+function syncWindow(pt) {
+  if (!pt) return;
   var b = null;
-  try {
-    var dip = getCursor();
-    if (Z.getDisplayNearestPoint && dip) {
-      var d = Z.getDisplayNearestPoint({ x: dip.x, y: dip.y });
+  var now = performance.now();
+  if (Z && Z.getDisplayNearestPoint && now - lastDispCheckAt > 250) {
+    lastDispCheckAt = now;
+    try {
+      var d = Z.getDisplayNearestPoint({ x: pt.x, y: pt.y });
       if (d && d.bounds) b = d.bounds;
-    }
-    if (!b && Z.getPrimaryDisplay) {
+    } catch (e) {}
+  }
+  if (!b && Z && Z.getPrimaryDisplay) {
+    try {
       var p = Z.getPrimaryDisplay();
       if (p && p.bounds) b = p.bounds;
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
   if (!b) return;
   var need = Math.abs(window.innerWidth - b.width) > 1 ||
              Math.abs(window.innerHeight - b.height) > 1 ||
@@ -549,11 +561,15 @@ function frame(now) {
   var dt = Math.min(0.05, (now - lastNow) / 1000) || 0.016;
   lastNow = now;
 
-  syncWindow();
   var pt = getCursor();
+  syncWindow(pt);
   if (pt) {
-    stick.x = pt.x - winX;
-    stick.y = pt.y - winY;
+    // 用窗口真实屏幕位置换算窗口内坐标（macOS 上窗口会被菜单栏/安全区约束，
+    // 实际 screenY 可能比请求的 bounds.y 大，必须读真实值，否则竹蝉会偏离光标）
+    var sx = 0, sy = 0;
+    try { sx = window.screenX || 0; sy = window.screenY || 0; } catch (e) {}
+    stick.x = pt.x - sx;
+    stick.y = pt.y - sy;
   }
 
   update(dt);
