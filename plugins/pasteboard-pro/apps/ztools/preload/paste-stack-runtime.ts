@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import readline from "node:readline";
+import { pathToFileURL } from "node:url";
 
 import {
   reducePasteStack,
@@ -76,10 +77,42 @@ function fileListPropertyList(filePaths: readonly string[]): Uint8Array {
   );
 }
 
+function windowsFileDropBuffer(filePaths: readonly string[]): Uint8Array {
+  const names = Buffer.from(`${filePaths.join("\0")}\0\0`, "utf16le");
+  const header = Buffer.alloc(20);
+  header.writeUInt32LE(20, 0);
+  header.writeUInt32LE(1, 16);
+  return Buffer.concat([header, names]);
+}
+
+function linuxFileUriList(filePaths: readonly string[]): Uint8Array {
+  return Buffer.from(
+    `${filePaths.map((filePath) => pathToFileURL(filePath).href).join("\r\n")}\r\n`,
+    "utf8",
+  );
+}
+
+function fileClipboardData(
+  filePaths: readonly string[],
+  platform: NodeJS.Platform,
+): Readonly<{ format: string; buffer: Uint8Array }> {
+  if (platform === "darwin") {
+    return { format: "NSFilenamesPboardType", buffer: fileListPropertyList(filePaths) };
+  }
+  if (platform === "win32") {
+    return { format: "FileNameW", buffer: windowsFileDropBuffer(filePaths) };
+  }
+  if (platform === "linux") {
+    return { format: "text/uri-list", buffer: linuxFileUriList(filePaths) };
+  }
+  throw new Error("当前平台不支持文件粘贴");
+}
+
 export function writePreparedStackItem(
   item: PreparedStackItem,
   clipboard: ClipboardWriter,
   nativeImage: NativeImageApi,
+  platform: NodeJS.Platform = process.platform,
 ): boolean {
   if (item.type === "text") {
     clipboard.writeText(item.text);
@@ -90,7 +123,8 @@ export function writePreparedStackItem(
     return true;
   }
   if (item.type === "files") {
-    clipboard.writeBuffer("NSFilenamesPboardType", fileListPropertyList(item.filePaths));
+    const data = fileClipboardData(item.filePaths, platform);
+    clipboard.writeBuffer(data.format, data.buffer);
     return true;
   }
   const image = nativeImage.createFromPath(item.imagePath);

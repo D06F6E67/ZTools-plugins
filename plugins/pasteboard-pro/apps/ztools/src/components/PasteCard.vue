@@ -8,6 +8,7 @@ import {
   observeThumbnailVisibility,
 } from "../thumbnail-loader";
 import { containContextMenuKeydown } from "../context-menu-keyboard";
+import { writeSourceDragData } from "../drag-content";
 
 const props = defineProps<{
   item: PasteItem;
@@ -60,10 +61,11 @@ function handleContextMenuKeydown(event: KeyboardEvent): void {
 }
 
 function beginDrag(event: DragEvent): void {
-  event.dataTransfer?.setData("application/x-pasteboard-pro-item", props.item.id);
-  if (event.dataTransfer !== null) {
-    event.dataTransfer.effectAllowed = "move";
+  if (props.item.kind === "image" || props.item.payload.filePaths !== undefined) {
+    beginNativeFileDrag(event);
+    return;
   }
+  if (event.dataTransfer !== null) writeSourceDragData(props.item, event.dataTransfer);
 }
 
 function prepareNativeFileDrag(): void {
@@ -79,9 +81,12 @@ function beginNativeFileDrag(event: DragEvent): void {
   if (event.dataTransfer !== null) {
     event.dataTransfer.effectAllowed = "copy";
   }
-  if (window.pasteboardPro?.startNativeFileDrag(props.item.id) === true) {
-    event.stopPropagation();
-  }
+  // The nested <img> element has a browser-native drag behavior that exposes
+  // its thumbnail URL. Always cancel that default payload; the host API below
+  // supplies the original image/file as a native file drag instead.
+  window.pasteboardPro?.startNativeFileDrag(props.item.id);
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 const bodyText = computed(() => {
@@ -134,6 +139,7 @@ onBeforeUnmount(() => {
     role="option"
     tabindex="0"
     draggable="true"
+    @pointerdown="prepareNativeFileDrag"
     @dragstart="beginDrag"
     @click="emit('select', item.id, $event.shiftKey, $event.metaKey)"
     @dblclick="emit('paste', item.id)"

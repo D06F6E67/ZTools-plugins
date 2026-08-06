@@ -1,5 +1,6 @@
 import type { CanonicalClipboardRecord } from "./clipboard-store";
 import {
+  clipboardWriteSucceeded,
   performDirectPaste,
   type ClipboardPasteHost,
   type DirectPasteResult,
@@ -10,19 +11,32 @@ export function directPasteTarget(
   record: CanonicalClipboardRecord,
   plainText = false,
 ): DirectPasteTarget {
-  if (!plainText && record.origin.host === "ztools") {
-    return { type: "host", hostItemId: record.origin.hostItemId };
+  const target = canonicalContentTarget(record, plainText);
+  if (target !== undefined) return target;
+  throw new RangeError("该同步记录只有远端附件，当前设备尚未下载内容");
+}
+
+function canonicalContentTarget(
+  record: CanonicalClipboardRecord,
+  plainText = false,
+): DirectPasteTarget | undefined {
+  const filePaths = record.item.payload.filePaths?.filter(
+    (filePath) => filePath.length > 0,
+  );
+  if (!plainText && filePaths !== undefined && filePaths.length > 0) {
+    return {
+      type: "content",
+      content: { type: "file", content: filePaths },
+    };
   }
-  if (!plainText && record.item.kind === "image" && record.origin.imagePath !== undefined) {
+  if (
+    !plainText &&
+    record.item.kind === "image" &&
+    record.origin.imagePath !== undefined
+  ) {
     return {
       type: "content",
       content: { type: "image", content: record.origin.imagePath },
-    };
-  }
-  if (!plainText && record.item.payload.html !== undefined) {
-    return {
-      type: "content",
-      content: { type: "html", content: record.item.payload.html },
     };
   }
   const text = record.item.payload.text ?? record.item.ocrText;
@@ -32,7 +46,7 @@ export function directPasteTarget(
       content: { type: "text", content: text },
     };
   }
-  throw new RangeError("该同步记录只有远端附件，当前设备尚未下载内容");
+  return undefined;
 }
 
 export function pasteCanonicalRecord(
@@ -49,9 +63,10 @@ export async function copyCanonicalRecord(
   plainText = false,
 ): Promise<void> {
   const target = directPasteTarget(record, plainText);
-  if (target.type === "host") {
-    await host.write(target.hostItemId, false);
-  } else {
-    await host.writeContent(target.content, false);
-  }
+  const result =
+    target.type === "host"
+      ? await host.write(target.hostItemId, false)
+      : await host.writeContent(target.content, false);
+  if (clipboardWriteSucceeded(result)) return;
+  throw new Error("ZTools 未能复制所选剪贴板内容");
 }

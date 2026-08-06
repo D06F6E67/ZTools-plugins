@@ -37,6 +37,7 @@ describe("image rotation", () => {
         quarterTurns: -1,
       },
       {
+        platform: "darwin",
         spawn,
         stat: async () => ({ isFile: () => true, size: 128 }),
       },
@@ -92,5 +93,36 @@ describe("image rotation", () => {
       ),
     ).rejects.toThrow(/64 KiB/i);
     expect(process.killed).toBe(true);
+  });
+
+  it("uses ImageMagick on Windows and Linux", async () => {
+    for (const [platform, command] of [["win32", "magick.exe"], ["linux", "magick"]] as const) {
+      const process = new FakeProcess();
+      const calls: unknown[][] = [];
+      const spawn: OcrSpawn = (...args) => {
+        calls.push(args);
+        queueMicrotask(() => process.emit("close", 0));
+        return process;
+      };
+      await rotateImageFile(
+        {
+          sourcePath: "/tmp/input.jpg",
+          destinationPath: "/tmp/output.png",
+          quarterTurns: 1,
+        },
+        {
+          platform,
+          spawn,
+          stat: async () => ({ isFile: () => true }),
+        },
+      );
+      expect(calls[0]?.[0]).toBe(command);
+      expect(calls[0]?.[1]).toEqual([
+        "/tmp/input.jpg",
+        "-rotate",
+        "90",
+        "png:/tmp/output.png",
+      ]);
+    }
   });
 });

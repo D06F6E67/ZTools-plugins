@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createKeychainSecretStore,
+  createPortableSecretStore,
   PASTEBOARD_KEYCHAIN_SERVICE,
   type KeychainExecFile,
 } from "../preload/keychain";
@@ -67,5 +68,58 @@ describe("PasteboardPro Keychain adapter", () => {
 
     await expect(store.load("webdav")).resolves.toBeUndefined();
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("stores encrypted credentials through Electron safeStorage on Windows/Linux", async () => {
+    const documents = new Map<string, Record<string, unknown>>();
+    const database = {
+      async get(id: string) {
+        const document = documents.get(id);
+        if (document === undefined) throw { status: 404 };
+        return structuredClone(document);
+      },
+      async put(document: Record<string, unknown>) {
+        documents.set(document._id as string, structuredClone(document));
+        return { ok: true };
+      },
+      async remove(document: Record<string, unknown>) {
+        documents.delete(document._id as string);
+        return { ok: true };
+      },
+    };
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(`encrypted:${value}`, "utf8"),
+      decryptString: (value: Uint8Array) =>
+        Buffer.from(value).toString("utf8").replace(/^encrypted:/u, ""),
+      getSelectedStorageBackend: () => "gnome-libsecret",
+    };
+    const store = createPortableSecretStore({ database, safeStorage });
+
+    await store.save("webdav", "super-secret");
+    expect([...documents.values()][0]).toMatchObject({
+      type: "pasteboard-pro-secret",
+      account: "webdav",
+      ciphertext: expect.not.stringContaining("super-secret"),
+    });
+    await expect(store.load("webdav")).resolves.toBe("super-secret");
+    await store.delete("webdav");
+    await expect(store.load("webdav")).resolves.toBeUndefined();
+  });
+
+  it("refuses Linux basic_text safeStorage instead of persisting plaintext", async () => {
+    const store = createPortableSecretStore({
+      database: {
+        async get() { throw { status: 404 }; },
+        async put() { return {}; },
+      },
+      safeStorage: {
+        isEncryptionAvailable: () => true,
+        encryptString: (value) => Buffer.from(value),
+        decryptString: (value) => Buffer.from(value).toString("utf8"),
+        getSelectedStorageBackend: () => "basic_text",
+      },
+    });
+    await expect(store.save("webdav", "secret")).rejects.toThrow(/安全存储/);
   });
 });

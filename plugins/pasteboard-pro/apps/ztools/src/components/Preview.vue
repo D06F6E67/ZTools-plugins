@@ -71,7 +71,7 @@ watch(
           识别文字
         </button>
         <button v-if="item.kind === 'image' || item.kind === 'files' || item.payload.mediaType === 'application/pdf'" type="button" class="secondary" @click="emit('quickLook', item.id)">
-          Quick Look
+          打开文件
         </button>
         <button type="button" class="secondary" @click="emit('rename', item.id)">重命名</button>
         <button v-if="['text', 'rich_text', 'html', 'url', 'color'].includes(item.kind)" type="button" class="secondary" @click="emit('edit', item.id)">编辑</button>

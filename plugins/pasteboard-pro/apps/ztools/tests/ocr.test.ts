@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createOcrClient,
+  createTesseractOcrClient,
   validateOcrRequest,
   type OcrProcess,
   type OcrSpawn,
@@ -129,5 +130,31 @@ describe("OCR protocol", () => {
     expect(source).toContain("CGImageSourceCreateWithURL");
     expect(source).toContain("readLine");
     expect(source).not.toMatch(/URLSession|Process\(|system\(|NSTask/);
+  });
+
+  it("uses Tesseract CLI on Windows/Linux", async () => {
+    for (const [platform, command] of [["win32", "tesseract.exe"], ["linux", "tesseract"]] as const) {
+      const process = new FakeProcess();
+      const calls: unknown[][] = [];
+      const spawn: OcrSpawn = (...args) => {
+        calls.push(args);
+        queueMicrotask(() => {
+          process.stdout.emit("data", Buffer.from("hello from tesseract\n"));
+          process.emit("close", 0);
+        });
+        return process;
+      };
+      const client = createTesseractOcrClient({
+        platform,
+        spawn,
+        stat: async () => ({ isFile: () => true }),
+      });
+      await expect(client.recognize("/tmp/input.png")).resolves.toBe("hello from tesseract");
+      expect(calls[0]).toEqual([
+        command,
+        ["/tmp/input.png", "stdout"],
+        { shell: false, stdio: ["pipe", "pipe", "pipe"] },
+      ]);
+    }
   });
 });

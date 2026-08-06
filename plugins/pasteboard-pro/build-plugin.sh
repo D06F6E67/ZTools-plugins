@@ -10,15 +10,14 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
 fi
 
 HELPER="$ROOT/apps/ztools/native/vision-helper/dist/pasteboard-vision"
-if [ "$(uname -s)" != "Darwin" ]; then
-  echo "PasteboardPro contains a macOS native helper and must be built on macOS" >&2
-  exit 1
+if [ "$(uname -s)" = "Darwin" ]; then
+  "$ROOT/apps/ztools/native/vision-helper/build.sh"
+  codesign --force --sign - "$HELPER"
+  codesign --verify --strict "$HELPER"
+  chmod +x "$HELPER"
+else
+  echo "非 macOS 构建跳过 Vision helper，运行时使用 Tesseract OCR"
 fi
-
-"$ROOT/apps/ztools/native/vision-helper/build.sh"
-codesign --force --sign - "$HELPER"
-codesign --verify --strict "$HELPER"
-chmod +x "$HELPER"
 
 corepack pnpm@9.15.9 install --frozen-lockfile
 corepack pnpm@9.15.9 test

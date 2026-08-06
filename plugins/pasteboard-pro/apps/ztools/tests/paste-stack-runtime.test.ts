@@ -48,6 +48,27 @@ describe("paste stack runtime", () => {
     expect(writes).toEqual(["first queued value"]);
   });
 
+  it("writes native file clipboard formats on Windows and Linux", () => {
+    const writes: Array<{ format: string; buffer: Uint8Array }> = [];
+    const clipboard = {
+      write() {},
+      writeText() {},
+      writeImage() {},
+      writeBuffer(format: string, buffer: Uint8Array) {
+        writes.push({ format, buffer });
+      },
+    };
+    const nativeImage = { createFromPath() { throw new Error("unexpected image load"); } };
+    const item = { type: "files" as const, filePaths: ["/tmp/a.txt", "/tmp/b.txt"] };
+
+    expect(writePreparedStackItem(item, clipboard, nativeImage, "win32")).toBe(true);
+    expect(writes[0]?.format).toBe("FileNameW");
+    expect(Buffer.from(writes[0]!.buffer).toString("utf16le")).toContain("/tmp/a.txt");
+    expect(writePreparedStackItem(item, clipboard, nativeImage, "linux")).toBe(true);
+    expect(writes[1]?.format).toBe("text/uri-list");
+    expect(Buffer.from(writes[1]!.buffer).toString("utf8")).toContain("file:///tmp/a.txt");
+  });
+
   it("consumes one persisted item for every released Command-V press", async () => {
     let document: Record<string, unknown> | undefined;
     const stackStore = new ZToolsPasteStackStore({

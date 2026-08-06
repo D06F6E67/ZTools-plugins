@@ -10,11 +10,15 @@ import {
 } from "./clipboard-store";
 import { ensureZToolsAutoStart } from "./auto-start";
 import type { PasteStackState } from "@pasteboard-pro/core";
-import { createOcrClient } from "./ocr";
+import { createOcrClient, createTesseractOcrClient } from "./ocr";
 import { NativeFileDragService } from "./native-file-drag";
 import { openQuickLook } from "./quick-look";
 import { rotateImageFile } from "./image-rotation";
-import { createKeychainSecretStore } from "./keychain";
+import {
+  createKeychainSecretStore,
+  createPortableSecretStore,
+  type SafeStorageLike,
+} from "./keychain";
 import { copyCanonicalRecord, pasteCanonicalRecord } from "./paste-item";
 import {
   isCapturePaused,
@@ -75,10 +79,11 @@ type IpcRendererLike = Readonly<{
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 }>;
 
-const { clipboard, ipcRenderer, nativeImage } = require("electron") as {
+const { clipboard, ipcRenderer, nativeImage, safeStorage } = require("electron") as {
   clipboard: ClipboardWriter;
   ipcRenderer: IpcRendererLike;
   nativeImage: NativeImageApi;
+  safeStorage?: SafeStorageLike;
 };
 
 type ZToolsDisplay = Readonly<{
@@ -118,6 +123,13 @@ type ZToolsHost = Readonly<{
 }>;
 
 type PasteboardProBridge = Readonly<{
+  getPlatformCapabilities(): Readonly<{
+    platform: NodeJS.Platform;
+    supportsGlobalPasteQueue: boolean;
+    supportsQuickLook: boolean;
+    supportsSystemOcr: boolean;
+    supportsImageRotation: boolean;
+  }>;
   searchHistory(query?: string, limit?: number): Promise<Readonly<{ items: unknown[]; total: number }>>;
   getPrivacySettings(): Promise<PrivacySettings>;
   savePrivacySettings(settings: PrivacySettings): Promise<PrivacySettings>;
@@ -183,7 +195,23 @@ const pinboardStore = new ZToolsPinboardStore(ztools.db.promises, {
   deviceId: ztools.getNativeId(),
 });
 const syncStore = new ZToolsSyncStore(ztools.db.promises);
-const keychain = createKeychainSecretStore();
+const keychain =
+  process.platform === "darwin"
+    ? createKeychainSecretStore()
+    : safeStorage === undefined
+      ? {
+          save: async () => {
+            throw new Error("当前平台没有可用的系统安全存储，无法保存同步密码");
+          },
+          load: async () => {
+            throw new Error("当前平台没有可用的系统安全存储，无法读取同步密码");
+          },
+          delete: async () => undefined,
+        }
+      : createPortableSecretStore({
+          database: ztools.db.promises,
+          safeStorage,
+        });
 const syncRepository = new ZToolsSyncEntityRepository(
   ztools.db.promises,
   ztools.getNativeId(),
@@ -192,9 +220,12 @@ const shelfWindows = new ShelfWindowManager(ztools);
 const panelWindows = new PanelWindowManager(ztools);
 const thumbnailService = new ThumbnailService(store, nativeImage);
 const nativeFileDragService = new NativeFileDragService(store, ztools);
-const ocrClient = createOcrClient({
-  helperPath: path.join(__dirname, "pasteboard-vision"),
-});
+const ocrClient =
+  process.platform === "darwin"
+    ? createOcrClient({
+        helperPath: path.join(__dirname, "pasteboard-vision"),
+      })
+    : createTesseractOcrClient({ platform: process.platform });
 let synchronization = Promise.resolve();
 let vaultSynchronization: Promise<SyncSettings> | undefined;
 let vaultSyncRequested = false;
@@ -498,6 +529,13 @@ if (isPrimaryWindow) {
 }
 
 const bridge: PasteboardProBridge = {
+  getPlatformCapabilities: () => ({
+    platform: process.platform,
+    supportsGlobalPasteQueue: process.platform === "darwin",
+    supportsQuickLook: process.platform === "darwin" || process.platform === "win32" || process.platform === "linux",
+    supportsSystemOcr: true,
+    supportsImageRotation: process.platform === "darwin" || process.platform === "win32" || process.platform === "linux",
+  }),
   async searchHistory(query = "", limit = 1_000) {
     const normalizedLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
     const [result, records] = await Promise.all([
@@ -632,9 +670,6 @@ const bridge: PasteboardProBridge = {
   prepareNativeFileDrag: (itemId) => nativeFileDragService.prepare(itemId),
   startNativeFileDrag: (itemId) => nativeFileDragService.start(itemId),
   async recognizeItem(itemId) {
-    if (process.platform !== "darwin") {
-      throw new Error("本地 Vision OCR 仅支持 macOS");
-    }
     const record = await store.findRecordByItemId(itemId);
     const imagePath = record?.origin.imagePath;
     if (record === undefined || imagePath === undefined) {
@@ -647,9 +682,6 @@ const bridge: PasteboardProBridge = {
     return text;
   },
   async rotateImage(itemId, quarterTurns) {
-    if (process.platform !== "darwin") {
-      throw new Error("本地图片旋转仅支持 macOS");
-    }
     const record = await store.findRecordByItemId(itemId);
     const imagePath = record?.origin.imagePath;
     if (record === undefined || record.item.kind !== "image" || imagePath === undefined) {
