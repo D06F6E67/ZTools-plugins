@@ -432,7 +432,7 @@ var MAX_LOG_BYTES = 5 * 1024 * 1024;
  */
 function createLogger(module, options) {
   options = options || {};
-  var logDir = options.logDir || path.join(getHomeDir(), '.cctoggle', 'log');
+  var logDir = options.logDir || path.join(getHomeDir(), '.ztools-cctoggle', 'log');
   var logFile = path.join(logDir, module + '.log');
 
   // 确保日志目录存在

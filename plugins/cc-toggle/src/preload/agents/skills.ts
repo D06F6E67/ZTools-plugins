@@ -100,7 +100,7 @@ export class SkillManager {
     }
 
     var home = getHomeDir();
-    var newNest = path.join(home, ".cctoggle", "skills");
+    var newNest = path.join(home, ".ztools-cctoggle", "skills");
     ensureDir(newNest);
     return newNest;
   }

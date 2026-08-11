@@ -17,7 +17,7 @@ onMounted(() => {
 
 const nestDir = computed(() => {
   const fn = window.ztoolsCctoggle?.getNestDir;
-  return fn ? fn() : "~/.cctoggle/skills";
+  return fn ? fn() : "~/.ztools-cctoggle/skills";
 });
 
 // Project targets

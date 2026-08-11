@@ -24,6 +24,7 @@ export class DataMigration {
   /** 主入口：逐项检查，按需执行 */
   static migrateAgentPaths(): void {
     DataMigration.migrateSkillnestDir();
+    DataMigration.migrateCctoggleDir();
     DataMigration.migrateToProfileStructure();
     DataMigration.migrateLastActiveApp();
     DataMigration.migrateApiKeysToProfile();
@@ -77,7 +78,7 @@ export class DataMigration {
     const oldNest = path.join(home, ".skillnest", "skills");
     if (!fs.existsSync(oldNest)) return;
 
-    const newNest = path.join(home, ".cctoggle", "skills");
+    const newNest = path.join(home, ".ztools-cctoggle", "skills");
     try {
       const newDir = path.dirname(newNest);
       if (!fs.existsSync(newDir)) fs.mkdirSync(newDir, { recursive: true });
@@ -104,6 +105,54 @@ export class DataMigration {
       }
     } catch (e: any) {
       console.error("[Cleanup] Skillnest migration failed:", e.message);
+    }
+  }
+
+  /** cctoggle → ztools-cctoggle 目录迁移（旧命名 → 新命名，避免与其他插件撞名） */
+  static migrateCctoggleDir(): void {
+    const fs = require("fs");
+    const path = require("path");
+    const os = require("os");
+
+    let home: string;
+    try { home = ztools.getPath("home"); } catch (e) { home = os.homedir(); }
+
+    const oldDir = path.join(home, ".cctoggle");
+    if (!fs.existsSync(oldDir)) return;
+
+    const newDir = path.join(home, ".ztools-cctoggle");
+    try {
+      const entries = fs.readdirSync(oldDir, { withFileTypes: true });
+      let copied = 0;
+      entries.forEach(function(entry: any) {
+        const srcPath = path.join(oldDir, entry.name);
+        const destPath = path.join(newDir, entry.name);
+        if (fs.existsSync(destPath)) return;
+        try {
+          if (entry.isDirectory()) {
+            DataMigration.copyDirSync(srcPath, destPath);
+          } else {
+            const destParent = path.dirname(destPath);
+            if (!fs.existsSync(destParent)) fs.mkdirSync(destParent, { recursive: true });
+            fs.copyFileSync(srcPath, destPath);
+          }
+          copied++;
+        } catch (e: any) {
+          console.error("[Cleanup] Failed to copy:", entry.name, e.message);
+        }
+      });
+      console.log("[Cleanup] Copied " + copied + " items from .cctoggle");
+
+      const skillsOld = path.join(oldDir, "skills");
+      const skillsNew = path.join(newDir, "skills");
+      if (fs.existsSync(skillsOld)) {
+        DataMigration.redeploySymlinks(skillsNew);
+      }
+
+      fs.rmSync(oldDir, { recursive: true, force: true });
+      console.log("[Cleanup] Removed old .cctoggle directory");
+    } catch (e: any) {
+      console.error("[Cleanup] .cctoggle migration failed:", e.message);
     }
   }
 
