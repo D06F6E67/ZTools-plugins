@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "types": ["@ztools-center/ztools-api-types"]
+  },
+  "include": [
+    "src/**/*.vue",
+    "src/**/*.js"
+  ]
+}
