@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildClipboardPayload } from '../src/utils/clipboardPayload.js'
 
-test('joins selected text items in display order', () => {
+test('joins selected text items in the provided selection order', () => {
   assert.deepEqual(
     buildClipboardPayload([
       { type: 'text', content: 'first' },

@@ -14,9 +14,10 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   const clipboardListRef = ref(null)
 
   const activeIndex = computed(() => filteredData.value.indexOf(activeItem.value))
-  const selectedItems = computed(() =>
-    filteredData.value.filter(item => selectedItemSet.value.has(item))
-  )
+  const selectedItems = computed(() => {
+    const visibleItems = new Set(filteredData.value)
+    return [...selectedItemSet.value].filter(item => visibleItems.has(item))
+  })
   const selectedCount = computed(() => selectedItems.value.length)
 
   const replaceSelection = (items, active = items[0] || null, anchor = active) => {
@@ -42,7 +43,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     }
 
     const visibleItems = new Set(items)
-    const retainedItems = items.filter(item => selectedItemSet.value.has(item))
+    const retainedItems = [...selectedItemSet.value].filter(item => visibleItems.has(item))
     if (retainedItems.length === 0) {
       replaceSelection([items[0]], items[0], items[0])
       return
@@ -50,7 +51,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
 
     selectedItemSet.value = new Set(retainedItems)
     if (!visibleItems.has(activeItem.value)) {
-      activeItem.value = retainedItems[0]
+      activeItem.value = retainedItems.at(-1)
     }
     if (!visibleItems.has(selectionAnchor.value)) {
       selectionAnchor.value = activeItem.value
@@ -67,11 +68,16 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
       return
     }
 
-    const start = Math.min(anchorIndex, index)
-    const end = Math.max(anchorIndex, index)
-    const rangeItems = filteredData.value
-      .slice(start, end + 1)
-      .filter(rangeItem => rangeItem.type === item.type)
+    const direction = anchorIndex <= index ? 1 : -1
+    const rangeItems = []
+    for (
+      let rangeIndex = anchorIndex;
+      direction > 0 ? rangeIndex <= index : rangeIndex >= index;
+      rangeIndex += direction
+    ) {
+      const rangeItem = filteredData.value[rangeIndex]
+      if (rangeItem.type === item.type) rangeItems.push(rangeItem)
+    }
 
     replaceSelection(rangeItems, item, selectionAnchor.value)
   }
@@ -89,7 +95,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     const nextSelection = new Set(selectedItemSet.value)
     if (nextSelection.has(item)) {
       nextSelection.delete(item)
-      const nextActiveItem = filteredData.value.find(candidate => nextSelection.has(candidate)) || null
+      const nextActiveItem = [...nextSelection].at(-1) || null
       activeItem.value = nextActiveItem
       selectionAnchor.value = nextActiveItem
     } else {
@@ -153,7 +159,8 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     const item = activeItem.value || filteredData.value[0]
     if (!item) return
     const matchingItems = filteredData.value.filter(candidate => candidate.type === item.type)
-    replaceSelection(matchingItems, item, item)
+    const orderedItems = [item, ...matchingItems.filter(candidate => candidate !== item)]
+    replaceSelection(orderedItems, item, item)
   }
 
   const executeSelected = async (shouldPaste = true) => {
@@ -173,6 +180,12 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   }
 
   const handleKeydown = (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+      event.preventDefault()
+      executeSelected(false)
+      return
+    }
+
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault()
       selectAllOfActiveType()

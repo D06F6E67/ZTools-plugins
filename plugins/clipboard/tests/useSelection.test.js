@@ -23,7 +23,7 @@ const clickEvent = (overrides = {}) => ({
   ...overrides
 })
 
-test('keeps selected items in display order regardless of click order', async () => {
+test('keeps selected items in click order', async () => {
   const first = { type: 'text', content: 'first' }
   const second = { type: 'text', content: 'second' }
   const third = { type: 'text', content: 'third' }
@@ -34,7 +34,28 @@ test('keeps selected items in display order regardless of click order', async ()
   await selection.copySelected()
 
   assert.deepEqual(writes[0], {
-    selectedItems: [first, third],
+    selectedItems: [third, first],
+    shouldPaste: false
+  })
+})
+
+test('copies the current selection with Ctrl+C', () => {
+  const first = { type: 'text', content: 'first' }
+  const second = { type: 'text', content: 'second' }
+  const { selection, writes } = createSelection([first, second])
+  let prevented = false
+
+  selection.toggleItem(1)
+  selection.handleKeydown({
+    key: 'c',
+    ctrlKey: true,
+    metaKey: false,
+    preventDefault: () => { prevented = true }
+  })
+
+  assert.equal(prevented, true)
+  assert.deepEqual(writes[0], {
+    selectedItems: [first, second],
     shouldPaste: false
   })
 })
@@ -85,7 +106,19 @@ test('selects matching items in a shift range', () => {
   assert.deepEqual(selection.selectedItems.value, [first, third])
 })
 
-test('preserves object selections when the list is reordered', async () => {
+test('orders a reverse shift range from the anchor to the clicked item', () => {
+  const first = { type: 'text', content: 'first' }
+  const second = { type: 'text', content: 'second' }
+  const third = { type: 'text', content: 'third' }
+  const { selection } = createSelection([first, second, third])
+
+  selection.handleItemClick(clickEvent(), 2)
+  selection.handleItemClick(clickEvent({ shiftKey: true }), 0)
+
+  assert.deepEqual(selection.selectedItems.value, [third, second, first])
+})
+
+test('preserves click order when the list is reordered', async () => {
   const first = { type: 'text', content: 'first' }
   const second = { type: 'text', content: 'second' }
   const { data, selection } = createSelection([first, second])
@@ -94,5 +127,5 @@ test('preserves object selections when the list is reordered', async () => {
   data.value.splice(0, 2, second, first)
   await nextTick()
 
-  assert.deepEqual(selection.selectedItems.value, [second, first])
+  assert.deepEqual(selection.selectedItems.value, [first, second])
 })
