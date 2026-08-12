@@ -190,6 +190,11 @@ class ZtoolsPreload {
       queryBalance: BalanceManager.queryBalance,
       queryAllBalances: BalanceManager.queryAllBalances,
 
+      // 余额告警状态（持久化去重）
+      getBalanceNotifyState: BalanceManager.getBalanceNotifyState,
+      setBalanceNotified: BalanceManager.setBalanceNotified,
+      clearBalanceNotified: BalanceManager.clearBalanceNotified,
+
       // Profile 管理
       listProfiles: ProfileStore.listProfiles,
       getProfile: ProfileStore.getProfile,

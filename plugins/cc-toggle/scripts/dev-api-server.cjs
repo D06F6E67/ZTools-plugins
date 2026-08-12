@@ -328,6 +328,24 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result);
     }
 
+    // ─── 余额告警状态（持久化在项目文档 balanceNotify 字段） ───
+    if (pathname === '/api/balance/notify' && req.method === 'GET') {
+      const profileId = url.searchParams.get('profileId') || 'default';
+      return sendJson(res, BalanceManager.getBalanceNotifyState(profileId));
+    }
+
+    if (pathname === '/api/balance/notify-set' && req.method === 'POST') {
+      const body = await parseBody(req);
+      BalanceManager.setBalanceNotified(body.profileId, body.scopeKey, body.balance);
+      return sendJson(res, { success: true });
+    }
+
+    if (pathname === '/api/balance/notify-clear' && req.method === 'POST') {
+      const body = await parseBody(req);
+      BalanceManager.clearBalanceNotified(body.profileId, body.scopeKey);
+      return sendJson(res, { success: true });
+    }
+
     sendError(res, 'Not found: ' + pathname);
   } catch (e) {
     sendError(res, e.message);
