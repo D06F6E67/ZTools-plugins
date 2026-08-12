@@ -24,7 +24,6 @@ let _timerStoppedByBalance = false             // 当前激活供应商余额 �
 let _lastCurrentId = ''                        // 最近一次协调时的当前供应商 id
 let _stopWatcher: (() => void) | null = null   // providers 监听器（init 创建，dispose 释放）
 const _seqMap: Record<string, number> = {}
-const _notified = new Set<string>()               // 低于阈值已告警（同会话去重）
 const _refreshThrottles: Record<string, any> = {} // 每供应商手动刷新防抖器
 
 function safeGetCache(): Record<string, any> {
@@ -282,16 +281,40 @@ function checkThreshold(appType: string, providerId: string, r: BalanceResult): 
   const p = useProviders().providers.value.find((x: any) => x.id === providerId)
   if (!p || !p.isCurrent) return
   const threshold = getThreshold(p)
+  const profileId = activeProfileId()
+  const scopeKey = notifyScopeKey(appType, providerId)
+  const api = getSkillNest()
+
+  // 已告警标记持久化在项目(profile)文档的 balanceNotify 里（跨页面会话），项目级去重
+  let notified = false
+  try {
+    const state = api.getBalanceNotifyState(profileId)
+    notified = !!state[scopeKey]
+  } catch (e) { /* ignore */ }
+
   if (r.balance < threshold) {
-    // 低余额：告警（同会话一次）；回升清除标记，允许再次跌破时重新提醒
-    if (!_notified.has(providerId)) {
-      _notified.add(providerId)
+    // 低余额：本项目内从未告警才通知一次；余额回升清除标记后，再次跌破可重新提醒
+    if (!notified) {
+      try { api.setBalanceNotified(profileId, scopeKey, r.balance) } catch (e) { /* ignore */ }
       notifyLowBalance(p, r, threshold)
     }
-  } else {
-    _notified.delete(providerId)
+  } else if (notified) {
+    try { api.clearBalanceNotified(profileId, scopeKey) } catch (e) { /* ignore */ }
   }
   void appType
+}
+
+/** 当前激活项目 ID（无激活项目回退 default） */
+function activeProfileId(): string {
+  try {
+    const api = getSkillNest()
+    return (api && api.getActiveProfileId ? api.getActiveProfileId() : null) || 'default'
+  } catch (e) { return 'default' }
+}
+
+/** 告警状态作用域：项目维度下按 appType+providerId 区分（同一供应商在不同项目独立去重） */
+function notifyScopeKey(appType: string, providerId: string): string {
+  return appType + '_' + providerId
 }
 
 /** 金额格式化：$2.35 / ¥16.9 / ¥0 */

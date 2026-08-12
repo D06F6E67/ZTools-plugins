@@ -244,6 +244,11 @@ export function createBrowserApi() {
     queryBalance: async (appType: string, providerId: string) => postApiSync('/balance/query', { appType, providerId }),
     queryAllBalances: async (appType?: string) => postApiSync('/balance/query-all', { appType }),
 
+    // 余额告警状态（持久化在项目文档 balanceNotify 字段）
+    getBalanceNotifyState: (profileId: string) => fetchApiSync(`/balance/notify?profileId=${encodeURIComponent(profileId)}`) || {},
+    setBalanceNotified: (profileId: string, scopeKey: string, balance: number) => postApiSync('/balance/notify-set', { profileId, scopeKey, balance }),
+    clearBalanceNotified: (profileId: string, scopeKey: string) => postApiSync('/balance/notify-clear', { profileId, scopeKey }),
+
     // 文件保存（浏览器模式：触发下载）
     saveTextFile: (defaultName: string, content: string) => {
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })

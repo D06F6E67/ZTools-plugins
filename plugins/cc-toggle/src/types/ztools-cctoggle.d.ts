@@ -104,6 +104,11 @@ export interface BalanceCacheEntry {
   queriedAt: number
 }
 
+export interface BalanceNotifyEntry {
+  balance: number
+  at: number
+}
+
 export interface ExportData {
   codex: Provider[]
   claude: Provider[]
@@ -121,6 +126,7 @@ export interface ProjectProfile {
   updatedAt: string
   providers: Record<string, Record<string, Provider>>  // appType → providerId → Provider
   lastActiveApp?: string
+  balanceNotify?: Record<string, BalanceNotifyEntry>  // `${appType}_${providerId}` → 低余额告警标记
 }
 
 // ——————————— Skill ———————————
@@ -592,6 +598,11 @@ export interface ZtoolsCctoggle {
   clearBalanceCache(providerId: string): void
   queryBalance(appType: string, providerId: string): Promise<BalanceResult>
   queryAllBalances(appType?: string): Promise<Record<string, BalanceResult>>
+
+  // 余额告警状态（持久化在项目文档 balanceNotify 字段，跨页面会话去重）
+  getBalanceNotifyState(profileId: string): Record<string, BalanceNotifyEntry>
+  setBalanceNotified(profileId: string, scopeKey: string, balance: number): void
+  clearBalanceNotified(profileId: string, scopeKey: string): void
 
   // 文件保存
   saveTextFile(defaultName: string, content: string, filters?: Array<{ name: string; extensions: string[] }>): { success: boolean; canceled?: boolean; path?: string; error?: string }

@@ -15,6 +15,7 @@ export interface ProjectProfile {
   updatedAt: string;
   providers: Record<string, Record<string, any>>;  // appType → providerId → Provider
   lastActiveApp?: string;  // 最后激活的 appType tab
+  balanceNotify?: Record<string, { balance: number; at: number }>;  // `${appType}_${providerId}` → 低余额告警标记
 }
 
 export class ProfileStore {
@@ -40,8 +41,29 @@ export class ProfileStore {
             updatedAt: doc.updatedAt || "",
             providers: doc.providers || {},
             lastActiveApp: doc.lastActiveApp || "",
+            balanceNotify: doc.balanceNotify || {},
           };
         });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** 列出所有项目（含 default），供全局清理使用 */
+  static listAllProfiles(): ProjectProfile[] {
+    try {
+      const docs = ztools.db.allDocs(PROFILE_PREFIX) || [];
+      return docs.map(function (doc: any) {
+        return {
+          id: doc.id || doc._id.replace(PROFILE_PREFIX, ""),
+          name: doc.name || "",
+          createdAt: doc.createdAt || "",
+          updatedAt: doc.updatedAt || "",
+          providers: doc.providers || {},
+          lastActiveApp: doc.lastActiveApp || "",
+          balanceNotify: doc.balanceNotify || {},
+        };
+      });
     } catch (e) {
       return [];
     }
@@ -59,6 +81,7 @@ export class ProfileStore {
         updatedAt: doc.updatedAt || "",
         providers: doc.providers || {},
         lastActiveApp: doc.lastActiveApp || "",
+        balanceNotify: doc.balanceNotify || {},
       };
     } catch (e) {
       return null;
@@ -81,6 +104,7 @@ export class ProfileStore {
       updatedAt: now,
       providers: data.providers !== undefined ? data.providers : (existing ? existing.providers : {}),
       lastActiveApp: data.lastActiveApp !== undefined ? data.lastActiveApp : (existing ? existing.lastActiveApp : ""),
+      balanceNotify: data.balanceNotify !== undefined ? data.balanceNotify : (existing ? existing.balanceNotify : {}),
     };
 
     ztools.db.put(doc);
@@ -195,6 +219,7 @@ export class ProfileStore {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       providers: {},
+      balanceNotify: {},
     };
   }
 }

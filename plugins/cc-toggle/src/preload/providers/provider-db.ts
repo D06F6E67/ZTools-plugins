@@ -223,9 +223,10 @@ export class ProviderStore {
       });
     }
 
-    // 清理关联的余额缓存条目
+    // 清理关联的余额缓存与告警状态
     try {
       BalanceManager.clearProviderCache(providerId);
+      BalanceManager.clearProviderNotify(providerId);
     } catch (e) {}
 
     // 清理关联的路由组

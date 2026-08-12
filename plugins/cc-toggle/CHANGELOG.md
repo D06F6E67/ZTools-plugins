@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.0
+
+- 插件 ID 统一为 `cc-toggle`，数据目录统一为 `~/.ztools-cctoggle/`
+- 余额不足告警按项目级持久化去重：告警标记存于项目文档 `balanceNotify`，跨会话不重复推送，余额回升再跌破时才重新提醒
+
 ## v1.4.0
 
 - 一键切换供应商：为 Codex、Claude、Gemini、OpenCode、OpenClaw 等主流 AI CLI 工具管理多套 API 配置

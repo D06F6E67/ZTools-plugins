@@ -30,6 +30,11 @@ interface ProviderBalanceConfig {
   timeoutMs?: number;
 }
 
+interface BalanceNotifyEntry {
+  balance: number;
+  at: number;
+}
+
 const CACHE_KEY = "cctoggle_balance_cache";
 const MIN_AUTO_INTERVAL_MS = 30 * 1000;
 
@@ -119,6 +124,63 @@ export class BalanceManager {
         delete cache[providerId];
         ztools.dbStorage.setItem(CACHE_KEY, cache);
       }
+    } catch (e) {}
+  }
+
+  /**
+   * 低余额告警状态（持久化，跨页面会话去重）
+   * 存于项目(profile)文档的 balanceNotify 字段：`${appType}_${providerId}` → { balance, at }
+   */
+  static getBalanceNotifyState(profileId: string): Record<string, BalanceNotifyEntry> {
+    try {
+      const { ProfileStore } = require("./profile-db");
+      const profile = ProfileStore.getProfile(profileId);
+      return (profile && profile.balanceNotify) || {};
+    } catch (e) { return {}; }
+  }
+
+  /** 记录某项目下供应商已触发过低余额告警 */
+  static setBalanceNotified(profileId: string, scopeKey: string, balance: number): void {
+    try {
+      const { ProfileStore } = require("./profile-db");
+      const profile = ProfileStore.getProfile(profileId);
+      const notify = Object.assign({}, profile ? profile.balanceNotify : {});
+      notify[scopeKey] = { balance: balance, at: Date.now() };
+      ProfileStore.saveProfile({ id: profileId, balanceNotify: notify });
+    } catch (e) {}
+  }
+
+  /** 清除某项目下供应商的告警标记（余额回升后调用，允许再次跌破时重新提醒） */
+  static clearBalanceNotified(profileId: string, scopeKey: string): void {
+    try {
+      const { ProfileStore } = require("./profile-db");
+      const profile = ProfileStore.getProfile(profileId);
+      if (!profile || !profile.balanceNotify || !profile.balanceNotify[scopeKey]) return;
+      const notify = Object.assign({}, profile.balanceNotify);
+      delete notify[scopeKey];
+      ProfileStore.saveProfile({ id: profileId, balanceNotify: notify });
+    } catch (e) {}
+  }
+
+  /** 删除供应商时清理其所有项目下的告警标记 */
+  static clearProviderNotify(providerId: string): void {
+    try {
+      const { ProfileStore } = require("./profile-db");
+      const suffix = "_" + providerId;
+      ProfileStore.listAllProfiles().forEach(function (profile) {
+        const notify = profile.balanceNotify;
+        if (!notify) return;
+        let changed = false;
+        const next: Record<string, BalanceNotifyEntry> = {};
+        Object.keys(notify).forEach(function (scopeKey) {
+          if (scopeKey.lastIndexOf(suffix) === scopeKey.length - suffix.length) {
+            changed = true;
+          } else {
+            next[scopeKey] = notify[scopeKey];
+          }
+        });
+        if (changed) ProfileStore.saveProfile({ id: profile.id, balanceNotify: next });
+      });
     } catch (e) {}
   }
 
