@@ -33,18 +33,20 @@ _微信 OCR 离线识别 · 百度 / 谷歌 / 有道 / 微软翻译 · 代码命
 <div align="center">
   <table>
     <tr>
-      <td width="50%" align="center">
+      <td colspan="2" align="center">
         <img src="https://raw.githubusercontent.com/kaineooo/f-provider/main/.github/assets/screenshot-ocr.gif" alt="截图识别演示" width="100%">
         <p><i>截图识别 - 进入即截屏 → OCR → 文字悬浮可复制</i></p>
       </td>
-      <td width="50%" align="center">
+    </tr>
+    <tr>
+      <td colspan="2" align="center">
         <img src="https://raw.githubusercontent.com/kaineooo/f-provider/main/.github/assets/img-translate.gif" alt="图片识别与翻译演示" width="100%">
         <p><i>图片识别与翻译 - 拖图识别 + 多提供商对比</i></p>
       </td>
     </tr>
     <tr>
       <td colspan="2" align="center">
-        <img src="https://raw.githubusercontent.com/kaineooo/f-provider/main/.github/assets/code-translate.gif" alt="代码翻译演示" width="60%">
+        <img src="https://raw.githubusercontent.com/kaineooo/f-provider/main/.github/assets/code-translate.gif" alt="代码翻译演示" width="100%">
         <p><i>代码翻译 - 中文 → 英文 → 8 种命名风格，↑↓ 切换、回车粘贴</i></p>
       </td>
     </tr>

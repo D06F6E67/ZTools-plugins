@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { ZInput, ZSelect, ZButton, ZSwitch, ZTabs, ZTabPane, useToast } from 'ztools-ui'
+import { ZInput, ZSelect, ZButton, ZSwitch, useToast } from 'ztools-ui'
 
 /**
  * 翻译子页（实用翻译器）：单选 provider，原文/译文左右并排。
@@ -79,11 +79,11 @@ function refreshProviderStatus() {
   }
 }
 
-// provider 列表（用于顶部 segment 切换）。未配置凭据的禁用（百度/有道）。
-const providerList = computed(() =>
+// provider 选项（顶部下拉框，置于语言切换左侧）。未配置凭据的禁用（百度/有道）。
+const providerOptions = computed(() =>
   (Object.keys(providerLabels) as ProviderName[]).map((p) => ({
-    name: p,
     label: providerLabels[p],
+    value: p,
     disabled: !providerConfigured.value[p]
   }))
 )
@@ -273,9 +273,15 @@ onUnmounted(() => {
 
 <template>
   <div class="tr-wrap">
-    <!-- 顶部控制栏：第一行 = 源/目标语言 + 自动翻译开关（同一行） -->
+    <!-- 顶部控制栏：翻译渠道下拉框 + 源/目标语言 + 自动翻译开关（同一行） -->
     <div class="tr-bar">
       <div class="tr-lang">
+        <ZSelect
+          v-model="provider"
+          :options="providerOptions"
+          size="small"
+          class="tr-provider"
+        />
         <ZSelect v-model="sourceLang" :options="langOptions" size="small" />
         <button
           type="button"
@@ -293,23 +299,6 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-
-    <!-- 第二行：翻译渠道（segment 切换） -->
-    <ZTabs
-      v-model:value="provider"
-      type="segment"
-      size="small"
-      :pane-wrapper-style="{ display: 'none' }"
-      class="tr-providers"
-    >
-      <ZTabPane
-        v-for="p in providerList"
-        :key="p.name"
-        :name="p.name"
-        :tab="p.label"
-        :disabled="p.disabled"
-      />
-    </ZTabs>
 
     <!-- 原文 / 译文 左右结构 -->
     <div class="tr-cols">
@@ -398,9 +387,10 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* 翻译渠道 segment：让 4 个选项均匀撑满宽度 */
-.tr-providers {
-  width: 100%;
+/* 翻译渠道下拉框：固定窄宽，避免与语言选择挤占同行空间 */
+.tr-provider {
+  width: 120px;
+  flex-shrink: 0;
 }
 
 /* 语言互换按钮 */

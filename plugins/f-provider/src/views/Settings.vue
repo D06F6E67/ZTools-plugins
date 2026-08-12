@@ -2,12 +2,13 @@
 import { onMounted, ref, reactive, computed } from 'vue'
 import { ZInput, ZSelect, ZButton, ZTag, ZModal, useToast } from 'ztools-ui'
 import { useNativeEngine } from '../composables/useNativeEngine'
+import { useLatexEngine } from '../composables/useLatexEngine'
 import ProviderLogo from '../components/ProviderLogo.vue'
 import wechatLogo from '../assets/wechat.png'
 
 /**
  * 设置主页（合并原「引擎管理」+「翻译设置」）：统一卡片网格。
- *  - 每张卡片只展示基础信息（头像 / 名称 / 状态 / 简述），尺寸一致，一排 2 张。
+ *  - 每张卡片只展示基础信息（头像 / 名称 / 状态 / 简述），尺寸一致，一排 3 张。
  *  - 引擎卡：状态标签 + 进度/错误内联；操作（下载/重下/删除）集中在卡片底部。
  *  - 翻译服务卡（百度/谷歌/有道/微软）：基础信息 + 「配置」按钮，点击弹出 Modal 改凭据。
  *
@@ -62,6 +63,56 @@ async function handleDownload(): Promise<void> {
 
 function handleRemove(): void {
   removeNative()
+}
+
+// ─── LaTeX 公式识别引擎 ────────────────────────────────────────────────
+// 与 OCR 引擎完全独立的下载/状态机：复用 useLatexEngine（结构与 useNativeEngine 一致）。
+// 由于两个 composable 都导出 downloadPercent / downloadLoaded / downloadTotal /
+// isBusy / formatBytes，这里对 LaTeX 的同名状态做别名解构，避免与 OCR 冲突。
+const {
+  latexState,
+  downloadPercent: latexPercent,
+  downloadLoaded: latexLoaded,
+  downloadTotal: latexTotal,
+  latexError,
+  latexVersion,
+  latexMissing,
+  latexReady,
+  isBusy: latexBusy,
+  checkLatex,
+  downloadLatex,
+  removeLatex,
+  formatBytes: latexFormatBytes
+} = useLatexEngine()
+
+// LaTeX 状态映射为 ZTag 类型与文案（与 engineTag 同构）
+function latexTag(): {
+  type: 'success' | 'primary' | 'warning' | 'danger' | 'info'
+  text: string
+} {
+  switch (latexState.value) {
+    case 'ready':
+      return { type: 'success', text: '已安装' }
+    case 'downloading':
+      return { type: 'primary', text: '下载中' }
+    case 'extracting':
+      return { type: 'primary', text: '安装中' }
+    case 'missing':
+      return { type: 'warning', text: '未安装' }
+    case 'error':
+      return { type: 'danger', text: '错误' }
+    default:
+      return { type: 'info', text: '检查中' }
+  }
+}
+
+async function handleLatexDownload(): Promise<void> {
+  const ok = await downloadLatex()
+  if (!ok && latexError.value) error(latexError.value)
+}
+
+function handleLatexRemove(): void {
+  removeLatex()
 }
 
 // ─── 翻译设置 ────────────────────────────────────────────────────────
@@ -128,7 +179,7 @@ const providers: ProviderMeta[] = [
   {
     key: 'google',
     name: '谷歌翻译',
-    desc: '使用免费反代端点，免授权开箱即用。'
+    desc: '官方免费接口，免授权开箱即用，国内需系统代理。'
   },
   {
     key: 'youdao',
@@ -179,6 +230,7 @@ function closeModal(): void {
 
 onMounted(() => {
   checkNative()
+  checkLatex()
   loadSettings()
 })
 </script>
@@ -192,7 +244,7 @@ onMounted(() => {
       </div>
     </header>
 
-    <!-- 卡片网格：引擎 + 翻译服务，统一尺寸，一排 2 张 -->
+    <!-- 卡片网格：引擎 + 翻译服务，统一尺寸，一排 3 张 -->
     <div class="card-grid">
       <!-- OCR 引擎卡 -->
       <section class="card">
@@ -253,6 +305,80 @@ onMounted(() => {
             </template>
             <template v-else>
               <ZButton size="small" disabled>{{ engineTag().text }}…</ZButton>
+            </template>
+          </span>
+        </footer>
+      </section>
+
+      <!-- LaTeX 公式识别引擎卡 -->
+      <section class="card">
+        <header class="card-head">
+          <div class="card-avatar" :class="['s-' + latexState]">
+            <svg
+              class="latex-logo"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M5 4h3l2 4-1.5 1.5C9.5 12 11 13.5 13 14.5l1.5-1.5 4 2v3a1 1 0 0 1-1 1c-5 0-12-7-12-12a1 1 0 0 1 1-1Z"
+              />
+            </svg>
+            <span v-if="latexState === 'checking'" class="avatar-spin"></span>
+          </div>
+          <div class="card-title">
+            <span class="title-name">公式识别</span>
+            <ZTag :type="latexTag().type" size="small">{{ latexTag().text }}</ZTag>
+          </div>
+        </header>
+
+        <div class="card-body">
+          <p class="card-desc">
+            本地 ONNX 神经网络引擎，离线识别数学公式为 LaTeX，首次使用需下载。
+          </p>
+
+          <!-- 进度 / 错误：内联在卡片体内，与 OCR 卡保持一致 -->
+          <div v-if="latexState === 'downloading'" class="inline-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: latexPercent + '%' }"></div>
+            </div>
+            <div class="progress-meta">
+              <span>{{ latexPercent }}%</span>
+              <span>{{ latexFormatBytes(latexLoaded)
+              }}<template v-if="latexTotal"> / {{ latexFormatBytes(latexTotal) }}</template></span>
+            </div>
+          </div>
+          <div v-else-if="latexState === 'extracting'" class="inline-progress">
+            <div class="progress-bar">
+              <div class="progress-fill progress-indeterminate"></div>
+            </div>
+            <div class="progress-meta"><span>正在安装，请稍候</span></div>
+          </div>
+          <div v-else-if="latexState === 'error'" class="inline-error">
+            下载失败：{{ latexError }}
+          </div>
+        </div>
+
+        <footer class="card-foot">
+          <span></span>
+          <span class="foot-actions">
+            <template v-if="latexState === 'missing'">
+              <ZButton type="primary" size="small" :disabled="latexBusy" @click="handleLatexDownload">
+                下载
+              </ZButton>
+            </template>
+            <template v-else-if="latexState === 'error'">
+              <ZButton type="primary" size="small" :disabled="latexBusy" @click="handleLatexDownload">
+                重试
+              </ZButton>
+            </template>
+            <template v-else-if="latexReady">
+              <ZButton size="small" :disabled="latexBusy" @click="handleLatexDownload">重新下载</ZButton>
+              <ZButton size="small" :disabled="latexBusy" @click="handleLatexRemove">删除</ZButton>
+            </template>
+            <template v-else>
+              <ZButton size="small" disabled>{{ latexTag().text }}…</ZButton>
             </template>
           </span>
         </footer>
@@ -367,10 +493,10 @@ onMounted(() => {
           <!-- 谷歌 -->
           <template v-else>
             <p class="field-hint">
-              使用 <code>googlet.deno.dev</code> 免费反代，无需凭据，开箱即用。
+              使用 Google 官方免费接口 <code>translate.googleapis.com</code>，无需凭据。
             </p>
             <p class="field-hint">
-              如端点不可用，翻译测试会报错；可等待恢复或改用其他 provider。
+              该域名为 Google 官方地址，国内网络通常无法直连，需走系统代理；如不可用可改用其他 provider。
             </p>
           </template>
         </div>
@@ -427,10 +553,10 @@ code {
   font-size: 12px;
 }
 
-/* ── 卡片网格：一排 2 张，统一尺寸 ── */
+/* ── 卡片网格：一排 3 张，统一尺寸 ── */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
 }
 
@@ -492,6 +618,12 @@ code {
   height: 26px;
   object-fit: contain;
   border-radius: 6px;
+}
+
+.latex-logo {
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary, #666);
 }
 
 .card-title {

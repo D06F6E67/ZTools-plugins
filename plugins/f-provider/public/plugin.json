@@ -4,7 +4,7 @@
   "title": "ZTools 提供商",
   "description": "OCR + 翻译提供商集合（百度/谷歌/有道/微软翻译、微信 OCR）",
   "author": "kaineooo",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
@@ -16,6 +16,11 @@
       "type": "ocr",
       "label": "微信 OCR",
       "description": "调用本机微信内置 OCR 引擎，离线识别图片文字"
+    },
+    "latex-ocr": {
+      "type": "ocr",
+      "label": "公式识别",
+      "description": "本地 ONNX 神经网络识别图片中的数学公式为 LaTeX（离线，无需密钥）"
     },
     "baidu": {
       "type": "translation",
@@ -41,7 +46,7 @@
   "features": [
     {
       "code": "manage",
-      "explain": "OCR 识别与翻译（关键词进入管理；图片/选中文本进入识别或翻译）",
+      "explain": "OCR 识别与翻译",
       "icon": "logo.png",
       "cmds": [
         "ZTools 提供商",
@@ -56,39 +61,87 @@
           "label": "识别图片文字"
         },
         {
-          "type": "regex",
+          "type": "over",
           "label": "翻译",
-          "match": "/^[\\s\\S]*$/",
           "minLength": 1
         }
       ]
     },
     {
       "code": "code-translate",
-      "explain": "把选中文本翻译为代码命名（多种风格，↑↓ 切换、回车粘贴）",
+      "explain": "把选中文本翻译为代码命名",
       "icon": "logo.png",
       "cmds": [
         {
-          "type": "regex",
+          "type": "over",
           "label": "代码翻译",
-          "match": "/^[\\s\\S]*$/",
           "minLength": 1
         }
       ]
     },
     {
       "code": "screen-ocr",
-      "explain": "截屏并识别图中文字（自动截屏→OCR）",
+      "explain": "截屏并识别图中文字",
       "icon": "logo.png",
       "platform": ["win32", "darwin"],
       "cmds": [
         "截图识别文字"
       ]
+    },
+    {
+      "code": "latex-recognize",
+      "explain": "识别图片中的数学公式为 LaTeX",
+      "icon": "logo.png",
+      "cmds": [
+        "公式识别",
+        {
+          "type": "img",
+          "label": "识别图片公式"
+        },
+        {
+          "type": "files",
+          "extensions": ["png", "jpg", "jpeg", "gif", "bmp", "webp"],
+          "maxLength": 1,
+          "label": "识别图片公式"
+        }
+      ]
+    },
+    {
+      "code": "screen-latex",
+      "explain": "截屏并识别图中公式为 LaTeX",
+      "icon": "logo.png",
+      "platform": ["win32", "darwin"],
+      "cmds": [
+        "截图识别公式"
+      ]
     }
   ],
   "native": {
-    "downloadUrl": "https://registry.npmmirror.com/@jspatrick/f-provider/-/f-provider-1.0.0.tgz",
-    "sha256": "",
-    "version": "1.0.0"
+    "win": {
+      "downloadUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/native-win.zip",
+      "sha256": "",
+      "version": "1.0.4"
+    },
+    "mac": {
+      "downloadUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/native-mac.zip",
+      "sha256": "",
+      "version": "1.0.4"
+    }
+  },
+  "nativeLatex": {
+    "win": {
+      "ortUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/latex-ort-win.zip",
+      "modelsUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/latex-models.zip",
+      "ortSha256": "",
+      "modelsSha256": "",
+      "version": "1.0.4"
+    },
+    "mac": {
+      "ortUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/latex-ort-mac.zip",
+      "modelsUrl": "https://github.com/kaineooo/f-provider/releases/download/v1.0.4/latex-models.zip",
+      "ortSha256": "",
+      "modelsSha256": "",
+      "version": "1.0.4"
+    }
   }
 }
