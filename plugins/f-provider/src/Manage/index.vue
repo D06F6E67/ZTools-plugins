@@ -3,23 +3,24 @@ import { ref, computed, markRaw, watch, onMounted } from 'vue'
 import SettingLayout from '../components/SettingLayout.vue'
 import type { NavItem } from '../components/SettingLayout.vue'
 import Settings from '../views/Settings.vue'
-import RecognizeTest from '../views/RecognizeTest.vue'
+import Recognize from '../views/Recognize.vue'
 import Translate from '../views/Translate.vue'
-import TranslateTest from '../views/TranslateTest.vue'
 import { useNativeEngine } from '../composables/useNativeEngine'
+import { useLatexEngine } from '../composables/useLatexEngine'
 
 /**
- * 管理主入口（唯一 feature，跨平台）：设置页式布局。
+ * 管理主入口（唯一 feature，跨平台）：底部悬浮栏式布局。
  * 根据 onPluginEnter 入参（enterAction.type）自动切换 tab 并预填内容：
- *   - img / files：切到「识别」并自动用该图片跑 OCR（展示原图预览）
- *   - regex（带文本 payload）：切到「翻译」并自动预填文本、触发翻译
+ *   - img / files：切到「OCR 识别」并自动用该图片跑对应模式识别
+ *       - latex-recognize feature → 公式模式
+ *       - 其它 → 文字模式
+ *   - over（带文本 payload）：切到「翻译」并自动预填文本、触发翻译
  *   - text / 其它：保持「设置」tab
  *
- * 侧边栏导航：
+ * 底部三个主按钮：
  *   - 设置：OCR 引擎 + 翻译服务（卡片式）
- *   - OCR：识别（选图/拖拽/粘贴，画布绘图 + 透明文字层；Windows 下需要 native 引擎）
- *   - 翻译：单 provider 实用翻译器（原文/译文左右结构，可编辑原文，自动翻译）
- *   - 批量测试：四 provider 并发对比（保留供调试凭据）
+ *   - OCR 识别：文字识别 / 公式识别在同一页内顶部切换（不再分子项）
+ *   - 翻译：单 provider 翻译器
  */
 
 const props = defineProps<{
@@ -28,13 +29,36 @@ const props = defineProps<{
 }>()
 
 const { nativeVersion, checkNative } = useNativeEngine()
+const { latexVersion, checkLatex } = useLatexEngine()
 
 const activeKey = ref('settings')
+
+// 识别页当前模式（由 Recognize 上报）：公式模式下底部悬浮栏左对齐，
+// 避免遮挡右下角的三个复制按钮。
+const recognizeMode = ref<'text' | 'formula'>('text')
+
+const dockAlign = computed<'center' | 'left'>(() =>
+  activeKey.value === 'recognize' && recognizeMode.value === 'formula'
+    ? 'left'
+    : 'center'
+)
+
+function onRecognizeModeChange(mode: 'text' | 'formula') {
+  recognizeMode.value = mode
+}
 
 // 传给「识别」/「翻译」的预填值。每次进入重置，配合 :key 重建组件，
 // 保证「新建 tab、不复用上次状态」的语义。
 const initialImage = ref('')
 const initialText = ref('')
+/** 识别页初始模式：latex-recognize / screen-latex 入口为 formula，其它为 text */
+const initialMode = ref<'text' | 'formula'>('text')
+/**
+ * 进入即自动截屏（screen-ocr / screen-latex feature）。
+ * 仅这两个截图入口置 true，交由 Recognize 在 onMounted / 引擎就绪后自动截图；
+ * 截图结果留在主窗口内展示，不再弹独立窗口。
+ */
+const autoCapture = ref(false)
 // 组件重建 key：每次进入递增，强制 <component> 卸载旧实例、挂载全新实例。
 const enterSeq = ref(0)
 
@@ -47,21 +71,15 @@ const items = computed<NavItem[]>(() => [
   },
   {
     key: 'recognize',
-    label: '识别',
+    label: 'OCR 识别',
     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Material Design Icons by Pictogrammers - https://github.com/Templarian/MaterialDesign/blob/master/LICENSE --><path fill="currentColor" d="M2 5v14h12v-2h-2c-1.11 0-2-.89-2-2V9c0-1.11.89-2 2-2h2V5m0 2v2h2V7m-2 2h-2v6h2m0 0v2h2v-2M5 7h2c1.11 0 2 .89 2 2v6c0 1.11-.89 2-2 2H5c-1.11 0-2-.89-2-2V9c0-1.11.89-2 2-2m12 0v10h2v-4h1v1h1v3h2v-3h-1v-2h1V8h-1V7M5 9v6h2V9m12 0h2v2h-2Z"/></svg>',
-    component: markRaw(RecognizeTest)
+    component: markRaw(Recognize)
   },
   {
     key: 'translate',
     label: '翻译',
     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE --><path fill="currentColor" d="m12 22l-1-3H4q-.825 0-1.412-.587Q2 17.825 2 17V4q0-.825.588-1.413Q3.175 2 4 2h6l.875 3H20q.875 0 1.438.562Q22 6.125 22 7v13q0 .825-.562 1.413Q20.875 22 20 22Zm-4.85-7.4q1.725 0 2.838-1.112Q11.1 12.375 11.1 10.6q0-.2-.012-.363q-.013-.162-.063-.337h-3.95v1.55H9.3q-.2.7-.763 1.087q-.562.388-1.362.388q-.975 0-1.675-.7c-.7-.7-.7-1.725 0-2.45c.7-.7 1.05-.7 1.675-.7q.45 0 .85.162q.4.163.725.488L9.975 7.55Q9.45 7 8.713 6.7q-.738-.3-1.563-.3q-1.675 0-2.862 1.187Q3.1 8.775 3.1 10.5q0 1.725 1.188 2.912Q5.475 14.6 7.15 14.6Zm6.7.5l.55-.525q-.35-.425-.637-.825q-.288-.4-.563-.85Zm1.25-1.275q.7-.825 1.063-1.575q.362-.75.487-1.175h-3.975l.3 1.05h1q.2.375.475.813q.275.437.65.887ZM13 21h7q.45 0 .725-.288Q21 20.425 21 20V7q0-.45-.275-.725Q20.45 6 20 6h-8.825l1.175 4.05h1.975V9h1.025v1.05H19v1.025h-1.275q-.25.95-.75 1.85q-.5.9-1.175 1.675l2.725 2.675L17.8 18l-2.7-2.7l-.9.925L15 19Z"/></svg>',
     component: markRaw(Translate)
-  },
-  {
-    key: 'translate-test',
-    label: '批量测试',
-    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE --><path fill="currentColor" d="M5 21q-.425 0-.712-.288T4 20t.288-.712T5 19h6v-5.15l-4.8-5.05q-.35-.35-.525-.788T5.5 7.1q0-.5.175-.925T6.2 5.4q.35-.35.788-.525T7.9 4.7h8.2q.475 0 .913.175t.787.525q.35.35.525.788t.175.912q0 .475-.175.913t-.525.787L13 13.85V19h6q.425 0 .713.288T20 20t-.288.713T19 21zm0-13h14l1.3-1.4q.15-.15.213-.313t.062-.337t-.062-.337t-.213-.313q-.15-.15-.337-.225T18.5 5h-13q-.2 0-.387.075T4.775 5.3q-.15.15-.213.313t-.062.337t.063.338t.212.312z"/></svg>',
-    component: markRaw(TranslateTest)
   }
 ])
 
@@ -73,24 +91,43 @@ function extractImage(action: any): string {
   return ''
 }
 
-// 根据进入动作切换 tab 并预填内容。
+// 根据 onPluginEnter 进入的 action.code/type 切换 tab 并预填内容。
 // 每次进入递增 enterSeq，配合 <component :key> 重建对应子页，确保状态不残留。
+//   - screen-ocr：切到「识别」+ 文字模式 + 进入即自动截屏
+//   - screen-latex：切到「识别」+ 公式模式 + 进入即自动截屏
+//   - latex-recognize + img/files：切到「识别」并自动进入公式模式跑 LaTeX 识别
+//   - 其它 code + img/files：切到「识别」并自动进入文字模式跑微信 OCR
+//   - over（带文本 payload）：切到「翻译」并自动预填文本、触发翻译
+//   - text / 其它：保持「设置」tab
 watch(
   () => props.enterAction,
   (action) => {
     if (!action) return
+    // 每次进入先重置预填值（含 autoCapture），避免上次状态残留
     initialImage.value = ''
     initialText.value = ''
+    initialMode.value = 'text'
+    autoCapture.value = false
+    // 截图识别 feature：进入「OCR 识别」并自动触发截屏，结果留主窗口内展示
+    if (action.code === 'screen-ocr' || action.code === 'screen-latex') {
+      initialMode.value = action.code === 'screen-latex' ? 'formula' : 'text'
+      activeKey.value = 'recognize'
+      autoCapture.value = true
+      enterSeq.value++
+      return
+    }
     if (action.type === 'img' || action.type === 'files') {
       const img = extractImage(action)
       if (img) {
+        // latex-recognize feature → 公式模式；其它 → 文字模式
+        initialMode.value = action.code === 'latex-recognize' ? 'formula' : 'text'
         activeKey.value = 'recognize'
         initialImage.value = img
         enterSeq.value++
         return
       }
     }
-    if (action.type === 'regex' && typeof action.payload === 'string' && action.payload.trim()) {
+    if (action.type === 'over' && typeof action.payload === 'string' && action.payload.trim()) {
       activeKey.value = 'translate'
       initialText.value = action.payload
       enterSeq.value++
@@ -104,8 +141,9 @@ watch(
 )
 
 onMounted(() => {
-  // 读取 plugin.json 中的 native 版本号用于侧边栏展示
+  // 读取 plugin.json 中的 native / nativeLatex 版本号用于侧边栏展示
   checkNative()
+  checkLatex()
 })
 </script>
 
@@ -113,23 +151,26 @@ onMounted(() => {
   <SettingLayout
     v-model="activeKey"
     :items="items"
-    :version="nativeVersion || undefined"
+    :version="nativeVersion || latexVersion || undefined"
+    :dock-align="dockAlign"
   >
     <!--
       :key 绑定为「activeKey + enterSeq」：切换 tab 或重新进入插件都会重建组件，
       保证进入时预填的 initialImage / initialText 被全新实例消费、状态不残留。
     -->
     <Settings v-if="activeKey === 'settings'" :key="'settings-' + enterSeq" />
-    <RecognizeTest
+    <Recognize
       v-else-if="activeKey === 'recognize'"
       :key="'recognize-' + enterSeq"
       :initial-image="initialImage"
+      :initial-mode="initialMode"
+      :auto-capture="autoCapture"
+      @mode-change="onRecognizeModeChange"
     />
     <Translate
       v-else-if="activeKey === 'translate'"
       :key="'translate-' + enterSeq"
       :initial-text="initialText"
     />
-    <TranslateTest v-else :key="'translate-test-' + enterSeq" />
   </SettingLayout>
 </template>

@@ -39,6 +39,26 @@ declare global {
     lines: OcrLine[]
   }
 
+  /** LaTeX 公式识别明细返回结构（交互式 feature 用，ok=false 时不抛错）。 */
+  interface LatexRecognizeResult {
+    /** 是否识别成功。 */
+    ok: boolean
+    /** 识别得到的 LaTeX 源码（成功时返回）。 */
+    latex?: string
+    /** 失败时的错误描述。 */
+    error?: string
+  }
+
+  /** LaTeX 引擎就绪状态。真值来源 = 关键文件是否存在（与 NativeStatus 对齐）。 */
+  interface LatexEngineStatus {
+    /** 引擎是否就绪（onnxruntime-node 与三个 ONNX 模型 + tokenizer 均存在）。 */
+    ready: boolean
+    /** 缺失的关键文件相对路径列表（ready=true 时为空）。 */
+    missing: string[]
+    /** plugin.json 中配置的 nativeLatex 版本号。 */
+    version: string | null
+  }
+
   /** native 引擎就绪状态。真值来源 = 关键文件是否存在。 */
   interface NativeStatus {
     /** 引擎是否就绪（.node 与 WeChatOCR.exe 均存在）。 */
@@ -65,6 +85,8 @@ declare global {
   interface NativeDownloadResult {
     ok: boolean
     error?: string
+    /** 用户取消下载时为 true。 */
+    cancelled?: boolean
   }
 
   // ─── 翻译 Provider 相关 ───────────────────────────────────────────────
@@ -117,9 +139,48 @@ declare global {
      * 下载 native.zip 并解压到插件根目录。全程通过 onProgress 上报进度。
      * 流程：下载（带重定向）→ 可选 sha256 校验 → PowerShell 解压 → 复检。
      */
-    nativeDownload: (onProgress?: (progress: NativeDownloadProgress) => void) => Promise<NativeDownloadResult>
+    /**
+     * 下载 native.zip 并解压到插件根目录。全程通过 onProgress 上报进度。
+     * 流程：下载（带重定向）→ 可选 sha256 校验 → PowerShell 解压 → 复检。
+     * hostIndex: undefined 竞速选最快镜像；-1 直连；0..N-1 指定镜像。
+     */
+    nativeDownload: (
+      onProgress?: (progress: NativeDownloadProgress) => void,
+      hostIndex?: number
+    ) => Promise<NativeDownloadResult>
     /** 删除已下载的 native 目录（释放旧引擎、便于重新下载）。 */
     nativeRemove: () => boolean
+    /** 取消进行中的 native 下载。 */
+    nativeCancel: () => void
+    /** GitHub 下载加速镜像列表（用于「选择 host 重试」UI）。 */
+    ghProxyHosts: () => string[]
+
+    // ─── LaTeX 公式识别（本地 ONNX 引擎）─────────────────────────────────
+    /**
+     * LaTeX Provider 核心能力：image 为 本地路径 / data URI / http(s) URL。
+     * 返回 provider 契约结构 { text, blocks, confidence }；失败抛错。
+     */
+    latexRecognize: (image: string) => Promise<OcrProviderOutput>
+    /**
+     * 交互式 feature 用：返回 LaTeX 源码明细结构（ok=false 时不抛错）。
+     */
+    latexRecognizeDetail: (image: string) => Promise<LatexRecognizeResult>
+    /** 检查 LaTeX 引擎是否就绪（按 onnxruntime-node + 模型文件存在性判断）。 */
+    latexStatus: () => LatexEngineStatus
+    /**
+     * 下载 LaTeX 引擎包并解压到 userData 数据目录。全程通过 onProgress 上报进度。
+     * hostIndex: undefined 竞速选最快镜像；-1 直连；0..N-1 指定镜像。
+     */
+    latexDownload: (
+      onProgress?: (progress: NativeDownloadProgress) => void,
+      hostIndex?: number
+    ) => Promise<NativeDownloadResult>
+    /** 删除已下载的 LaTeX 引擎目录。 */
+    latexRemove: () => boolean
+    /** 取消进行中的 LaTeX 下载。 */
+    latexCancel: () => void
+    /** 释放 LaTeX 引擎（关闭 ONNX Session）。 */
+    latexDispose: () => void
 
     // ─── 翻译 ───
     /** 通用 HTTP 请求；非 2xx 抛错。 */
