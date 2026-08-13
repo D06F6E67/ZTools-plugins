@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, nextTick, watch } from 'vue'
 import { ZInput, ZSelect, ZButton, ZSwitch, useToast } from 'ztools-ui'
 
 /**
@@ -15,6 +15,10 @@ import { ZInput, ZSelect, ZButton, ZSwitch, useToast } from 'ztools-ui'
 const props = defineProps<{
   /** 进入时预填的待翻译文本（regex 入口）。 */
   initialText?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'history', item: HistoryEmitItem): void
 }>()
 
 const { success } = useToast()
@@ -171,6 +175,22 @@ async function run() {
       error: '',
       ms: Math.round(performance.now() - t0)
     }
+    // 上抛历史记录：真正调翻译服务成功才留一笔（auto 翻译/手动翻译均走此分支）
+    if (out.text) {
+      emit('history', {
+        kind: 'translate',
+        thumbnail: '',
+        title: out.text.slice(0, 40),
+        payload: {
+          kind: 'translate',
+          source: sourceText.value,
+          target: out.text,
+          from: sourceLang.value,
+          to: targetLang.value,
+          provider: provider.value
+        }
+      })
+    }
   } catch (e: any) {
     result.value = {
       loading: false,
@@ -239,15 +259,22 @@ watch(
 onMounted(() => {
   refreshProviderStatus()
   provider.value = pickDefaultProvider()
-  // 进入/回到翻译视图时默认聚焦输入框并选中全文，便于直接覆盖输入。
+  // 首次挂载聚焦原文输入框并全选，便于直接覆盖输入。
   // nextTick 确保 DOM（含 v-model 文本）已渲染完成后再 select。
   nextTick(focusAndSelectAll)
   // 兜底：窗口被宿主隐藏→恢复（未触发 onPluginEnter、组件未重建）的场景。
   // Electron 下用 win.hide() 隐藏窗口不会触发 document 的 visibilitychange，
   // 但会触发 window 的 blur/focus，故监听 window 级 focus：仅当此前确实失焦过
   // （即窗口曾进入后台）才在恢复时重新聚焦 + 全选，避免页面内交互误触发。
+  // keep-alive 缓存后切 tab 不重挂载，监听只需在 onMounted 挂一次、onUnmounted 移除。
   window.addEventListener('blur', onWinBlur)
   window.addEventListener('focus', onWinFocus)
+})
+
+// keep-alive 缓存后切回翻译 tab 触发 onActivated：聚焦 + 全选原文，
+// 复用 onMounted 同一逻辑（此处不再 refreshProviderStatus / 重挂窗监听）。
+onActivated(() => {
+  nextTick(focusAndSelectAll)
 })
 
 // 记录窗口是否进入过后台。仅当为 true 时，下一次 focus 才视为「从后台恢复」。

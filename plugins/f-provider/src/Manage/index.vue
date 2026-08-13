@@ -5,8 +5,10 @@ import type { NavItem } from '../components/SettingLayout.vue'
 import Settings from '../views/Settings.vue'
 import Recognize from '../views/Recognize.vue'
 import Translate from '../views/Translate.vue'
+import HistoryView from '../components/HistoryView.vue'
 import { useNativeEngine } from '../composables/useNativeEngine'
 import { useLatexEngine } from '../composables/useLatexEngine'
+import { useHistory } from '../composables/useHistory'
 
 /**
  * 管理主入口（唯一 feature，跨平台）：底部悬浮栏式布局。
@@ -30,6 +32,16 @@ const props = defineProps<{
 
 const { nativeVersion, checkNative } = useNativeEngine()
 const { latexVersion, checkLatex } = useLatexEngine()
+const { loadHistory, pushHistory } = useHistory()
+
+/**
+ * 接收子组件（Recognize / Translate）上抛的历史记录条目，
+ * 补全 id / ts 后写入历史记录单例（同步至 dbStorage）。
+ * 集中在 Manage 处理，子组件不直接依赖 dbStorage。
+ */
+function onHistory(item: HistoryEmitItem) {
+  pushHistory(item)
+}
 
 const activeKey = ref('settings')
 
@@ -80,6 +92,12 @@ const items = computed<NavItem[]>(() => [
     label: '翻译',
     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE --><path fill="currentColor" d="m12 22l-1-3H4q-.825 0-1.412-.587Q2 17.825 2 17V4q0-.825.588-1.413Q3.175 2 4 2h6l.875 3H20q.875 0 1.438.562Q22 6.125 22 7v13q0 .825-.562 1.413Q20.875 22 20 22Zm-4.85-7.4q1.725 0 2.838-1.112Q11.1 12.375 11.1 10.6q0-.2-.012-.363q-.013-.162-.063-.337h-3.95v1.55H9.3q-.2.7-.763 1.087q-.562.388-1.362.388q-.975 0-1.675-.7c-.7-.7-.7-1.725 0-2.45c.7-.7 1.05-.7 1.675-.7q.45 0 .85.162q.4.163.725.488L9.975 7.55Q9.45 7 8.713 6.7q-.738-.3-1.563-.3q-1.675 0-2.862 1.187Q3.1 8.775 3.1 10.5q0 1.725 1.188 2.912Q5.475 14.6 7.15 14.6Zm6.7.5l.55-.525q-.35-.425-.637-.825q-.288-.4-.563-.85Zm1.25-1.275q.7-.825 1.063-1.575q.362-.75.487-1.175h-3.975l.3 1.05h1q.2.375.475.813q.275.437.65.887ZM13 21h7q.45 0 .725-.288Q21 20.425 21 20V7q0-.45-.275-.725Q20.45 6 20 6h-8.825l1.175 4.05h1.975V9h1.025v1.05H19v1.025h-1.275q-.25.95-.75 1.85q-.5.9-1.175 1.675l2.725 2.675L17.8 18l-2.7-2.7l-.9.925L15 19Z"/></svg>',
     component: markRaw(Translate)
+  },
+  {
+    key: 'history',
+    label: '历史记录',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE --><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.75 3.75L5.5 16L9 12H6a7 7 0 0 1 7-7a7 7 0 0 1 7 7a7 7 0 0 1-7 7c-1.93 0-3.68-.79-4.95-2.05l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18m2.5 11.25l-3.5-3.5V7h2v3.25l2.75 2.75z"/></svg>',
+    component: markRaw(HistoryView)
   }
 ])
 
@@ -144,6 +162,8 @@ onMounted(() => {
   // 读取 plugin.json 中的 native / nativeLatex 版本号用于侧边栏展示
   checkNative()
   checkLatex()
+  // 载入历史记录到单例 ref（供 HistoryView 读取）
+  loadHistory()
 })
 </script>
 
@@ -154,23 +174,39 @@ onMounted(() => {
     :version="nativeVersion || latexVersion || undefined"
     :dock-align="dockAlign"
   >
-    <!--
-      :key 绑定为「activeKey + enterSeq」：切换 tab 或重新进入插件都会重建组件，
-      保证进入时预填的 initialImage / initialText 被全新实例消费、状态不残留。
-    -->
-    <Settings v-if="activeKey === 'settings'" :key="'settings-' + enterSeq" />
+  <!--
+    Recognize / Translate 用 <KeepAlive> 缓存实例：底部悬浮栏切 tab 不再卸载，
+    切回时图片、识别结果、译文等用户数据完整保留。Settings 不过 keep-alive，
+    切走即卸载（设置页无用户输入，重 check 引擎状态即可）。
+    :key 仍绑 enterSeq：仅当 onPluginEnter 重新进入（enterSeq++)时 key 改变，
+    keep-alive 内 key 变更会销毁旧实例、挂载全新实例，确保新一轮预填生效、状态不残留。
+    切 tab 不改 enterSeq，故 key 不变，缓存命中。
+  -->
+  <Settings v-if="activeKey === 'settings'" :key="'settings-' + enterSeq" />
+  <KeepAlive>
     <Recognize
-      v-else-if="activeKey === 'recognize'"
+      v-if="activeKey === 'recognize'"
       :key="'recognize-' + enterSeq"
       :initial-image="initialImage"
       :initial-mode="initialMode"
       :auto-capture="autoCapture"
       @mode-change="onRecognizeModeChange"
+      @history="onHistory"
     />
+  </KeepAlive>
+  <KeepAlive>
     <Translate
-      v-else-if="activeKey === 'translate'"
+      v-if="activeKey === 'translate'"
       :key="'translate-' + enterSeq"
       :initial-text="initialText"
+      @history="onHistory"
     />
+  </KeepAlive>
+  <KeepAlive>
+    <HistoryView
+      v-if="activeKey === 'history'"
+      :key="'history-' + enterSeq"
+    />
+  </KeepAlive>
   </SettingLayout>
 </template>

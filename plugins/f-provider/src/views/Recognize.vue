@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch, nextTick } from "vue";
 import { ZButton, ZTag, useToast } from "ztools-ui";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -47,9 +47,13 @@ const props = withDefaults(
  * 模式变化时上报父组件：公式模式下底部悬浮导航栏会移到左下角，
  * 避免遮挡右下角的三个复制按钮（见 SettingLayout 的 dockAlign）。
  * immediate：组件每次按 :key 重建时同步当前模式，保证 dock 位置正确。
+ *
+ * 识别成功后上抛 history 事件：由 Manage 统一写入历史记录单例（dbStorage），
+ * 不在子组件内直接依赖 dbStorage。
  */
 const emit = defineEmits<{
   (e: "mode-change", mode: "text" | "formula"): void;
+  (e: "history", item: HistoryEmitItem): void;
 }>();
 
 const { success, error } = useToast();
@@ -250,7 +254,22 @@ async function recognizeText() {
     if (result.ok) {
       ocrLines.value = result.lines ?? [];
       if (ocrLines.value.length === 0) error("未识别到文字");
-      else success(`识别完成，共 ${ocrLines.value.length} 行`);
+      else {
+        success(`识别完成，共 ${ocrLines.value.length} 行`);
+        // 上抛历史记录：只有真正调识别服务成功才留一笔（命中缓存不会进此分支）
+        emit("history", {
+          kind: "ocr-text",
+          thumbnail: imageSrc.value,
+          title: ocrLines.value[0]?.text
+            ? ocrLines.value[0].text.slice(0, 40)
+            : "（未识别到文字）",
+          payload: {
+            kind: "ocr-text",
+            imageSrc: imageSrc.value,
+            lines: ocrLines.value.map((l) => ({ ...l })),
+          },
+        });
+      }
     } else {
       ocrError.value = result.error || "识别失败";
       error(ocrError.value);
@@ -278,7 +297,20 @@ async function recognizeFormula() {
     if (result.ok) {
       latex.value = result.latex || "";
       if (!latex.value) error("未识别到公式");
-      else success("公式识别完成");
+      else {
+        success("公式识别完成");
+        // 上抛历史记录：只有真正调识别服务成功才留一笔（命中缓存不会进此分支）
+        emit("history", {
+          kind: "ocr-formula",
+          thumbnail: imageSrc.value,
+          title: latex.value.slice(0, 40),
+          payload: {
+            kind: "ocr-formula",
+            imageSrc: imageSrc.value,
+            latex: latex.value,
+          },
+        });
+      }
     } else {
       latexError.value = result.error || "识别失败";
       error(latexError.value);
@@ -400,6 +432,21 @@ onMounted(() => {
   // 截图识别 feature（screen-ocr / screen-latex）进入即自动截屏：
   // 引擎已就绪则立即截图，否则由上方 nativeReady/latexReady watcher 在就绪后触发。
   maybeAutoCapture();
+});
+
+// keep-alive 缓存后切 tab 触发 onActivated/onDeactivated（而非重新挂载）：
+//   - activated：重绑 paste 监听（deactivated 时已移除）、重新 check 引擎状态
+//     （长时间切走后 ready 可能已过期），不再重复触发自动截图（autoCaptureDone
+//     在缓存实例中保留为 true，未触发过的由引擎就绪 watcher 补截图）。
+//   - deactivated：暂停 paste 监听，避免非可见时仍响应剪贴板。
+onActivated(() => {
+  window.addEventListener("paste", onPaste);
+  checkNative();
+  checkLatex();
+});
+
+onDeactivated(() => {
+  window.removeEventListener("paste", onPaste);
 });
 
 onUnmounted(() => {
