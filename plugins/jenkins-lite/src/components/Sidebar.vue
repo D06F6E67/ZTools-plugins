@@ -4,10 +4,10 @@
       <h1 class="logo">Jenkins Lite</h1>
     </div>
 
-    <!-- 服务选择器 -->
+    <!-- 实例选择器 -->
     <div class="service-selector" v-if="hasInstances">
       <div class="service-current" @click="toggleServiceMenu">
-        <span class="service-name">{{ currentInstance?.name || '选择实例' }}</span>
+        <span class="service-name" :title="currentInstance?.name">{{ currentInstance?.name || '选择实例' }}</span>
         <span class="service-arrow" :class="{ open: showServiceMenu }"></span>
       </div>
       <div class="service-menu" v-if="showServiceMenu">
@@ -19,20 +19,36 @@
           @click="selectService(inst._id)"
         >
           <span class="service-dot"></span>
-          <span class="service-option-name">{{ inst.name }}</span>
+          <span class="service-option-name" :title="inst.name">{{ inst.name }}</span>
         </div>
         <div class="service-divider"></div>
         <div class="service-option add-service" @click="openSettings">
           <span class="add-icon">+</span>
-          <span>管理实例</span>
+          <span>新增实例</span>
         </div>
       </div>
     </div>
 
     <nav class="sidebar-nav">
-      <!-- Jenkins 视图列表 -->
+      <!-- Jenkins 视图列表 + 收藏 -->
       <div class="nav-section" v-if="hasInstances && currentInstance">
         <div class="nav-section-title">视图</div>
+
+        <!-- 收藏 - 作为特殊视图 -->
+        <div
+          class="nav-item favorite-view-item"
+          :class="{ active: props.currentView === '__favorites__' }"
+          @click="selectView('__favorites__')"
+          title="收藏的 Jobs"
+        >
+          <span class="nav-icon star-icon"></span>
+          <span class="nav-label">收藏</span>
+          <span class="favorite-count" v-if="currentInstanceFavorites.length > 0">
+            {{ currentInstanceFavorites.length }}
+          </span>
+        </div>
+
+        <!-- Jenkins 视图列表 -->
         <div
           v-for="view in views"
           :key="view.name"
@@ -47,40 +63,26 @@
           加载中...
         </div>
       </div>
-
-      <!-- 收藏列表 -->
-      <div class="nav-section">
-        <div class="nav-section-title">收藏</div>
-        <div
-          v-for="fav in favorites"
-          :key="fav._id"
-          class="nav-item"
-          :class="{ active: isActiveFavorite(fav) }"
-          @click="handleFavoriteClick(fav)"
-        >
-          <span class="nav-icon star-icon"></span>
-          <span class="nav-label">{{ fav.jobName }}</span>
-        </div>
-        <div v-if="favorites.length === 0" class="nav-empty">
-          暂无收藏
-        </div>
-      </div>
     </nav>
 
     <div class="sidebar-footer">
-      <div class="version">v1.0.0</div>
+      <a class="footer-link" href="https://github.com/kshq1996/ztools-jenkins" target="_blank" title="查看开源仓库">
+        <span class="github-icon"></span>
+        <span>开源 v{{ version }}</span>
+      </a>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useInstances } from '../composables/useInstances'
 import { useFavorites } from '../composables/useFavorites'
 import type { Favorite, JenkinsView } from '../types'
 
 const props = defineProps<{
   currentView: string
+  selectedJob?: string
 }>()
 
 const emit = defineEmits<{
@@ -94,80 +96,53 @@ const { favorites } = useFavorites()
 
 const views = ref<JenkinsView[]>([])
 const showServiceMenu = ref(false)
+const version = '1.1.0'
 
-/**
- * 切换服务菜单
- */
+/** 当前实例的收藏（按添加时间倒序） */
+const currentInstanceFavorites = computed(() => {
+  if (!currentInstance.value) return []
+  return favorites.value
+    .filter(f => f.instanceId === currentInstance.value?._id)
+    .sort((a, b) => b.addedAt - a.addedAt)
+})
+
 const toggleServiceMenu = () => {
   showServiceMenu.value = !showServiceMenu.value
 }
 
-/**
- * 选择服务
- */
 const selectService = (instanceId: string) => {
   switchInstance(instanceId)
   showServiceMenu.value = false
   emit('view-change', '')
 }
 
-/**
- * 打开设置
- */
 const openSettings = () => {
   showServiceMenu.value = false
   emit('open-settings')
 }
 
-/**
- * 加载视图列表
- */
 const loadViews = async () => {
   if (!currentClient.value) {
     views.value = []
     return
   }
-
   const result = await currentClient.value.getViews()
   if (result.data) {
     views.value = result.data.filter(v => v.name !== 'All')
   }
 }
 
-/**
- * 选择视图
- */
 const selectView = (viewName: string) => {
   emit('view-change', viewName)
 }
 
-const isActiveFavorite = (fav: Favorite) => {
-  return currentInstance.value?._id === fav.instanceId
-}
-
-const handleFavoriteClick = (fav: Favorite) => {
-  // 如果不在当前实例，切换实例
-  if (currentInstance.value?._id !== fav.instanceId) {
-    switchInstance(fav.instanceId)
-  }
-  emit('favorite-click', fav)
-}
-
-// 监听实例变化，加载视图
-watch(currentInstance, () => {
-  loadViews()
-})
-
+watch(currentInstance, () => loadViews())
 watch(currentClient, () => {
-  if (currentClient.value) {
-    loadViews()
-  }
+  if (currentClient.value) loadViews()
 })
 
 onMounted(() => {
-  if (currentClient.value) {
-    loadViews()
-  }
+  if (currentClient.value) loadViews()
 })
 </script>
 
@@ -192,7 +167,7 @@ onMounted(() => {
   margin: 0;
 }
 
-/* 服务选择器 */
+/* 实例选择器 */
 .service-selector {
   position: relative;
   padding: 12px 16px;
@@ -221,6 +196,7 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
 
 .service-arrow {
@@ -273,6 +249,7 @@ onMounted(() => {
   border-radius: 50%;
   background: var(--text-secondary, #888);
   margin-right: 8px;
+  flex-shrink: 0;
 }
 
 .service-option.active .service-dot {
@@ -306,6 +283,7 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
   margin-right: 8px;
+  flex-shrink: 0;
 }
 
 .sidebar-nav {
@@ -315,7 +293,7 @@ onMounted(() => {
 }
 
 .nav-section {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .nav-section-title {
@@ -326,12 +304,21 @@ onMounted(() => {
   text-transform: uppercase;
 }
 
+.favorites-title {
+  color: #faad14;
+  background: var(--bg-color, #fff);
+  margin: 0 -8px 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
 .nav-item {
   display: flex;
   align-items: center;
   padding: 8px 16px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.15s;
+  min-height: 32px;
 }
 
 .nav-item:hover {
@@ -344,10 +331,11 @@ onMounted(() => {
 }
 
 .nav-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   margin-right: 8px;
   background: var(--text-secondary, #888);
+  flex-shrink: 0;
 }
 
 .view-icon {
@@ -361,6 +349,29 @@ onMounted(() => {
 
 .nav-item.active .nav-icon {
   background: var(--primary-color, #0078d4);
+}
+
+.favorite-view-item {
+  border-left: 3px solid transparent;
+}
+
+.favorite-view-item.active {
+  border-left-color: var(--primary-color, #0078d4);
+}
+
+.favorite-count {
+  background: var(--bg-secondary, #e0e0e0);
+  color: var(--text-secondary, #666);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.favorite-view-item.active .favorite-count {
+  background: var(--primary-color, #0078d4);
+  color: #fff;
 }
 
 .nav-label {
@@ -378,12 +389,33 @@ onMounted(() => {
 }
 
 .sidebar-footer {
-  padding: 12px 16px;
+  padding: 10px 12px;
   border-top: 1px solid var(--border-color, #e0e0e0);
 }
 
-.version {
+.footer-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
-  color: var(--text-secondary, #999);
+  color: var(--text-secondary, #888);
+  text-decoration: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.footer-link:hover {
+  background: var(--bg-hover, rgba(0,0,0,0.05));
+  color: var(--primary-color, #0078d4);
+}
+
+.github-icon {
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='currentColor' d='M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34c-.46-1.16-1.11-1.47-1.11-1.47c-.91-.62.07-.6.07-.6c1 .07 1.53 1.03 1.53 1.03c.87 1.52 2.34 1.07 2.91.83c.09-.65.35-1.09.63-1.34c-2.22-.25-4.55-1.11-4.55-4.94c0-1.11.38-2 1.03-2.71c-.1-.25-.45-1.29.1-2.64c0 0 .84-.27 2.75 1.02c.79-.22 1.65-.33 2.5-.33s1.71.11 2.5.33c1.91-1.29 2.75-1.02 2.75-1.02c.55 1.35.2 2.39.1 2.64c.65.71 1.03 1.6 1.03 2.71c0 3.84-2.34 4.68-4.57 4.93c.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='currentColor' d='M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34c-.46-1.16-1.11-1.47-1.11-1.47c-.91-.62.07-.6.07-.6c1 .07 1.53 1.03 1.53 1.03c.87 1.52 2.34 1.07 2.91.83c.09-.65.35-1.09.63-1.34c-2.22-.25-4.55-1.11-4.55-4.94c0-1.11.38-2 1.03-2.71c-.1-.25-.45-1.29.1-2.64c0 0 .84-.27 2.75 1.02c.79-.22 1.65-.33 2.5-.33s1.71.11 2.5.33c1.91-1.29 2.75-1.02 2.75-1.02c.55 1.35.2 2.39.1 2.64c.65.71 1.03 1.6 1.03 2.71c0 3.84-2.34 4.68-4.57 4.93c.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z'/%3E%3C/svg%3E") center/contain no-repeat;
+  flex-shrink: 0;
 }
 </style>
