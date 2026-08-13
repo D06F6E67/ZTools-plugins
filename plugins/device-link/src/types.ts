@@ -106,11 +106,13 @@ export interface DeviceLinkApi {
   syncWebDav(): Promise<{ status: string; uploaded: number; downloaded: number; skippedAttachments: number }>
   sendText(text: string): Promise<DeviceLinkMessage>
   sendFiles(paths: string[]): Promise<DeviceLinkMessage>
+  sendDroppedFiles(files: File[]): Promise<DeviceLinkMessage>
   sendImage(dataUrl: string): Promise<DeviceLinkMessage>
   selectFiles(): Promise<string[]>
   copyMessage(messageId: string): Promise<boolean>
   openAttachment(attachmentId: string): Promise<boolean>
   deleteMessage(messageId: string): Promise<boolean>
+  clearHistory(): Promise<{ deleted: number }>
   disconnectDevice(deviceId: string): Promise<boolean>
   subscribe(callback: (event: { type: string; data: unknown }) => void): () => void
 }

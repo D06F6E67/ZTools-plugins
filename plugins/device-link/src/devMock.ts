@@ -52,11 +52,22 @@ export function installDevMock() {
       return structuredClone(message)
     },
     async sendFiles() { return structuredClone(messages[2]) },
+    async sendDroppedFiles(files: File[]) {
+      const timestamp = new Date().toISOString()
+      const message: DeviceLinkMessage = {
+        id: crypto.randomUUID(), senderId: 'desktop', senderName: state.settings.deviceName, direction: 'outgoing', kind: 'file',
+        attachments: files.map((file) => ({ id: crypto.randomUUID(), name: file.name, size: file.size, mime: file.type || 'application/octet-stream' })),
+        createdAt: timestamp, updatedAt: timestamp, status: 'sent',
+      }
+      state.messages.push(message)
+      return structuredClone(message)
+    },
     async sendImage() { return structuredClone(messages[2]) },
     async selectFiles() { return [] },
     async copyMessage() { return true },
     async openAttachment() { return true },
     async deleteMessage(id: string) { state.messages = state.messages.filter((item) => item.id !== id); return true },
+    async clearHistory() { const deleted = state.messages.length; state.messages = []; return { deleted } },
     async disconnectDevice(id: string) { state.devices = state.devices.filter((item) => item.id !== id); return true },
     subscribe() { return () => undefined },
   }

@@ -90,6 +90,19 @@ export function useDeviceLink() {
     }
   }
 
+  async function sendDroppedFiles(files: File[]) {
+    if (!files.length) return
+    busy.value = true
+    try {
+      upsertMessage(await window.deviceLink.sendDroppedFiles(files))
+      toast(files.length === 1 ? '拖入项目已加入会话' : `${files.length} 个拖入项目已加入会话`)
+    } catch (reason) {
+      report(reason)
+    } finally {
+      busy.value = false
+    }
+  }
+
   async function copyMessage(id: string) {
     if (await window.deviceLink.copyMessage(id)) toast('已复制')
   }
@@ -100,6 +113,22 @@ export function useDeviceLink() {
 
   async function deleteMessage(id: string) {
     if (await window.deviceLink.deleteMessage(id)) messages.value = messages.value.filter((item) => item.id !== id)
+  }
+
+  async function clearHistory() {
+    busy.value = true
+    error.value = ''
+    try {
+      const result = await window.deviceLink.clearHistory()
+      messages.value = []
+      toast(result.deleted ? `已清理 ${result.deleted} 条历史消息` : '没有需要清理的历史消息')
+      return true
+    } catch (reason) {
+      report(reason)
+      return false
+    } finally {
+      busy.value = false
+    }
   }
 
   async function regeneratePairing() {
@@ -202,6 +231,7 @@ export function useDeviceLink() {
     server,
     settings,
     chooseAndSendFiles,
+    clearHistory,
     copyMessage,
     deleteMessage,
     disconnectDevice,
@@ -209,6 +239,7 @@ export function useDeviceLink() {
     regeneratePairing,
     saveSettings,
     saveWebDav,
+    sendDroppedFiles,
     sendText,
     syncWebDav,
     toggleServer,

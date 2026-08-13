@@ -5,7 +5,9 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const QRCode = require('qrcode')
-const { clipboard, nativeImage, safeStorage, shell } = require('electron')
+const { clipboard, nativeImage, safeStorage, shell, webUtils } = require('electron')
+const { resolveDroppedFilePaths } = require('./core/drop')
+const { clearMessageHistory, removeMessageFromHistory } = require('./core/history')
 const { createRepository } = require('./core/repository')
 const { CHUNK_SIZE, createDeviceLinkServer } = require('./core/server')
 const { randomDigits, randomId } = require('./core/crypto')
@@ -365,6 +367,10 @@ window.deviceLink = {
   sendText,
   sendFiles,
   sendImage,
+  sendDroppedFiles(files) {
+    const getPathForFile = typeof webUtils?.getPathForFile === 'function' ? (file) => webUtils.getPathForFile(file) : undefined
+    return sendFiles(resolveDroppedFilePaths(files, getPathForFile))
+  },
   async selectFiles() {
     const result = ztools.showOpenDialog({ title: '选择要发送的文件或文件夹', properties: ['openFile', 'openDirectory', 'multiSelections'] })
     return Array.isArray(result) ? result : []
@@ -391,17 +397,15 @@ window.deviceLink = {
     const message = (await repository.listMessages()).find((item) => item.id === messageId)
     if (!message) return false
     const settings = await getSettingsRecord()
-    await repository.putTombstone({
-      id: messageId,
-      deletedAt: new Date().toISOString(),
-      sourceDeviceId: settings.deviceId,
-    })
-    for (const attachment of message.attachments || []) {
-      if (attachment.path && path.resolve(attachment.path).startsWith(`${path.resolve(dataDir)}${path.sep}`)) fs.rmSync(attachment.path, { force: true })
-    }
-    await repository.removeMessage(messageId)
+    await removeMessageFromHistory(repository, message, settings.deviceId, new Date().toISOString())
     emit('message:deleted', { id: messageId })
     return true
+  },
+  async clearHistory() {
+    const settings = await getSettingsRecord()
+    const result = await clearMessageHistory(repository, settings.deviceId)
+    emit('messages:changed', [])
+    return result
   },
   async disconnectDevice(deviceId) {
     server?.disconnectDevice(deviceId)

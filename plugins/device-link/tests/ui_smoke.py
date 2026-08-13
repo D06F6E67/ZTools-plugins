@@ -16,6 +16,77 @@ with sync_playwright() as playwright:
     assert page.get_by_text("Harris 的 iPhone", exact=True).count() >= 1
     page.screenshot(path=str(ARTIFACTS / "desktop-main.png"), full_page=True)
 
+    page.evaluate("""
+      () => {
+        const transfer = new DataTransfer()
+        transfer.items.add(new File(['drag-content'], 'drag-demo.zip', { type: 'application/zip' }))
+        window.__deviceLinkDropTransfer = transfer
+        document.querySelector('.conversation').dispatchEvent(new DragEvent('dragenter', {
+          bubbles: true, cancelable: true, dataTransfer: transfer
+        }))
+      }
+    """)
+    page.get_by_text("释放以发送 1 个项目", exact=True).wait_for()
+    page.wait_for_timeout(200)
+    page.screenshot(path=str(ARTIFACTS / "desktop-drop.png"), full_page=True)
+    page.evaluate("""
+      () => document.querySelector('.conversation').dispatchEvent(new DragEvent('drop', {
+        bubbles: true, cancelable: true, dataTransfer: window.__deviceLinkDropTransfer
+      }))
+    """)
+    page.get_by_text("drag-demo.zip", exact=True).wait_for()
+
+    page.get_by_role("button", name="搜索消息").click()
+    search = page.get_by_role("searchbox", name="搜索会话消息")
+    search.wait_for()
+    assert search.evaluate("element => element === document.activeElement")
+    search_field = page.locator(".conversation-search__field")
+    focused_style = search_field.evaluate("element => ({ borderColor: getComputedStyle(element).borderColor, boxShadow: getComputedStyle(element).boxShadow })")
+    search.evaluate("element => element.blur()")
+    blurred_style = search_field.evaluate("element => ({ borderColor: getComputedStyle(element).borderColor, boxShadow: getComputedStyle(element).boxShadow })")
+    assert focused_style == blurred_style
+    search.focus()
+    search_trigger_box = page.get_by_role("button", name="搜索消息").bounding_box()
+    search_popover = page.locator("#conversation-search")
+    search_popover_box = search_popover.bounding_box()
+    assert search_trigger_box and search_popover_box
+    assert search_popover_box["y"] >= search_trigger_box["y"] + search_trigger_box["height"]
+    assert int(search_popover.evaluate("element => getComputedStyle(element).zIndex")) >= 200
+    search.fill("白板")
+    assert page.get_by_text("刚拍的白板", exact=True).count() == 1
+    page.screenshot(path=str(ARTIFACTS / "desktop-search.png"), full_page=True)
+    search.fill("不存在的内容")
+    page.get_by_role("heading", name="没有找到匹配消息").wait_for()
+    page.get_by_role("button", name="清空搜索").click()
+    page.keyboard.press("Escape")
+    assert search.count() == 0
+
+    page.get_by_role("button", name="更多操作").click()
+    more_menu = page.get_by_label("会话操作")
+    more_menu.wait_for()
+    more_trigger_box = page.get_by_role("button", name="更多操作").bounding_box()
+    more_menu_box = more_menu.bounding_box()
+    assert more_trigger_box and more_menu_box
+    assert more_menu_box["y"] >= more_trigger_box["y"] + more_trigger_box["height"]
+    assert int(more_menu.evaluate("element => getComputedStyle(element).zIndex")) >= 200
+    page.wait_for_timeout(200)
+    page.screenshot(path=str(ARTIFACTS / "desktop-more.png"), full_page=True)
+    page.keyboard.press("Escape")
+    assert page.get_by_label("会话操作").count() == 0
+    assert page.get_by_role("button", name="更多操作").evaluate("element => element === document.activeElement")
+
+    page.get_by_role("button", name="更多操作").click()
+    page.get_by_role("button", name="设置与同步 端口、权限与 WebDAV").click()
+    page.get_by_role("heading", name="设置与同步").wait_for()
+    page.get_by_role("button", name="关闭").click()
+
+    page.get_by_role("button", name="更多操作").click()
+    page.get_by_role("button", name="停止接收服务 暂停局域网连接").click()
+    page.get_by_text("接收服务已停止", exact=True).wait_for()
+    page.get_by_role("button", name="更多操作").click()
+    page.get_by_role("button", name="启动接收服务 恢复局域网连接").click()
+    page.get_by_text("192.168.1.23:32125 · 局域网实时通道", exact=True).wait_for()
+
     page.get_by_role("button", name="连接新设备").click()
     page.get_by_role("heading", name="连接一台新设备").wait_for()
     page.wait_for_timeout(250)
@@ -28,5 +99,25 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     assert page.get_by_text("加密 WebDAV", exact=True).count() == 1
     page.screenshot(path=str(ARTIFACTS / "desktop-settings.png"), full_page=True)
+    page.get_by_role("button", name="关闭").click()
+
+    page.get_by_role("button", name="更多操作").click()
+    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("heading", name="清理历史消息？").wait_for()
+    assert page.get_by_role("button", name="取消").evaluate("element => element === document.activeElement")
+    assert page.get_by_text("4 条消息", exact=False).count() == 1
+    page.wait_for_timeout(250)
+    page.screenshot(path=str(ARTIFACTS / "desktop-clear-history.png"), full_page=True)
+    page.get_by_role("button", name="取消").click()
+    assert page.get_by_text("drag-demo.zip", exact=True).count() == 1
+
+    page.get_by_role("button", name="更多操作").click()
+    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("button", name="清理历史", exact=True).click()
+    page.get_by_role("heading", name="把内容放进这段私人会话").wait_for()
+    page.get_by_text("已清理 4 条历史消息", exact=True).wait_for()
+    assert page.get_by_text("Harris 的 iPhone", exact=True).count() >= 1
+    page.get_by_role("button", name="更多操作").click()
+    assert page.get_by_role("button", name="清理历史消息 删除消息与本地附件").is_disabled()
     assert not errors, errors
     browser.close()

@@ -40,7 +40,18 @@ STATE = {
         "qrDataUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E",
     },
     "devices": [],
-    "messages": [],
+    "messages": [{
+        "id": "production-message",
+        "senderId": "desktop",
+        "senderName": "测试电脑",
+        "direction": "outgoing",
+        "kind": "text",
+        "text": "生产构建消息",
+        "attachments": [],
+        "createdAt": "2026-08-13T00:00:00.000Z",
+        "updatedAt": "2026-08-13T00:00:00.000Z",
+        "status": "sent",
+    }],
 }
 
 with sync_playwright() as playwright:
@@ -57,6 +68,7 @@ with sync_playwright() as playwright:
           window.ztools = {{ onPluginEnter() {{}} }};
           window.deviceLink = {{
             async getState() {{ return clone(state); }},
+            async clearHistory() {{ const deleted = state.messages.length; state.messages = []; return {{ deleted }}; }},
             subscribe() {{ return () => {{}}; }}
           }};
         }})()
@@ -65,6 +77,42 @@ with sync_playwright() as playwright:
     page.goto(URL, wait_until="networkidle")
     page.get_by_role("heading", name="发送给我的设备").wait_for()
     assert page.locator("#app > .app-shell").count() == 1
+    page.evaluate(
+        """
+        () => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(['drop'], 'production-drop.txt', { type: 'text/plain' }));
+          window.__deviceLinkDropTransfer = transfer;
+          document.querySelector('.conversation').dispatchEvent(new DragEvent('dragenter', {
+            bubbles: true, cancelable: true, dataTransfer: transfer
+          }));
+        }
+        """
+    )
+    page.get_by_text("释放以发送 1 个项目", exact=True).wait_for()
+    page.evaluate(
+        """
+        () => document.querySelector('.conversation').dispatchEvent(new DragEvent('dragleave', {
+          bubbles: true, cancelable: true, dataTransfer: window.__deviceLinkDropTransfer
+        }))
+        """
+    )
+    assert page.get_by_text("释放以发送 1 个项目", exact=True).count() == 0
+    page.get_by_role("button", name="搜索消息").click()
+    search_popover = page.locator("#conversation-search")
+    search_popover.wait_for()
+    assert int(search_popover.evaluate("element => getComputedStyle(element).zIndex")) >= 200
+    page.get_by_role("searchbox", name="搜索会话消息").fill("no-result")
+    page.get_by_role("heading", name="没有找到匹配消息").wait_for()
+    page.keyboard.press("Escape")
+    page.get_by_role("button", name="更多操作").click()
+    more_menu = page.get_by_label("会话操作")
+    more_menu.wait_for()
+    assert int(more_menu.evaluate("element => getComputedStyle(element).zIndex")) >= 200
+    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("heading", name="清理历史消息？").wait_for()
+    page.get_by_role("button", name="清理历史", exact=True).click()
+    page.get_by_role("heading", name="把内容放进这段私人会话").wait_for()
     assert not errors, errors
     page.screenshot(path=str(ARTIFACTS / "dist-main.png"), full_page=True)
     browser.close()
