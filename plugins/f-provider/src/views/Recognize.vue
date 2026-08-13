@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch, nextTick } from "vue";
-import { ZButton, ZTag, useToast } from "ztools-ui";
+import { ZButton, ZTag, useToast, useColorScheme } from "ztools-ui";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import EngineStatusCard from "../components/EngineStatusCard.vue";
@@ -42,6 +42,9 @@ const props = withDefaults(
   }>(),
   { initialImage: "", initialMode: "text", autoCapture: false },
 );
+
+// 响应式暗色标记：宿主切换主题时同步，用于避免 :global(html.dark) 在 scoped 下不生效。
+const { isDark } = useColorScheme();
 
 /**
  * 模式变化时上报父组件：公式模式下底部悬浮导航栏会移到左下角，
@@ -540,6 +543,7 @@ onUnmounted(() => {
         <!-- 模式切换：独占一行撑满 -->
         <div
           class="mode-switch"
+          :class="{ dark: isDark }"
           role="tablist"
           aria-label="识别模式"
           ref="modeSwitchRef"
@@ -643,7 +647,7 @@ onUnmounted(() => {
               选择图片或截图后自动识别，结果将在此显示
             </div>
             <template v-else>
-              <div class="formula-layout">
+              <div class="formula-layout" :class="{ dark: isDark }">
                 <!-- 上半：渲染预览（随下方源码实时渲染） -->
                 <div class="result-section formula-half">
                   <div class="section-title">渲染预览</div>
@@ -827,8 +831,10 @@ onUnmounted(() => {
   transition: none;
 }
 
-:global(html.dark) .mode-indicator {
-  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.14));
+/* scoped 下 :global 失效，改用 .dark 类驱动暗色高亮（不刺眼） */
+.mode-switch.dark .mode-indicator {
+  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
 }
 
 .mode-btn {
@@ -978,8 +984,11 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-:global(html.dark) .katex-preview {
+/* scoped 下 :global 失效，用 .dark 类驱动暗色渲染预览 */
+.formula-layout.dark .katex-preview {
   background: #2a2a2a;
+  border-color: var(--border-color, #374151);
+  color: var(--text-color, #f3f4f6);
 }
 
 .katex-error {
@@ -1001,8 +1010,15 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1.5;
   resize: none;
-  color: var(--text-primary, #333);
+  color: var(--text-color, #333);
   outline: none;
+}
+
+/* scoped 下 :global 失效，用 .dark 类驱动暗色 LaTeX 源码框 */
+.formula-layout.dark .latex-source {
+  background: var(--code-bg, #2a2a2a);
+  color: var(--text-color, #f3f4f6);
+  border-color: var(--border-color, #374151);
 }
 
 .copy-actions {

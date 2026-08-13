@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import { ZButton, useToast } from 'ztools-ui'
+import { ZButton, useToast, useColorScheme } from 'ztools-ui'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import OcrImageViewer from './OcrImageViewer.vue'
@@ -9,6 +9,9 @@ import { useHistory } from '../composables/useHistory'
 
 const { historyList, removeHistory } = useHistory()
 const { success } = useToast()
+
+// 响应式暗色标记：宿主切换主题时同步，用于避免 :global(html.dark) 在 scoped 下不生效。
+const { isDark } = useColorScheme()
 
 // ─── 子分类切换：OCR / 翻译 ──────────────────────────────────────────
 type HistoryTab = 'ocr' | 'translate'
@@ -242,6 +245,7 @@ function removeItem(id: string, e: MouseEvent) {
         <!-- 顶部 OCR / 翻译 切换条 -->
         <div
           class="mode-switch"
+          :class="{ dark: isDark }"
           role="tablist"
           aria-label="历史记录分类"
           ref="tabSwitchRef"
@@ -353,7 +357,7 @@ function removeItem(id: string, e: MouseEvent) {
         />
 
         <!-- ocr-formula：上下结构，KaTeX 预览 + LaTeX 源码 -->
-        <div v-else-if="activeOcrFormula" class="formula-layout">
+        <div v-else-if="activeOcrFormula" class="formula-layout" :class="{ dark: isDark }">
           <!-- 上半：渲染预览 -->
           <div class="result-section formula-half">
             <div class="section-title">渲染预览</div>
@@ -469,8 +473,10 @@ function removeItem(id: string, e: MouseEvent) {
   transition: none;
 }
 
-:global(html.dark) .mode-indicator {
-  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.14));
+/* scoped 下 :global 失效，改用 .dark 类驱动暗色高亮（不刺眼） */
+.mode-switch.dark .mode-indicator {
+  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
 }
 
 .mode-btn {
@@ -697,8 +703,11 @@ function removeItem(id: string, e: MouseEvent) {
   justify-content: center;
 }
 
-:global(html.dark) .katex-preview {
+/* scoped 下 :global 失效，用 .dark 类驱动暗色渲染预览 */
+.formula-layout.dark .katex-preview {
   background: #2a2a2a;
+  border-color: var(--border-color, #374151);
+  color: var(--text-color, #f3f4f6);
 }
 
 .katex-error {
@@ -722,6 +731,13 @@ function removeItem(id: string, e: MouseEvent) {
   resize: none;
   color: var(--text-color, #333);
   outline: none;
+}
+
+/* scoped 下 :global 失效，用 .dark 类驱动暗色 LaTeX 源码框 */
+.formula-layout.dark .latex-source {
+  background: var(--code-bg, #2a2a2a);
+  color: var(--text-color, #f3f4f6);
+  border-color: var(--border-color, #374151);
 }
 
 .copy-actions {
