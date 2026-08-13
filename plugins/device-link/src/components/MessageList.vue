@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { nextTick, onUpdated, ref } from 'vue'
-import { Check, Clipboard, ExternalLink, File, FileImage, Link, MoreHorizontal, Trash2 } from 'lucide-vue-next'
+import { Check, Clipboard, ExternalLink, File, FileImage, Link, MoreHorizontal, Search, Trash2 } from 'lucide-vue-next'
 import type { DeviceLinkMessage } from '../types'
 
-defineProps<{ messages: DeviceLinkMessage[] }>()
+defineProps<{ messages: DeviceLinkMessage[]; searchQuery?: string }>()
 const emit = defineEmits<{ copy: [id: string]; open: [id: string]; delete: [id: string] }>()
 const list = ref<HTMLElement | null>(null)
 
@@ -37,9 +37,10 @@ onUpdated(() => nextTick(() => {
 <template>
   <section ref="list" class="message-list">
     <div v-if="messages.length === 0" class="conversation-empty">
-      <span class="conversation-empty__icon"><Link :size="26" /></span>
-      <h2>把内容放进这段私人会话</h2>
-      <p>发送文字、链接、图片或文件。在线设备实时收到，离线设备可通过加密 WebDAV 补拉。</p>
+      <span class="conversation-empty__icon"><Search v-if="searchQuery" :size="26" /><Link v-else :size="26" /></span>
+      <h2>{{ searchQuery ? '没有找到匹配消息' : '把内容放进这段私人会话' }}</h2>
+      <p v-if="searchQuery">换个关键词试试，可搜索消息正文、发送设备、文件名或文件类型。</p>
+      <p v-else>发送文字、链接、图片或文件。在线设备实时收到，离线设备可通过加密 WebDAV 补拉。</p>
     </div>
     <template v-for="(message, index) in messages" :key="message.id">
       <div v-if="showDate(index, messages)" class="date-divider"><span>{{ formatDate(message.createdAt) }}</span></div>
