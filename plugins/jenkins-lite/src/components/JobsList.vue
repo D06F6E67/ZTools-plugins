@@ -2,6 +2,7 @@
   <div class="jobs-list">
     <div class="jobs-header">
       <input
+        ref="searchInputRef"
         v-model="searchQuery"
         type="text"
         class="search-input"
@@ -57,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import JobItem from './JobItem.vue'
 import { useInstances } from '../composables/useInstances'
 import { useFavorites } from '../composables/useFavorites'
@@ -66,6 +67,8 @@ import type { JobInfo } from '../types'
 const props = defineProps<{
   selectedJob?: string
   currentView?: string
+  focusKey?: number
+  initialQuery?: string
 }>()
 
 const emit = defineEmits<{
@@ -98,7 +101,8 @@ const checkFavorited = (jobName: string): boolean => {
 const jobs = ref<JobInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
-const searchQuery = ref('')
+const searchQuery = ref(props.initialQuery || '')
+const searchInputRef = ref<HTMLInputElement | null>(null)
 const buildConfirmJob = ref<JobInfo | null>(null)
 const building = ref(false)
 
@@ -115,8 +119,10 @@ const loadJobs = async () => {
   error.value = null
 
   let result
-  // 根据当前视图加载 Jobs
-  if (props.currentView) {
+  // 收藏视图：加载所有 jobs，由 filteredJobs 过滤出收藏的
+  if (props.currentView === '__favorites__') {
+    result = await currentClient.value.getJobs()
+  } else if (props.currentView) {
     result = await currentClient.value.getViewJobs(props.currentView)
   } else {
     result = await currentClient.value.getJobs()
@@ -143,10 +149,18 @@ const refreshJobs = () => {
  * 过滤 Jobs
  */
 const filteredJobs = computed(() => {
-  if (!searchQuery.value) return jobs.value
+  let list = jobs.value
+
+  // 收藏视图：只显示收藏的 jobs
+  if (props.currentView === '__favorites__') {
+    list = list.filter(job => favoritedJobs.value.has(job.name))
+  }
+
+  // 搜索过滤
+  if (!searchQuery.value) return list
 
   const query = searchQuery.value.toLowerCase()
-  return filterJobsRecursive(jobs.value, query)
+  return filterJobsRecursive(list, query)
 })
 
 /**
@@ -208,9 +222,9 @@ const confirmBuild = async () => {
   buildConfirmJob.value = null
 
   if (result.error) {
-    window.ztools.showNotification(`❌ 构建触发失败: ${result.error}`, 'Jenkins Lite')
+    window.ztools.showNotification(`构建触发失败: ${result.error}`, 'Jenkins Lite')
   } else {
-    window.ztools.showNotification(`🚀 ${jobName} 构建已触发`, 'Jenkins Lite')
+    window.ztools.showNotification(`${jobName} 构建已触发`, 'Jenkins Lite')
     // 刷新 Jobs 列表以更新状态
     setTimeout(() => loadJobs(), 2000)
   }
@@ -243,13 +257,22 @@ watch(() => props.currentView, () => {
   loadJobs()
 })
 
-// 当 Jobs 加载完成后，自动选中第一个
+// 当 Jobs 加载完成后，自动选中第一个（收藏视图除外）
 watch(jobs, (newJobs) => {
-  if (newJobs.length > 0 && !props.selectedJob) {
+  if (newJobs.length > 0 && !props.selectedJob && props.currentView !== '__favorites__') {
     const firstJob = getFirstJob(newJobs)
     if (firstJob) {
       handleJobClick(firstJob)
     }
+  }
+})
+
+// 监听 focusKey，触发搜索框聚焦
+watch(() => props.focusKey, (key) => {
+  if (key) {
+    nextTick(() => {
+      searchInputRef.value?.focus()
+    })
   }
 })
 

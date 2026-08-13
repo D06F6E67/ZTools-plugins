@@ -155,6 +155,18 @@ export function useInstances() {
    */
   const hasInstances = computed(() => instances.value.length > 0)
 
+  /**
+   * 测试连接（无需保存实例）
+   */
+  const testConnection = async (
+    url: string,
+    username: string,
+    apiToken: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const client = new JenkinsClient(url, username, apiToken)
+    return await client.testConnection()
+  }
+
   return {
     instances,
     currentInstance,
@@ -165,6 +177,7 @@ export function useInstances() {
     addInstance,
     updateInstance,
     deleteInstance,
-    getClient
+    getClient,
+    testConnection
   }
 }
