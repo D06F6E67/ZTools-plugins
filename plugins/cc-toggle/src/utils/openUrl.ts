@@ -7,6 +7,6 @@ export function openUrl(url: string): void {
   try {
     window.ztools?.shellOpenExternal?.(url);
   } catch (e) {
-    window.open(url, "_blank");
+    window.open(url, '_blank');
   }
 }

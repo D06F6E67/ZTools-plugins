@@ -19,14 +19,14 @@ ZTools 提供「动态命令（setFeature）」能力：为每个 Agent 注册�
 
 ## 核心概念
 
-| 概念 | 说明 |
-|------|------|
-| 快捷命令 | 为每个 Agent 注册一条 ZTools 动态命令，选择即打开对应 Agent 页签 |
-| Agent | 插件顶栏的可切换 CLI 工具：codex / claude / claude-desktop / openclaw / gemini |
-| 命令 Code | `ccs_switch_{appType}`（注意前缀避开旧 `switch_` 清理逻辑） |
-| 命令关键词 | 触发该命令的搜索词：`cc {Agent显示名}`，如 `cc Codex` / `cc Claude Desktop` |
-| 特征同步 | 插件进入时全量重注册/清理动态命令 |
-| 切入流程 | 选中命令 → `setActiveTab(appType)` → 打开主界面并切到该 Agent tab → 通知 |
+| 概念       | 说明                                                                           |
+| ---------- | ------------------------------------------------------------------------------ |
+| 快捷命令   | 为每个 Agent 注册一条 ZTools 动态命令，选择即打开对应 Agent 页签               |
+| Agent      | 插件顶栏的可切换 CLI 工具：codex / claude / claude-desktop / openclaw / gemini |
+| 命令 Code  | `ccs_switch_{appType}`（注意前缀避开旧 `switch_` 清理逻辑）                    |
+| 命令关键词 | 触发该命令的搜索词：`cc {Agent显示名}`，如 `cc Codex` / `cc Claude Desktop`    |
+| 特征同步   | 插件进入时全量重注册/清理动态命令                                              |
+| 切入流程   | 选中命令 → `setActiveTab(appType)` → 打开主界面并切到该 Agent tab → 通知       |
 
 ---
 
@@ -36,10 +36,10 @@ ZTools 提供「动态命令（setFeature）」能力：为每个 Agent 注册�
 
 ```ts
 interface QuickSwitchFeature {
-  code: string        // `ccs_switch_{appType}`，如 ccs_switch_claude-desktop
-  explain: string     // 如「打开 CCToggle 并切换到 Claude Desktop」
-  cmds: string[]      // 搜索关键词，如 ['cc Claude Desktop']
-  icon?: string       // 复用 logo
+  code: string // `ccs_switch_{appType}`，如 ccs_switch_claude-desktop
+  explain: string // 如「打开 CCToggle 并切换到 Claude Desktop」
+  cmds: string[] // 搜索关键词，如 ['cc Claude Desktop']
+  icon?: string // 复用 logo
 }
 ```
 
@@ -70,10 +70,10 @@ code = ccs_switch_{appType}
 
 #### 1.3 特征同步时机
 
-| 时机 | 动作 |
-|------|------|
+| 时机                   | 动作                             |
+| ---------------------- | -------------------------------- |
 | 插件每次进入（主命令） | 全量重注册（先清旧再注册，幂等） |
-| 设置页开关/前缀变更 | 保存配置后全量重建或清理 |
+| 设置页开关/前缀变更    | 保存配置后全量重建或清理         |
 
 > 统一收敛到一个 `useQuickSwitch` composable：内部维护 `reconcile()`（先清已注册的 `ccs_switch_*` 命令，再按全部 Agent 全量注册），页面无需关心细节。**副作用仅作用于 ZTools 环境**，浏览器模式自动跳过。
 
@@ -85,10 +85,10 @@ code = ccs_switch_{appType}
 
 ### 3. 配置项
 
-| 配置 | 默认 | 位置 |
-|------|------|------|
-| 快捷命令开关 | 开 | 设置页「通用配置」新增「快速切换」分组 |
-| 命令前缀 | `cc` | 同上 |
+| 配置         | 默认 | 位置                                   |
+| ------------ | ---- | -------------------------------------- |
+| 快捷命令开关 | 开   | 设置页「通用配置」新增「快速切换」分组 |
+| 命令前缀     | `cc` | 同上                                   |
 
 > 配置存 `ztools.dbStorage`（key: `cctoggle_quick_switch`），浏览器模式回退默认值。
 
@@ -103,6 +103,7 @@ src/composables/useQuickSwitch.ts
 ```
 
 内部逻辑：
+
 - `reconcile()`：清理 `ccs_switch_*` 动态命令 → 按全部 Agent 重新注册
 - 提供 `registerFor(appType)` / `unregisterFor(appType)` 供开关/前缀变更后增量调用
 - `buildCmds(appType)`：生成命令关键词数组
@@ -143,15 +144,15 @@ src/composables/useQuickSwitch.ts
 
 ## 边界情况
 
-| 场景 | 处理 |
-|------|------|
-| Agent 显示名含空格/特殊字符 | 命令关键词原样保留，ZTools 按子串匹配，不影响 |
-| 浏览器开发模式 | `ztools` 不存在，`useQuickSwitch` 直接跳过，不影响页面 |
-| 多次进入插件 | 先清后注册，幂等，无重复命令 |
-| 命令冲突（其它插件同名） | 复用 logo + explain 明确来源；不做强制排他 |
-| 插件退出 | 动态命令是全局注册，需保留（供下次搜索直切） |
-| 旧 `switch_*` 命令残留 | `setup.ts` 加载时兜底清理，不影响新命令 |
-| 代理运行中切 Agent | 与顶栏 tab 切换行为一致（`setActiveTab` 会先停当前代理） |
+| 场景                        | 处理                                                     |
+| --------------------------- | -------------------------------------------------------- |
+| Agent 显示名含空格/特殊字符 | 命令关键词原样保留，ZTools 按子串匹配，不影响            |
+| 浏览器开发模式              | `ztools` 不存在，`useQuickSwitch` 直接跳过，不影响页面   |
+| 多次进入插件                | 先清后注册，幂等，无重复命令                             |
+| 命令冲突（其它插件同名）    | 复用 logo + explain 明确来源；不做强制排他               |
+| 插件退出                    | 动态命令是全局注册，需保留（供下次搜索直切）             |
+| 旧 `switch_*` 命令残留      | `setup.ts` 加载时兜底清理，不影响新命令                  |
+| 代理运行中切 Agent          | 与顶栏 tab 切换行为一致（`setActiveTab` 会先停当前代理） |
 
 ---
 

@@ -32,9 +32,9 @@ export interface UsageAdapter {
 
 export function statDayKey(d: Date): string {
   const y = d.getFullYear();
-  const m = ("0" + (d.getMonth() + 1)).slice(-2);
-  const day = ("0" + d.getDate()).slice(-2);
-  return y + "-" + m + "-" + day;
+  const m = ('0' + (d.getMonth() + 1)).slice(-2);
+  const day = ('0' + d.getDate()).slice(-2);
+  return y + '-' + m + '-' + day;
 }
 
 export function emptyBucket(): UsageBucket {
@@ -42,6 +42,10 @@ export function emptyBucket(): UsageBucket {
 }
 
 export function dayFromTs(ts: string): string {
-  if (!ts) return "";
-  try { return statDayKey(new Date(ts)); } catch (e) { return ""; }
+  if (!ts) return '';
+  try {
+    return statDayKey(new Date(ts));
+  } catch (e) {
+    return '';
+  }
 }

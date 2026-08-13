@@ -1,8 +1,8 @@
 // ZTools ccToggle - sessions/shared.ts
 // 会话模块公共工具：缓存、文件读取、消息合并、内容块提取
 
-import utils = require("../../utils");
-import { ContentBlock, HeadTailResult, Message, Session } from "./types";
+import utils = require('../../utils');
+import { ContentBlock, HeadTailResult, Message, Session } from './types';
 
 const fs = utils.fs;
 
@@ -25,9 +25,9 @@ export const PARSE_CONCURRENCY = 12;
 
 // 一次打开文件，读取头部和尾部（只 open/stat/close 一次）
 export async function readHeadAndTail(filePath: string): Promise<HeadTailResult> {
-  let fd: import("fs").promises.FileHandle;
+  let fd: import('fs').promises.FileHandle;
   try {
-    fd = await fs.promises.open(filePath, "r");
+    fd = await fs.promises.open(filePath, 'r');
   } catch (e) {
     return { head: [], tail: [], size: 0 };
   }
@@ -37,7 +37,7 @@ export async function readHeadAndTail(filePath: string): Promise<HeadTailResult>
     const headLen = Math.min(CHUNK_SIZE, size);
     const headBuf = Buffer.alloc(headLen);
     await fd.read(headBuf, 0, headLen, 0);
-    const head = headBuf.toString("utf8").split(/\r?\n/);
+    const head = headBuf.toString('utf8').split(/\r?\n/);
 
     // 读尾部（文件够大时）
     let tail: string[] = [];
@@ -45,7 +45,7 @@ export async function readHeadAndTail(filePath: string): Promise<HeadTailResult>
       const tailPos = size - CHUNK_SIZE;
       const tailBuf = Buffer.alloc(CHUNK_SIZE);
       await fd.read(tailBuf, 0, CHUNK_SIZE, tailPos);
-      tail = tailBuf.toString("utf8").split(/\r?\n/);
+      tail = tailBuf.toString('utf8').split(/\r?\n/);
     }
 
     return { head, tail, size };
@@ -61,20 +61,35 @@ export function countMessageLines(lines: string[]): number {
   let count = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line || line[0] !== "{") continue;
+    if (!line || line[0] !== '{') continue;
     try {
       const d = JSON.parse(line);
-      if (d && (d.type === "assistant" || d.type === "human" || d.type === "user"
-        || (d.type === "event_msg" && d.payload && (d.payload.type === "user_message" || d.payload.type === "agent_message"))
-        || (d.type === "message" && d.message && (d.message.role === "user" || d.message.role === "assistant"))
-      )) count++;
-    } catch (e) { /* skip */ }
+      if (
+        d &&
+        (d.type === 'assistant' ||
+          d.type === 'human' ||
+          d.type === 'user' ||
+          (d.type === 'event_msg' &&
+            d.payload &&
+            (d.payload.type === 'user_message' || d.payload.type === 'agent_message')) ||
+          (d.type === 'message' &&
+            d.message &&
+            (d.message.role === 'user' || d.message.role === 'assistant')))
+      )
+        count++;
+    } catch (e) {
+      /* skip */
+    }
   }
   return count;
 }
 
 // 快速统计消息数：直接数头尾的消息行
-export function estimateMessageCount(headLines: string[], tailLines: string[], size: number): number {
+export function estimateMessageCount(
+  headLines: string[],
+  tailLines: string[],
+  size: number
+): number {
   // 小文件：头尾重叠，直接数头部
   if (size <= CHUNK_SIZE * 2) return countMessageLines(headLines);
   // 大文件：头尾各数一遍（中间的数不到，但比瞎猜准）
@@ -115,59 +130,60 @@ export function mergeMessages(messages: Message[]): Message[] {
 // 从 content 字段提取结构化内容块
 export function extractContentBlocks(content: unknown): ContentBlock[] {
   if (!content) return [];
-  if (typeof content === "string") return [{ type: "text", text: content }];
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (Array.isArray(content)) {
     const blocks: ContentBlock[] = [];
     for (let i = 0; i < content.length; i++) {
       const item = content[i];
-      if (!item || typeof item !== "object") continue;
-      if (item.type === "text" && item.text) {
-        blocks.push({ type: "text", text: item.text });
-      } else if (item.type === "thinking" && item.thinking) {
-        blocks.push({ type: "thinking", text: item.thinking });
-      } else if (item.type === "tool_use") {
-        blocks.push({ type: "tool_use", name: item.name || "unknown", input: item.input || {} });
-      } else if (item.type === "toolCall") {
-        blocks.push({ type: "tool_use", name: item.name || "unknown", input: {} });
-      } else if (item.type === "tool_result") {
+      if (!item || typeof item !== 'object') continue;
+      if (item.type === 'text' && item.text) {
+        blocks.push({ type: 'text', text: item.text });
+      } else if (item.type === 'thinking' && item.thinking) {
+        blocks.push({ type: 'thinking', text: item.thinking });
+      } else if (item.type === 'tool_use') {
+        blocks.push({ type: 'tool_use', name: item.name || 'unknown', input: item.input || {} });
+      } else if (item.type === 'toolCall') {
+        blocks.push({ type: 'tool_use', name: item.name || 'unknown', input: {} });
+      } else if (item.type === 'tool_result') {
         // 工具执行结果：从嵌套的 content 中提取文本
         const resultText = extractToolResultText(item);
-        if (resultText) blocks.push({ type: "tool_result", text: resultText, name: item.tool_use_id || "" });
+        if (resultText)
+          blocks.push({ type: 'tool_result', text: resultText, name: item.tool_use_id || '' });
       }
     }
     return blocks;
   }
-  return [{ type: "text", text: JSON.stringify(content) }];
+  return [{ type: 'text', text: JSON.stringify(content) }];
 }
 
 // 从 OpenCode tool state.output 数组中提取文本内容
 export function extractOpenCodeOutputText(output: unknown): string {
-  if (!output) return "";
-  if (typeof output === "string") return output;
-  if (!Array.isArray(output)) return "";
+  if (!output) return '';
+  if (typeof output === 'string') return output;
+  if (!Array.isArray(output)) return '';
   const parts: string[] = [];
   for (const o of output) {
-    if (!o || typeof o !== "object") continue;
+    if (!o || typeof o !== 'object') continue;
     const oa: any = o;
-    if (oa.type === "text" && oa.text) parts.push(String(oa.text));
-    else if (oa.type === "tool_result" && oa.text) parts.push(String(oa.text));
+    if (oa.type === 'text' && oa.text) parts.push(String(oa.text));
+    else if (oa.type === 'tool_result' && oa.text) parts.push(String(oa.text));
   }
-  return parts.join("\n");
+  return parts.join('\n');
 }
 
 // 从 tool_result 中提取文本内容
 export function extractToolResultText(item: Record<string, any>): string {
-  if (!item) return "";
+  if (!item) return '';
   const c = item.content;
-  if (typeof c === "string") return c;
+  if (typeof c === 'string') return c;
   if (Array.isArray(c)) {
     const parts: string[] = [];
     for (let i = 0; i < c.length; i++) {
-      if (c[i] && c[i].type === "text" && c[i].text) parts.push(c[i].text);
+      if (c[i] && c[i].type === 'text' && c[i].text) parts.push(c[i].text);
     }
-    return parts.join("\n");
+    return parts.join('\n');
   }
-  return "";
+  return '';
 }
 
 // 兼容旧接口：提取纯文本
@@ -176,15 +192,19 @@ export function extractContent(content: unknown): string {
   const parts: string[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
-    if (b.type === "text") parts.push(b.text!);
-    else if (b.type === "thinking") parts.push(b.text!);
-    else if (b.type === "tool_use") parts.push("[工具调用: " + b.name + "]");
+    if (b.type === 'text') parts.push(b.text!);
+    else if (b.type === 'thinking') parts.push(b.text!);
+    else if (b.type === 'tool_use') parts.push('[工具调用: ' + b.name + ']');
   }
-  return parts.join("");
+  return parts.join('');
 }
 
 export function ocTs(ts: any): string {
   const n = Number(ts);
-  if (!n) return "";
-  try { return new Date(n).toISOString(); } catch (e) { return ""; }
+  if (!n) return '';
+  try {
+    return new Date(n).toISOString();
+  } catch (e) {
+    return '';
+  }
 }

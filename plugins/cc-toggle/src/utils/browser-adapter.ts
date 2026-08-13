@@ -12,7 +12,9 @@ function fetchApiSync(path: string): any {
   try {
     const result = JSON.parse(xhr.responseText);
     return result;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function postApiSync(path: string, body: any): any {
@@ -20,13 +22,21 @@ function postApiSync(path: string, body: any): any {
   xhr.open('POST', `${API_BASE}${path}`, false);
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.send(JSON.stringify(body));
-  try { return JSON.parse(xhr.responseText); } catch { return null; }
+  try {
+    return JSON.parse(xhr.responseText);
+  } catch {
+    return null;
+  }
 }
 
 // 检测是否在 ZTools 环境
 export function isZtoolsEnv(): boolean {
   return typeof window !== 'undefined' && typeof (window as any).ztools !== 'undefined';
 }
+
+// ── 桌面小组件（浏览器模式模拟：打开状态为内存态）──
+
+const _widgetOpen: Record<string, boolean> = {};
 
 // 创建浏览器兼容的 ztoolsCctoggle API
 export function createBrowserApi() {
@@ -39,14 +49,16 @@ export function createBrowserApi() {
       claudeDesktopConfig: '',
       openclawConfig: '',
       geminiEnv: '',
-      opencodeConfig: '',
+      opencodeConfig: ''
     },
 
     // Agent 路径管理
     getConfigPaths() {
       try {
         return JSON.parse(localStorage.getItem('ccswitch_config_paths') || '{}');
-      } catch { return {}; }
+      } catch {
+        return {};
+      }
     },
     setConfigPaths(paths: Record<string, string>) {
       localStorage.setItem('ccswitch_config_paths', JSON.stringify(paths));
@@ -57,7 +69,7 @@ export function createBrowserApi() {
         codex: '~/.codex',
         gemini: '~/.gemini',
         openclaw: '~/.openclaw',
-        opencode: '~/.config/opencode',
+        opencode: '~/.config/opencode'
       };
     },
 
@@ -77,9 +89,11 @@ export function createBrowserApi() {
       const result = fetchApiSync(`/providers?appType=${appType}`);
       return Array.isArray(result) ? result : [];
     },
-    getProvider: (appType: string, id: string) => fetchApiSync(`/provider?appType=${appType}&id=${id}`),
+    getProvider: (appType: string, id: string) =>
+      fetchApiSync(`/provider?appType=${appType}&id=${id}`),
     saveProvider: (appType: string, data: any) => postApiSync('/provider', { appType, data }),
-    deleteProvider: (appType: string, id: string) => postApiSync('/provider-delete', { appType, id }),
+    deleteProvider: (appType: string, id: string) =>
+      postApiSync('/provider-delete', { appType, id }),
 
     // Switch
     switchProvider: (_appType: string, _id: string) => {
@@ -87,30 +101,34 @@ export function createBrowserApi() {
       // 这里返回成功，实际切换由服务器处理
       return { success: true, providerName: 'Browser Mode' };
     },
-    getCurrentProviderId: (appType: string) => fetchApiSync(`/provider/current?appType=${appType}`)?.id,
+    getCurrentProviderId: (appType: string) =>
+      fetchApiSync(`/provider/current?appType=${appType}`)?.id,
     reapplyCurrent: () => ({}),
     setLastActiveApp: (appType: string) => {
       // 写入当前激活 profile
       try {
-        const activeId = window.ztoolsCctoggle?.getActiveProfileId?.()
+        const activeId = window.ztoolsCctoggle?.getActiveProfileId?.();
         if (activeId) {
-          const profile = window.ztoolsCctoggle?.getProfile?.(activeId)
-          if (profile) window.ztoolsCctoggle?.saveProfile?.({ id: activeId, lastActiveApp: appType })
+          const profile = window.ztoolsCctoggle?.getProfile?.(activeId);
+          if (profile)
+            window.ztoolsCctoggle?.saveProfile?.({ id: activeId, lastActiveApp: appType });
         }
       } catch (e) {}
-      return true
+      return true;
     },
     getLastActiveApp: () => {
       try {
-        const activeId = window.ztoolsCctoggle?.getActiveProfileId?.()
+        const activeId = window.ztoolsCctoggle?.getActiveProfileId?.();
         if (activeId) {
-          const profile = window.ztoolsCctoggle?.getProfile?.(activeId)
-          if (profile?.lastActiveApp) return profile.lastActiveApp
+          const profile = window.ztoolsCctoggle?.getProfile?.(activeId);
+          if (profile?.lastActiveApp) return profile.lastActiveApp;
         }
         // fallback 到 default profile
-        const defaultProfile = window.ztoolsCctoggle?.getProfile?.('default')
-        return defaultProfile?.lastActiveApp || ''
-      } catch (e) { return '' }
+        const defaultProfile = window.ztoolsCctoggle?.getProfile?.('default');
+        return defaultProfile?.lastActiveApp || '';
+      } catch (e) {
+        return '';
+      }
     },
 
     // 统计
@@ -132,7 +150,13 @@ export function createBrowserApi() {
     removeSkillRepo: () => ({ success: true }),
     syncSkills: () => ({ success: true }),
     toggleSkillToAgent: () => ({ success: true }),
-    searchSkills: async () => [],
+    searchSkills: async (query?: string, source?: string) => {
+      const q = encodeURIComponent(query || '');
+      const src = encodeURIComponent(source || 'skillsh');
+      const res = await fetch(`${API_BASE}/skills/search?q=${q}&source=${src}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     installSkill: () => ({ success: true }),
     removeNestSkill: () => ({ success: true }),
 
@@ -180,7 +204,10 @@ export function createBrowserApi() {
     syncFromConfigFiles: () => {},
 
     // Session management
-    scanSessions: async (app?: string, opts?: { offset?: number; limit?: number; search?: string; sort?: string }) => {
+    scanSessions: async (
+      app?: string,
+      opts?: { offset?: number; limit?: number; search?: string; sort?: string }
+    ) => {
       const params = new URLSearchParams();
       if (app) params.set('app', app);
       if (opts?.offset) params.set('offset', String(opts.offset));
@@ -215,16 +242,22 @@ export function createBrowserApi() {
     readAllOriginalPrompts: () => fetchApiSync('/prompts/original-all') || {},
     getOpenClawPromptFiles: () => {
       const result = fetchApiSync('/prompts/openclaw-files');
-      return Array.isArray(result) ? result : ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md'];
+      return Array.isArray(result)
+        ? result
+        : ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md'];
     },
     readOpenClawPromptFiles: () => fetchApiSync('/prompts/openclaw-files/read') || {},
     backupOriginalPrompts: () => postApiSync('/prompts/backup-original', {}),
-    backupSelectedPrompts: (selections: any) => postApiSync('/prompts/backup-selected', { selections }),
+    backupSelectedPrompts: (selections: any) =>
+      postApiSync('/prompts/backup-selected', { selections }),
     getBackups: () => fetchApiSync('/prompts/backups') || {},
-    restoreOriginalPrompt: (agent: string, fileName?: string) => postApiSync('/prompts/restore', { agent, fileName }),
+    restoreOriginalPrompt: (agent: string, fileName?: string) =>
+      postApiSync('/prompts/restore', { agent, fileName }),
     restoreAllOriginalPrompts: () => postApiSync('/prompts/restore-all', {}),
-    applyPromptToAgent: (promptId: string, agent: string, fileName?: string) => postApiSync('/prompts/apply', { promptId, agent, fileName }),
-    togglePromptAgent: (promptId: string, agent: string, fileName?: string) => postApiSync('/prompts/toggle', { promptId, agent, fileName }),
+    applyPromptToAgent: (promptId: string, agent: string, fileName?: string) =>
+      postApiSync('/prompts/apply', { promptId, agent, fileName }),
+    togglePromptAgent: (promptId: string, agent: string, fileName?: string) =>
+      postApiSync('/prompts/toggle', { promptId, agent, fileName }),
 
     // Profile 管理
     listProfiles: () => {
@@ -241,24 +274,45 @@ export function createBrowserApi() {
     // 余额查询
     getBalanceCache: () => fetchApiSync('/balance/cache') || {},
     clearBalanceCache: (providerId: string) => postApiSync('/balance/cache-delete', { providerId }),
-    queryBalance: async (appType: string, providerId: string) => postApiSync('/balance/query', { appType, providerId }),
+    queryBalance: async (appType: string, providerId: string) =>
+      postApiSync('/balance/query', { appType, providerId }),
     queryAllBalances: async (appType?: string) => postApiSync('/balance/query-all', { appType }),
 
     // 余额告警状态（持久化在项目文档 balanceNotify 字段）
-    getBalanceNotifyState: (profileId: string) => fetchApiSync(`/balance/notify?profileId=${encodeURIComponent(profileId)}`) || {},
-    setBalanceNotified: (profileId: string, scopeKey: string, balance: number) => postApiSync('/balance/notify-set', { profileId, scopeKey, balance }),
-    clearBalanceNotified: (profileId: string, scopeKey: string) => postApiSync('/balance/notify-clear', { profileId, scopeKey }),
+    getBalanceNotifyState: (profileId: string) =>
+      fetchApiSync(`/balance/notify?profileId=${encodeURIComponent(profileId)}`) || {},
+    setBalanceNotified: (profileId: string, scopeKey: string, balance: number) =>
+      postApiSync('/balance/notify-set', { profileId, scopeKey, balance }),
+    clearBalanceNotified: (profileId: string, scopeKey: string) =>
+      postApiSync('/balance/notify-clear', { profileId, scopeKey }),
+
+    // 桌面小组件（浏览器模式：无真实窗口，打开状态为内存态）
+    openWidget: (id: string) => {
+      _widgetOpen[id] = true;
+      return { success: true };
+    },
+    closeWidget: (id: string) => {
+      _widgetOpen[id] = false;
+      return { success: true };
+    },
+    toggleWidget: (id: string) => {
+      if (_widgetOpen[id]) return window.ztoolsCctoggle?.closeWidget?.(id);
+      return window.ztoolsCctoggle?.openWidget?.(id);
+    },
+    getWidgetStates: () =>
+      Object.fromEntries(Object.keys(_widgetOpen).map(id => [id, { open: !!_widgetOpen[id] }])),
+    listWidgets: () => [{ id: 'status', title: '当前供应商余额' }],
 
     // 文件保存（浏览器模式：触发下载）
     saveTextFile: (defaultName: string, content: string) => {
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = defaultName
-      a.click()
-      URL.revokeObjectURL(url)
-      return { success: true }
-    },
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = defaultName;
+      a.click();
+      URL.revokeObjectURL(url);
+      return { success: true };
+    }
   };
 }

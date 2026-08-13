@@ -1,47 +1,47 @@
 <script setup lang="ts">
-// @ts-nocheck TODO: 逐步添加类型注解后移除
-import { computed } from "vue";
-import { APP_ICONS, APP_LABELS } from "../../composables/shared";
+  // @ts-nocheck TODO: 逐步添加类型注解后移除
+  import { computed } from 'vue';
+  import { APP_ICONS, APP_LABELS } from '../../composables/shared';
 
-const props = defineProps({
-  session: { type: Object, required: true },
-});
+  const props = defineProps({
+    session: { type: Object, required: true }
+  });
 
-const emit = defineEmits(["view", "export", "delete"]);
+  const emit = defineEmits(['view', 'export', 'delete']);
 
-const appIcon = computed(() => APP_ICONS[props.session.app] || null);
-const appLabel = computed(() => APP_LABELS[props.session.app] || props.session.app);
+  const appIcon = computed(() => APP_ICONS[props.session.app] || null);
+  const appLabel = computed(() => APP_LABELS[props.session.app] || props.session.app);
 
-function formatTime(ts) {
-  if (!ts) return "";
-  try {
-    var d = new Date(ts);
-    var now = new Date();
-    var diff = now.getTime() - d.getTime();
-    if (diff < 60000) return "刚刚";
-    if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
-    if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
-    if (diff < 86400000 * 7) return Math.floor(diff / 86400000) + " 天前";
-    var m = ("0" + (d.getMonth() + 1)).slice(-2);
-    var day = ("0" + d.getDate()).slice(-2);
-    return d.getFullYear() + "-" + m + "-" + day;
-  } catch (e) {
-    return ts;
+  function formatTime(ts) {
+    if (!ts) return '';
+    try {
+      var d = new Date(ts);
+      var now = new Date();
+      var diff = now.getTime() - d.getTime();
+      if (diff < 60000) return '刚刚';
+      if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+      if (diff < 86400000 * 7) return Math.floor(diff / 86400000) + ' 天前';
+      var m = ('0' + (d.getMonth() + 1)).slice(-2);
+      var day = ('0' + d.getDate()).slice(-2);
+      return d.getFullYear() + '-' + m + '-' + day;
+    } catch (e) {
+      return ts;
+    }
   }
-}
 
-function formatTokens(n) {
-  if (!n) return "";
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M tokens";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k tokens";
-  return n + " tokens";
-}
+  function formatTokens(n) {
+    if (!n) return '';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M tokens';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k tokens';
+    return n + ' tokens';
+  }
 
-function truncatePath(p) {
-  if (!p) return "";
-  if (p.length <= 30) return p;
-  return "..." + p.substring(p.length - 27);
-}
+  function truncatePath(p) {
+    if (!p) return '';
+    if (p.length <= 30) return p;
+    return '...' + p.substring(p.length - 27);
+  }
 </script>
 
 <template>
@@ -86,75 +86,77 @@ function truncatePath(p) {
 </template>
 
 <style lang="scss" scoped>
-.session-card {
-  cursor: pointer;
-  transition: border-color .15s, box-shadow .15s;
+  .session-card {
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
 
-  &:hover {
-    border-color: var(--primary);
-    box-shadow: 0 1px 4px rgba(217,119,6,.1);
-  }
+    &:hover {
+      border-color: var(--primary);
+      box-shadow: 0 1px 4px rgba(217, 119, 6, 0.1);
+    }
 
-  &__inner {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-  }
+    &__inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
 
-  &__icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-hover);
-    flex-shrink: 0;
-  }
+    &__icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-hover);
+      flex-shrink: 0;
+    }
 
-  &__icon-img {
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
-  }
+    &__icon-img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+    }
 
-  &__body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
+    &__body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
 
-  &__title {
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+    &__title {
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-  &__meta {
-    font-size: 11px;
-    flex-wrap: nowrap;
-  }
+    &__meta {
+      font-size: 11px;
+      flex-wrap: nowrap;
+    }
 
-  &__path {
-    max-width: 200px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+    &__path {
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-  &__model {
-    max-width: 120px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+    &__model {
+      max-width: 120px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-  &__actions {
-    flex-shrink: 0;
-    align-self: center;
+    &__actions {
+      flex-shrink: 0;
+      align-self: center;
+    }
   }
-}
 </style>

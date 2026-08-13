@@ -10,10 +10,10 @@
 
 当前 Key 存储现状：
 
-| 数据 | 存储位置 | 说明 |
-|------|---------|------|
-| 供应商配置 | profile（`ztools.db`，明文） | `cctoggle_profile_{profileId}` |
-| API Key | `ztools.dbStorage`（加密） | key 名 `apikey_{appType}_{providerId}` |
+| 数据       | 存储位置                     | 说明                                   |
+| ---------- | ---------------------------- | -------------------------------------- |
+| 供应商配置 | profile（`ztools.db`，明文） | `cctoggle_profile_{profileId}`         |
+| API Key    | `ztools.dbStorage`（加密）   | key 名 `apikey_{appType}_{providerId}` |
 
 存在的问题：
 
@@ -48,11 +48,11 @@
 
 ### 主密钥来源
 
-| 方案 | 描述 | 安全级别 | 优点 | 缺点 |
-|------|------|---------|------|------|
+| 方案                              | 描述                                                                                                       | 安全级别            | 优点             | 缺点                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------- | ---------------- | ------------------------- |
 | A. safeStorage 托管主密钥（推荐） | 首次生成随机 32 字节主密钥，用 `safeStorage` 加密后存入 `dbStorage`；每次加密用 safeStorage 解密取出主密钥 | 高（OS 级密钥托管） | 真加密、用户无感 | 依赖 Electron safeStorage |
-| B. 固定硬编码密钥 | 密钥写在代码里 | 低（仅混淆） | 实现简单 | 可被逆向，非真安全 |
-| C. 用户口令派生 | 用户输入口令，`scrypt` 派生密钥 | 中高 | 跨设备可用 | 需用户每次输入，体验差 |
+| B. 固定硬编码密钥                 | 密钥写在代码里                                                                                             | 低（仅混淆）        | 实现简单         | 可被逆向，非真安全        |
+| C. 用户口令派生                   | 用户输入口令，`scrypt` 派生密钥                                                                            | 中高                | 跨设备可用       | 需用户每次输入，体验差    |
 
 > **建议采用方案 A**：主密钥本身用 `safeStorage` 加密存储（等价于现 `dbCryptoStorage` 的加密强度），业务 Key 用 Node crypto AES-256-GCM 加密后存进 profile，两者兼顾「存一起」与「真加密」。
 
@@ -67,7 +67,7 @@
 ```ts
 interface Provider {
   // ...现有字段
-  encryptedApiKey?: string  // v1:{iv_hex}:{tag_hex}:{ciphertext_hex}，空字符串/缺省表示无 Key
+  encryptedApiKey?: string // v1:{iv_hex}:{tag_hex}:{ciphertext_hex}，空字符串/缺省表示无 Key
 }
 ```
 
@@ -179,11 +179,11 @@ migrateApiKeysToProfile():
 
 ### 需同步修改的文件
 
-| 文件 | 改动 |
-|------|------|
-| `src/preload/crypto.ts` | 新增：加密/解密/主密钥管理 |
+| 文件                         | 改动                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `src/preload/crypto.ts`      | 新增：加密/解密/主密钥管理                                             |
 | `src/preload/provider-db.ts` | `saveProvider`/`getProvider`/`deleteProvider` 改读写 `encryptedApiKey` |
-| `src/preload/cleanup.ts` | 新增迁移方法 `migrateApiKeysToProfile()`，挂到 `migrateAgentPaths()` |
+| `src/preload/cleanup.ts`     | 新增迁移方法 `migrateApiKeysToProfile()`，挂到 `migrateAgentPaths()`   |
 
 ---
 
@@ -202,12 +202,12 @@ Key 从 `dbCryptoStorage` 迁入 profile 后，对现有功能的影响分析：
 
 ### 1. 供应商 CRUD
 
-| 功能 | 影响 | 处理 |
-|------|------|------|
-| 列表查询 `listProviders` | 不返回 apiKey，逻辑不变 | 无改动 |
-| 详情读取 `getProvider` | 需从 `encryptedApiKey` 解密 | 改读 source |
-| 新增/编辑 `saveProvider` | Key 写入 profile 而非 dbCryptoStorage | 改写逻辑 |
-| 删除 `deleteProvider` | Key 随 provider 一起删除 | 去掉 removeItem 调用 |
+| 功能                     | 影响                                  | 处理                 |
+| ------------------------ | ------------------------------------- | -------------------- |
+| 列表查询 `listProviders` | 不返回 apiKey，逻辑不变               | 无改动               |
+| 详情读取 `getProvider`   | 需从 `encryptedApiKey` 解密           | 改读 source          |
+| 新增/编辑 `saveProvider` | Key 写入 profile 而非 dbCryptoStorage | 改写逻辑             |
+| 删除 `deleteProvider`    | Key 随 provider 一起删除              | 去掉 removeItem 调用 |
 
 ### 2. 供应商切换（switchProvider）
 

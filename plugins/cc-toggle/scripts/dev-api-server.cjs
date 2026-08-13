@@ -19,37 +19,63 @@ let db = {};
 function loadDb() {
   try {
     if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch (e) { db = {}; }
+  } catch (e) {
+    db = {};
+  }
 }
 
 function saveDb() {
-  try { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8'); } catch (e) {}
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  } catch (e) {}
 }
 
 // ─────────── Mock ztools 对象 ───────────
 
 global.ztools = {
-  getPath: (name) => {
+  getPath: name => {
     if (name === 'home') return os.homedir();
-    if (name === 'appData') return process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    if (name === 'appData')
+      return process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
     return '';
   },
   db: {
-    allDocs: (prefix) => Object.keys(db).filter(k => k.startsWith(prefix)).map(k => ({ _id: k, ...db[k] })),
-    get: (key) => db[key] || null,
-    put: (doc) => { db[doc._id] = doc; saveDb(); },
-    remove: (key) => { delete db[key]; saveDb(); },
+    allDocs: prefix =>
+      Object.keys(db)
+        .filter(k => k.startsWith(prefix))
+        .map(k => ({ _id: k, ...db[k] })),
+    get: key => db[key] || null,
+    put: doc => {
+      db[doc._id] = doc;
+      saveDb();
+    },
+    remove: key => {
+      delete db[key];
+      saveDb();
+    }
   },
   dbStorage: {
-    getItem: (key) => db[key] || null,
-    setItem: (key, value) => { db[key] = value; saveDb(); },
-    removeItem: (key) => { delete db[key]; saveDb(); },
+    getItem: key => db[key] || null,
+    setItem: (key, value) => {
+      db[key] = value;
+      saveDb();
+    },
+    removeItem: key => {
+      delete db[key];
+      saveDb();
+    }
   },
   dbCryptoStorage: {
-    getItem: (key) => db['_crypto_' + key] || null,
-    setItem: (key, value) => { db['_crypto_' + key] = value; saveDb(); },
-    removeItem: (key) => { delete db['_crypto_' + key]; saveDb(); },
-  },
+    getItem: key => db['_crypto_' + key] || null,
+    setItem: (key, value) => {
+      db['_crypto_' + key] = value;
+      saveDb();
+    },
+    removeItem: key => {
+      delete db['_crypto_' + key];
+      saveDb();
+    }
+  }
 };
 
 // ─────────── 加载 preload 模块 ───────────
@@ -65,6 +91,7 @@ const { SessionManager } = require(path.join(PRELOAD_DIR, 'agents', 'sessions'))
 const { StatsCollector } = require(path.join(PRELOAD_DIR, 'agents', 'stats'));
 const { PromptManager } = require(path.join(PRELOAD_DIR, 'agents', 'prompts'));
 const { BalanceManager } = require(path.join(PRELOAD_DIR, 'providers', 'balance'));
+const { SkillManager } = require(path.join(PRELOAD_DIR, 'agents', 'skills'));
 
 // 启动时标记当前供应商
 try {
@@ -76,10 +103,16 @@ try {
 // ─────────── HTTP 请求处理 ───────────
 
 function parseBody(req) {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { resolve({}); } });
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (e) {
+        resolve({});
+      }
+    });
   });
 }
 
@@ -88,12 +121,14 @@ function sendJson(res, data) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type'
   });
   res.end(JSON.stringify(data));
 }
 
-function sendError(res, error) { sendJson(res, { error }); }
+function sendError(res, error) {
+  sendJson(res, { error });
+}
 
 const server = http.createServer(async (req, res) => {
   // CORS preflight
@@ -101,7 +136,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type'
     });
     return res.end();
   }
@@ -120,7 +155,7 @@ const server = http.createServer(async (req, res) => {
         claudeDesktopConfig: utils.getClaudeDesktopConfigPath(),
         openclawConfig: utils.getOpenClawConfigPath(),
         geminiEnv: utils.getGeminiEnvPath(),
-        opencodeConfig: utils.getOpenCodeConfigPath(),
+        opencodeConfig: utils.getOpenCodeConfigPath()
       });
     }
 
@@ -131,7 +166,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/config/gemini') return sendJson(res, configRw.readGeminiEnv());
     if (pathname === '/api/config/openclaw') return sendJson(res, configRw.readOpenClawConfig());
     if (pathname === '/api/config/opencode') return sendJson(res, configRw.readOpenCodeConfig());
-    if (pathname === '/api/config/claude-desktop') return sendJson(res, configRw.readClaudeDesktopConfig());
+    if (pathname === '/api/config/claude-desktop')
+      return sendJson(res, configRw.readClaudeDesktopConfig());
 
     // ─── 供应商 ───
     if (pathname === '/api/providers' && req.method === 'GET') {
@@ -163,6 +199,18 @@ const server = http.createServer(async (req, res) => {
       const appType = url.searchParams.get('appType');
       if (!appType) return sendError(res, 'appType required');
       return sendJson(res, { id: ProviderStore.getCurrentProviderId(appType) });
+    }
+
+    // 仅标记当前供应商（不写真实 CLI 配置，供测试造数）
+    if (pathname === '/api/provider/mark-current' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.appType || !body.id) return sendError(res, 'appType and id required');
+      try {
+        ProviderStore.markCurrent(body.appType, body.id);
+        return sendJson(res, { success: true });
+      } catch (e) {
+        return sendJson(res, { success: false, error: String(e && e.message ? e.message : e) });
+      }
     }
 
     // ─── Profile 管理 ───
@@ -297,12 +345,18 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/prompts/apply' && req.method === 'POST') {
       const body = await parseBody(req);
-      return sendJson(res, PromptManager.applyPromptToAgent(body.promptId, body.agent, body.fileName));
+      return sendJson(
+        res,
+        PromptManager.applyPromptToAgent(body.promptId, body.agent, body.fileName)
+      );
     }
 
     if (pathname === '/api/prompts/toggle' && req.method === 'POST') {
       const body = await parseBody(req);
-      return sendJson(res, PromptManager.togglePromptAgent(body.promptId, body.agent, body.fileName));
+      return sendJson(
+        res,
+        PromptManager.togglePromptAgent(body.promptId, body.agent, body.fileName)
+      );
     }
 
     // ─── 余额查询 ───
@@ -344,6 +398,14 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       BalanceManager.clearBalanceNotified(body.profileId, body.scopeKey);
       return sendJson(res, { success: true });
+    }
+
+    // ─── Skills 搜索 ───
+    if (pathname === '/api/skills/search') {
+      const q = url.searchParams.get('q') || '';
+      const source = url.searchParams.get('source') || 'skillsh';
+      const result = await SkillManager.searchSkills(q, source);
+      return sendJson(res, result);
     }
 
     sendError(res, 'Not found: ' + pathname);

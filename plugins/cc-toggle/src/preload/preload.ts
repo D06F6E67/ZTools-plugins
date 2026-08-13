@@ -12,6 +12,8 @@ import { DataMigration } from './core/cleanup';
 import { ConnectionTester } from './core/test-connection';
 import { ProfileStore } from './providers/profile-db';
 import { BalanceManager } from './providers/balance';
+import { WidgetManager } from './widgets/widget-manager';
+import { WidgetEvent } from './widgets/widget-events';
 import * as configRw from './config/config-rw';
 import * as utils from './utils';
 class ZtoolsPreload {
@@ -24,19 +26,29 @@ class ZtoolsPreload {
     try {
       DataMigration.migrateAgentPaths();
     } catch (e) {
-      console.error("[Preload] Migration failed:", e);
+      console.error('[Preload] Migration failed:', e);
     }
 
     // 2. 标记当前供应商
     try {
-      ["codex", "claude", "claude-desktop", "gemini"].forEach(function (appType) {
+      ['codex', 'claude', 'claude-desktop', 'gemini'].forEach(function (appType) {
         ProviderStore.markCurrent(appType, ProviderStore.getCurrentProviderId(appType));
       });
     } catch (e) {
       // ignore startup errors
     }
 
-    // 3. 暴露 API
+    // 3. 小组件置顶通知：接收小组件窗口的 sendToParent，应用到对应窗口
+    try {
+      const { ipcRenderer } = require('electron');
+      ipcRenderer.on('cctoggle-widget-always-on-top', function (_event: any, data: any) {
+        WidgetManager.setAlwaysOnTop('status', !!(data && data.value));
+      });
+    } catch (e) {
+      console.error('[Preload] widget ipc init failed:', e);
+    }
+
+    // 4. 暴露 API
     this.exposeApi();
   }
 
@@ -55,11 +67,11 @@ class ZtoolsPreload {
       },
 
       // Agent 路径管理
-      getConfigPaths: function() {
-        return ztools.dbStorage.getItem("ccswitch_config_paths") || {};
+      getConfigPaths: function () {
+        return ztools.dbStorage.getItem('ccswitch_config_paths') || {};
       },
-      setConfigPaths: function(paths) {
-        ztools.dbStorage.setItem("ccswitch_config_paths", paths);
+      setConfigPaths: function (paths) {
+        ztools.dbStorage.setItem('ccswitch_config_paths', paths);
       },
       getDefaultConfigDirs: utils.getDefaultConfigDirs,
 
@@ -77,11 +89,33 @@ class ZtoolsPreload {
       // Provider CRUD
       listProviders: ProviderStore.listProviders,
       getProvider: ProviderStore.getProvider,
-      saveProvider: ProviderStore.saveProvider,
+      saveProvider: function (appType: string, providerData: any) {
+        const r = ProviderStore.saveProvider(appType, providerData);
+        if (r && r.changed) {
+          try {
+            WidgetManager.broadcast(WidgetEvent.PROVIDER_UPDATED, {
+              appType: appType,
+              providerId: r.id
+            });
+          } catch (e) {}
+        }
+        return r;
+      },
       deleteProvider: ProviderStore.deleteProvider,
 
       // Switch
-      switchProvider: ProviderStore.switchProvider,
+      switchProvider: function (appType: string, providerId: string) {
+        const r = ProviderStore.switchProvider(appType, providerId);
+        if (r && r.success) {
+          try {
+            WidgetManager.broadcast(WidgetEvent.PROVIDER_SWITCHED, {
+              appType: appType,
+              providerId: providerId
+            });
+          } catch (e) {}
+        }
+        return r;
+      },
       getCurrentProviderId: ProviderStore.getCurrentProviderId,
       reapplyCurrent: ProviderStore.reapplyCurrent,
       setLastActiveApp: ProviderStore.setLastActiveApp,
@@ -187,13 +221,32 @@ class ZtoolsPreload {
       // 余额查询
       getBalanceCache: BalanceManager.getBalanceCache,
       clearBalanceCache: BalanceManager.clearProviderCache,
-      queryBalance: BalanceManager.queryBalance,
+      queryBalance: function (appType: string, providerId: string) {
+        return BalanceManager.queryBalance(appType, providerId).then(function (r: any) {
+          if (r && r.success) {
+            try {
+              WidgetManager.broadcast(WidgetEvent.BALANCE_REFRESHED, {
+                appType: appType,
+                providerId: providerId
+              });
+            } catch (e) {}
+          }
+          return r;
+        });
+      },
       queryAllBalances: BalanceManager.queryAllBalances,
 
       // 余额告警状态（持久化去重）
       getBalanceNotifyState: BalanceManager.getBalanceNotifyState,
       setBalanceNotified: BalanceManager.setBalanceNotified,
       clearBalanceNotified: BalanceManager.clearBalanceNotified,
+
+      // 桌面小组件
+      openWidget: WidgetManager.open,
+      closeWidget: WidgetManager.close,
+      toggleWidget: WidgetManager.toggle,
+      getWidgetStates: WidgetManager.getStates,
+      listWidgets: WidgetManager.listWidgets,
 
       // Profile 管理
       listProfiles: ProfileStore.listProfiles,
@@ -205,18 +258,25 @@ class ZtoolsPreload {
       getActiveProfileId: ProfileStore.getActiveProfileId,
 
       // 文件保存（preload 环境有 Node fs，前端渲染进程可能没有 require）
-      saveTextFile: function(defaultName: string, content: string, filters?: any) {
+      saveTextFile: function (defaultName: string, content: string, filters?: any) {
         try {
           const fs = utils.fs;
           let savePath: string | undefined;
-          try { savePath = ztools.showSaveDialog({ defaultPath: defaultName, filters: filters || [{ name: "File", extensions: ["txt"] }] }); } catch (e) { savePath = ""; }
+          try {
+            savePath = ztools.showSaveDialog({
+              defaultPath: defaultName,
+              filters: filters || [{ name: 'File', extensions: ['txt'] }]
+            });
+          } catch (e) {
+            savePath = '';
+          }
           if (!savePath) return { success: false, canceled: true };
-          fs.writeFileSync(savePath, content, "utf8");
+          fs.writeFileSync(savePath, content, 'utf8');
           return { success: true, path: savePath };
         } catch (e: any) {
           return { success: false, error: e && e.message ? e.message : String(e) };
         }
-      },
+      }
     };
   }
 }

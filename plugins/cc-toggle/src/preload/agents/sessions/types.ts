@@ -1,4 +1,4 @@
- // ZTools ccToggle - sessions/types.ts
+// ZTools ccToggle - sessions/types.ts
 // 会话模块共享类型与适配器接口
 
 export interface Session {
@@ -63,7 +63,10 @@ export interface SessionAdapter {
   id: string;
   label: string;
   /** 枚举并解析当前页会话元数据（含分页） */
-  scan(home: string, opts?: { offset?: number; limit?: number }): Promise<{ sessions: Session[]; totalFiles: number }>;
+  scan(
+    home: string,
+    opts?: { offset?: number; limit?: number }
+  ): Promise<{ sessions: Session[]; totalFiles: number }>;
   /** 只数文件、不解析内容 */
   count(home: string): Promise<number>;
   /** 从 jsonl 行解析消息历史（非 sqlite 型 agent 使用） */

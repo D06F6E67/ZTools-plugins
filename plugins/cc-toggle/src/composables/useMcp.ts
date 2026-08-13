@@ -1,38 +1,38 @@
 // MCP Server 状态管理
 
-import { ref } from 'vue'
-import { getSkillNest, toPlain } from './shared'
-import type { McpServer, McpServerInput } from '../types/ztools-cctoggle'
+import { ref } from 'vue';
+import { getSkillNest, toPlain } from './shared';
+import type { McpServer, McpServerInput } from '../types/ztools-cctoggle';
 
-const mcpServers = ref<McpServer[]>([])
+const mcpServers = ref<McpServer[]>([]);
 
 function loadServers(): void {
-  mcpServers.value = getSkillNest().listMcpServers()
+  mcpServers.value = getSkillNest().listMcpServers();
 }
 
 function saveServer(data: McpServerInput): void {
-  getSkillNest().saveMcpServer(toPlain(data))
-  loadServers()
+  getSkillNest().saveMcpServer(toPlain(data));
+  loadServers();
 }
 
 function deleteServer(id: string): void {
-  getSkillNest().deleteMcpServer(id)
-  loadServers()
+  getSkillNest().deleteMcpServer(id);
+  loadServers();
 }
 
 function toggleServer(id: string): boolean {
-  const result = getSkillNest().toggleMcpServer(id)
-  loadServers()
-  return result
+  const result = getSkillNest().toggleMcpServer(id);
+  loadServers();
+  return result;
 }
 
 function getServer(id: string): McpServer {
-  return getSkillNest().getMcpServer(id)
+  return getSkillNest().getMcpServer(id);
 }
 
 function syncFromConfigFiles(): void {
-  getSkillNest().syncFromConfigFiles()
-  loadServers()
+  getSkillNest().syncFromConfigFiles();
+  loadServers();
 }
 
 export function useMcp() {
@@ -43,6 +43,6 @@ export function useMcp() {
     deleteServer,
     toggleServer,
     getServer,
-    syncFromConfigFiles,
-  }
+    syncFromConfigFiles
+  };
 }

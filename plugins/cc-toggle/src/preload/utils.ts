@@ -2,60 +2,60 @@
 // ZTools ccToggle - utils.js
 // 工具函数与路径常量
 
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 function getHomeDir() {
-  const home = ztools.getPath("home");
+  const home = ztools.getPath('home');
   if (home && home.trim()) return home;
   return os.homedir();
 }
 
 function getCodexAuthPath() {
-  return path.join(getHomeDir(), ".codex", "auth.json");
+  return path.join(getHomeDir(), '.codex', 'auth.json');
 }
 
 function getCodexConfigPath() {
-  return path.join(getHomeDir(), ".codex", "config.toml");
+  return path.join(getHomeDir(), '.codex', 'config.toml');
 }
 
 function getClaudeSettingsPath() {
-  return path.join(getHomeDir(), ".claude", "settings.json");
+  return path.join(getHomeDir(), '.claude', 'settings.json');
 }
 
 function getGeminiEnvPath() {
-  return path.join(getHomeDir(), ".gemini", ".env");
+  return path.join(getHomeDir(), '.gemini', '.env');
 }
 
 function getOpenClawConfigPath() {
-  return path.join(getHomeDir(), ".openclaw", "openclaw.json");
+  return path.join(getHomeDir(), '.openclaw', 'openclaw.json');
 }
 
 // ─────────── OpenCode 路径 ───────────
 
 function getOpenCodeConfigDir() {
-  return getAgentConfigPath("opencode") || path.join(getHomeDir(), ".config", "opencode");
+  return getAgentConfigPath('opencode') || path.join(getHomeDir(), '.config', 'opencode');
 }
 
 function getOpenCodeConfigPath() {
-  return path.join(getOpenCodeConfigDir(), "opencode.json");
+  return path.join(getOpenCodeConfigDir(), 'opencode.json');
 }
 
 // OpenCode 数据目录（SQLite 数据库所在目录）
 function getOpenCodeDataDir() {
   var candidates = [];
-  if (process.platform === "darwin") {
-    candidates.push(path.join(getHomeDir(), "Library", "Application Support", "opencode"));
-    candidates.push(path.join(getHomeDir(), ".local", "share", "opencode"));
-  } else if (process.platform === "win32") {
-    candidates.push(path.join(getHomeDir(), ".local", "share", "opencode"));
-    var localAppData = process.env.LOCALAPPDATA || "";
-    if (localAppData) candidates.push(path.join(localAppData, "opencode"));
-    var appData = process.env.APPDATA || "";
-    if (appData) candidates.push(path.join(appData, "opencode"));
+  if (process.platform === 'darwin') {
+    candidates.push(path.join(getHomeDir(), 'Library', 'Application Support', 'opencode'));
+    candidates.push(path.join(getHomeDir(), '.local', 'share', 'opencode'));
+  } else if (process.platform === 'win32') {
+    candidates.push(path.join(getHomeDir(), '.local', 'share', 'opencode'));
+    var localAppData = process.env.LOCALAPPDATA || '';
+    if (localAppData) candidates.push(path.join(localAppData, 'opencode'));
+    var appData = process.env.APPDATA || '';
+    if (appData) candidates.push(path.join(appData, 'opencode'));
   } else {
-    candidates.push(path.join(getHomeDir(), ".local", "share", "opencode"));
+    candidates.push(path.join(getHomeDir(), '.local', 'share', 'opencode'));
   }
   for (var i = 0; i < candidates.length; i++) {
     if (fs.existsSync(candidates[i])) return candidates[i];
@@ -64,82 +64,82 @@ function getOpenCodeDataDir() {
 }
 
 function getOpenCodeDbPath() {
-  return path.join(getOpenCodeDataDir(), "opencode.db");
+  return path.join(getOpenCodeDataDir(), 'opencode.db');
 }
 
 function getOpenCodeMdPath() {
-  return path.join(getOpenCodeConfigDir(), "AGENTS.md");
+  return path.join(getOpenCodeConfigDir(), 'AGENTS.md');
 }
 
 function getClaudeJsonPath() {
-  return path.join(getHomeDir(), ".claude.json");
+  return path.join(getHomeDir(), '.claude.json');
 }
 
 // Claude Desktop 固定 profile ID（与 cc-switch 一致）
-var CLAUDE_DESKTOP_PROFILE_ID = "00000000-0000-4000-8000-000000157210";
+var CLAUDE_DESKTOP_PROFILE_ID = '00000000-0000-4000-8000-000000157210';
 
 function _getClaudeDesktopLocalAppDataDir() {
   // Claude Desktop 使用 LOCALAPPDATA（Windows）或 ~/Library/Application Support（macOS）
-  if (process.platform === "darwin") {
-    return path.join(getHomeDir(), "Library", "Application Support", "Claude");
+  if (process.platform === 'darwin') {
+    return path.join(getHomeDir(), 'Library', 'Application Support', 'Claude');
   }
-  var localAppData = process.env.LOCALAPPDATA || path.join(getHomeDir(), "AppData", "Local");
-  return path.join(localAppData, "Claude");
+  var localAppData = process.env.LOCALAPPDATA || path.join(getHomeDir(), 'AppData', 'Local');
+  return path.join(localAppData, 'Claude');
 }
 
 function _getClaudeDesktop3pDir() {
-  if (process.platform === "darwin") {
-    return path.join(getHomeDir(), "Library", "Application Support", "Claude-3p");
+  if (process.platform === 'darwin') {
+    return path.join(getHomeDir(), 'Library', 'Application Support', 'Claude-3p');
   }
-  var localAppData = process.env.LOCALAPPDATA || path.join(getHomeDir(), "AppData", "Local");
-  return path.join(localAppData, "Claude-3p");
+  var localAppData = process.env.LOCALAPPDATA || path.join(getHomeDir(), 'AppData', 'Local');
+  return path.join(localAppData, 'Claude-3p');
 }
 
 function getClaudeDesktopConfigPath() {
-  return path.join(_getClaudeDesktopLocalAppDataDir(), "claude_desktop_config.json");
+  return path.join(_getClaudeDesktopLocalAppDataDir(), 'claude_desktop_config.json');
 }
 
 function getClaudeDesktop3pConfigPath() {
-  return path.join(_getClaudeDesktop3pDir(), "claude_desktop_config.json");
+  return path.join(_getClaudeDesktop3pDir(), 'claude_desktop_config.json');
 }
 
 function getClaudeDesktopProfilePath() {
-  return path.join(_getClaudeDesktop3pDir(), "configLibrary", CLAUDE_DESKTOP_PROFILE_ID + ".json");
+  return path.join(_getClaudeDesktop3pDir(), 'configLibrary', CLAUDE_DESKTOP_PROFILE_ID + '.json');
 }
 
 function getClaudeDesktopMetaPath() {
-  return path.join(_getClaudeDesktop3pDir(), "configLibrary", "_meta.json");
+  return path.join(_getClaudeDesktop3pDir(), 'configLibrary', '_meta.json');
 }
 
 // ─────────── 提示词文件路径 ───────────
 
 function getClaudeMdPath() {
-  var configDir = getAgentConfigPath("claude");
-  if (configDir) return path.join(configDir, "CLAUDE.md");
-  return path.join(getHomeDir(), ".claude", "CLAUDE.md");
+  var configDir = getAgentConfigPath('claude');
+  if (configDir) return path.join(configDir, 'CLAUDE.md');
+  return path.join(getHomeDir(), '.claude', 'CLAUDE.md');
 }
 
 function getCodexAgentsMdPath() {
-  var configDir = getAgentConfigPath("codex");
-  if (configDir) return path.join(configDir, "AGENTS.md");
-  return path.join(getHomeDir(), ".codex", "AGENTS.md");
+  var configDir = getAgentConfigPath('codex');
+  if (configDir) return path.join(configDir, 'AGENTS.md');
+  return path.join(getHomeDir(), '.codex', 'AGENTS.md');
 }
 
 function getGeminiMdPath() {
-  var configDir = getAgentConfigPath("gemini");
-  if (configDir) return path.join(configDir, "GEMINI.md");
-  return path.join(getHomeDir(), ".gemini", "GEMINI.md");
+  var configDir = getAgentConfigPath('gemini');
+  if (configDir) return path.join(configDir, 'GEMINI.md');
+  return path.join(getHomeDir(), '.gemini', 'GEMINI.md');
 }
 
 function getOpenClawWorkspaceDir() {
-  var configDir = getAgentConfigPath("openclaw");
-  var openclawDir = configDir || path.join(getHomeDir(), ".openclaw");
+  var configDir = getAgentConfigPath('openclaw');
+  var openclawDir = configDir || path.join(getHomeDir(), '.openclaw');
   try {
     if (!fs.existsSync(openclawDir)) return null;
     var entries = fs.readdirSync(openclawDir);
     // 优先选择恰好名为 workspace 的目录（OpenClaw 默认单工作区）
     for (var i = 0; i < entries.length; i++) {
-      if (entries[i] === "workspace") {
+      if (entries[i] === 'workspace') {
         var exactPath = path.join(openclawDir, entries[i]);
         if (fs.statSync(exactPath).isDirectory()) {
           return exactPath;
@@ -148,31 +148,33 @@ function getOpenClawWorkspaceDir() {
     }
     // 其次选择 workspace-* 多工作区目录（排除已知非工作区目录）
     for (var j = 0; j < entries.length; j++) {
-      if (entries[j].indexOf("workspace-") === 0 && entries[j] !== "workspace-attestations") {
+      if (entries[j].indexOf('workspace-') === 0 && entries[j] !== 'workspace-attestations') {
         var fullPath = path.join(openclawDir, entries[j]);
         if (fs.statSync(fullPath).isDirectory()) {
           return fullPath;
         }
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
   return null;
 }
 
 function getOpenClawAgentsMdPath() {
   var workspace = getOpenClawWorkspaceDir();
   if (!workspace) return null;
-  return path.join(workspace, "AGENTS.md");
+  return path.join(workspace, 'AGENTS.md');
 }
 
 // OpenClaw 提示词文件清单（MEMORY.md 是运行时积累的记忆文件，不参与切换/备份）
 var OPENCLAW_PROMPT_FILES = [
-  { file: "AGENTS.md",    label: "总体行为准则 · 红线" },
-  { file: "SOUL.md",      label: "性格调性" },
-  { file: "IDENTITY.md",  label: "身份人设" },
-  { file: "USER.md",      label: "用户笔记" },
-  { file: "TOOLS.md",     label: "环境备注" },
-  { file: "HEARTBEAT.md", label: "心跳清单" },
+  { file: 'AGENTS.md', label: '总体行为准则 · 红线' },
+  { file: 'SOUL.md', label: '性格调性' },
+  { file: 'IDENTITY.md', label: '身份人设' },
+  { file: 'USER.md', label: '用户笔记' },
+  { file: 'TOOLS.md', label: '环境备注' },
+  { file: 'HEARTBEAT.md', label: '心跳清单' }
 ];
 
 function getOpenClawPromptPath(fileName) {
@@ -182,14 +184,16 @@ function getOpenClawPromptPath(fileName) {
 }
 
 function getOpenClawPromptFiles() {
-  return OPENCLAW_PROMPT_FILES.map(function (f) { return f.file; });
+  return OPENCLAW_PROMPT_FILES.map(function (f) {
+    return f.file;
+  });
 }
 
 // 纯路径展开（~ → homeDir）
 function expandHome(p) {
   if (!p) return p;
-  if (p === "~") return getHomeDir();
-  if (p.indexOf("~/") === 0 || p.indexOf("~\\") === 0) return path.join(getHomeDir(), p.slice(2));
+  if (p === '~') return getHomeDir();
+  if (p.indexOf('~/') === 0 || p.indexOf('~\\') === 0) return path.join(getHomeDir(), p.slice(2));
   return p;
 }
 
@@ -199,11 +203,11 @@ function expandHome(p) {
 function getDefaultConfigDirs() {
   var home = getHomeDir();
   return {
-    claude: path.join(home, ".claude"),
-    codex: path.join(home, ".codex"),
-    gemini: path.join(home, ".gemini"),
-    openclaw: path.join(home, ".openclaw"),
-    opencode: path.join(home, ".config", "opencode"),
+    claude: path.join(home, '.claude'),
+    codex: path.join(home, '.codex'),
+    gemini: path.join(home, '.gemini'),
+    openclaw: path.join(home, '.openclaw'),
+    opencode: path.join(home, '.config', 'opencode')
   };
 }
 
@@ -211,8 +215,10 @@ function getDefaultConfigDirs() {
 function getAgentConfigPath(appType) {
   var configPaths = {};
   try {
-    configPaths = ztools.dbStorage.getItem("ccswitch_config_paths") || {};
-  } catch (e) { configPaths = {}; }
+    configPaths = ztools.dbStorage.getItem('ccswitch_config_paths') || {};
+  } catch (e) {
+    configPaths = {};
+  }
   if (configPaths[appType]) return expandHome(configPaths[appType]);
   var defaults = getDefaultConfigDirs();
   return defaults[appType] || null;
@@ -225,9 +231,9 @@ function getAgentSessionPath(appType) {
 
   // 各 agent 的会话子目录
   var sessionSubDirs = {
-    claude: "projects",
-    codex: "sessions",
-    openclaw: "agents",
+    claude: 'projects',
+    codex: 'sessions',
+    openclaw: 'agents'
   };
 
   var subDir = sessionSubDirs[appType];
@@ -370,18 +376,19 @@ function getCodexInstructions() {
   return {
     base_instructions: CODEX_BASE_INSTRUCTIONS,
     instructions_variables: {
-      personality_default: "",
+      personality_default: '',
       personality_friendly: CODEX_PERSONALITY_FRIENDLY,
-      personality_pragmatic: CODEX_PERSONALITY_PRAGMATIC,
+      personality_pragmatic: CODEX_PERSONALITY_PRAGMATIC
     },
-    instructions_template: CODEX_INSTRUCTIONS_TEMPLATE,
+    instructions_template: CODEX_INSTRUCTIONS_TEMPLATE
   };
 }
 
 function copyDirSync(src, dest) {
   if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-  fs.readdirSync(src, { withFileTypes: true }).forEach(function(entry) {
-    var s = path.join(src, entry.name), d = path.join(dest, entry.name);
+  fs.readdirSync(src, { withFileTypes: true }).forEach(function (entry) {
+    var s = path.join(src, entry.name),
+      d = path.join(dest, entry.name);
     if (entry.isDirectory()) copyDirSync(s, d);
     else fs.copyFileSync(s, d);
   });
@@ -396,13 +403,19 @@ async function mapLimit(items, limit, fn) {
   var n = Math.min(Math.max(1, limit | 0), items.length);
   var workers = [];
   for (var w = 0; w < n; w++) {
-    workers.push((async function () {
-      for (;;) {
-        var i = idx++;
-        if (i >= items.length) return;
-        try { results[i] = await fn(items[i], i); } catch (e) { results[i] = undefined; }
-      }
-    })());
+    workers.push(
+      (async function () {
+        for (;;) {
+          var i = idx++;
+          if (i >= items.length) return;
+          try {
+            results[i] = await fn(items[i], i);
+          } catch (e) {
+            results[i] = undefined;
+          }
+        }
+      })()
+    );
   }
   await Promise.all(workers);
   return results;
@@ -417,7 +430,9 @@ var _logFileCache = {};
 var LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
 var _minLogLevel = (function () {
   var env = '';
-  try { env = String(process.env.CCTOGGLE_LOG_LEVEL || '').toLowerCase(); } catch (e) {}
+  try {
+    env = String(process.env.CCTOGGLE_LOG_LEVEL || '').toLowerCase();
+  } catch (e) {}
   return LOG_LEVELS[env] || LOG_LEVELS.info;
 })();
 
@@ -475,11 +490,17 @@ function createLogger(module, options) {
     if (_stream) return _stream;
     try {
       _written = fs.existsSync(logFile) ? fs.statSync(logFile).size : 0;
-    } catch (e) { _written = 0; }
+    } catch (e) {
+      _written = 0;
+    }
     try {
       _stream = fs.createWriteStream(logFile, { flags: 'a' });
-      _stream.on('error', function () { _stream = null; });
-    } catch (e) { _stream = null; }
+      _stream.on('error', function () {
+        _stream = null;
+      });
+    } catch (e) {
+      _stream = null;
+    }
     return _stream;
   }
 
@@ -491,13 +512,20 @@ function createLogger(module, options) {
     _stream = null;
     _written = 0;
     function reopen() {
-      try { fs.renameSync(logFile, logFile + '.1'); } catch (e) {}
+      try {
+        fs.renameSync(logFile, logFile + '.1');
+      } catch (e) {}
       _rotating = false;
       // 轮转期间积压的日志补写
       if (_buf.length) flush();
     }
-    if (old) { try { old.end(reopen); } catch (e) { reopen(); } }
-    else reopen();
+    if (old) {
+      try {
+        old.end(reopen);
+      } catch (e) {
+        reopen();
+      }
+    } else reopen();
   }
 
   function flush() {
@@ -508,44 +536,69 @@ function createLogger(module, options) {
     _buf = [];
     var s = openStream();
     if (!s) return;
-    try { s.write(chunk); } catch (e) { return; }
+    try {
+      s.write(chunk);
+    } catch (e) {
+      return;
+    }
     _written += Buffer.byteLength(chunk, 'utf8');
     if (_written >= MAX_LOG_BYTES) rotate();
   }
 
   function writeLog(level, message, data) {
     if ((LOG_LEVELS[level.toLowerCase()] || LOG_LEVELS.info) < _minLogLevel) return;
-    _buf.push('[' + getTimestamp() + '] [' + level.padEnd(5) + '] [' + module + '] ' + message + formatData(data) + '\n');
+    _buf.push(
+      '[' +
+        getTimestamp() +
+        '] [' +
+        level.padEnd(5) +
+        '] [' +
+        module +
+        '] ' +
+        message +
+        formatData(data) +
+        '\n'
+    );
     // 批量：满 64 条立即刷，否则 200ms 合并写
-    if (_buf.length >= 64) { if (_flushTimer) { clearTimeout(_flushTimer); } flush(); return; }
+    if (_buf.length >= 64) {
+      if (_flushTimer) {
+        clearTimeout(_flushTimer);
+      }
+      flush();
+      return;
+    }
     if (!_flushTimer) _flushTimer = setTimeout(flush, 200);
   }
 
   return {
     // 基础日志方法
-    info: function(msg, data) {
+    info: function (msg, data) {
       writeLog('INFO', msg, data);
     },
-    warn: function(msg, data) {
+    warn: function (msg, data) {
       writeLog('WARN', msg, data);
       console.warn('[' + module + '] ' + msg + formatData(data));
     },
-    error: function(msg, data) {
+    error: function (msg, data) {
       writeLog('ERROR', msg, data);
       console.error('[' + module + '] ' + msg + formatData(data));
     },
-    debug: function(msg, data) {
+    debug: function (msg, data) {
       writeLog('DEBUG', msg, data);
     },
 
     flush: flush,
 
     // 获取日志文件路径
-    getLogFile: function() { return logFile; },
-    getLogDir: function() { return logDir; },
+    getLogFile: function () {
+      return logFile;
+    },
+    getLogDir: function () {
+      return logDir;
+    },
 
     // 读取日志内容
-    readLog: function(lines) {
+    readLog: function (lines) {
       flush();
       try {
         if (!fs.existsSync(logFile)) return '';
@@ -561,13 +614,20 @@ function createLogger(module, options) {
     },
 
     // 清空日志
-    clearLog: function() {
+    clearLog: function () {
       _buf = [];
-      if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+      if (_flushTimer) {
+        clearTimeout(_flushTimer);
+        _flushTimer = null;
+      }
       var s = _stream;
       _stream = null;
       _written = 0;
-      if (s) { try { s.end(); } catch (e) {} }
+      if (s) {
+        try {
+          s.end();
+        } catch (e) {}
+      }
       try {
         if (fs.existsSync(logFile)) {
           fs.writeFileSync(logFile, '', 'utf8');
@@ -579,7 +639,7 @@ function createLogger(module, options) {
     },
 
     // 获取日志文件大小（字节）
-    getLogSize: function() {
+    getLogSize: function () {
       try {
         if (fs.existsSync(logFile)) {
           return fs.statSync(logFile).size;
@@ -591,10 +651,10 @@ function createLogger(module, options) {
     },
 
     // 分段标记（用于标记不同的阶段）
-    separator: function(title) {
+    separator: function (title) {
       _buf.push('\n' + '='.repeat(60) + '\n  ' + title + '\n' + '='.repeat(60) + '\n');
       flush();
-    },
+    }
   };
 }
 
@@ -653,5 +713,5 @@ export {
   createLogger,
   getLogger,
   // 并发工具
-  mapLimit,
+  mapLimit
 };

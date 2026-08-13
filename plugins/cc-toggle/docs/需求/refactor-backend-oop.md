@@ -16,22 +16,22 @@
 
 ## 2. 现有模块清单
 
-| 文件 | 行数 | 职责 |
-|---|---|---|
-| `services.ts` | 178 | 入口文件，组装所有模块到 `window.ztoolsCctoggle` |
-| `utils.ts` | 667 | 基础工具：路径、ID 生成、日志、Codex 指令常量 |
-| `config-rw.ts` | 633 | 5 种 Agent 的配置文件读写 |
-| `provider-db.ts` | 267 | 供应商 CRUD、切换、导入导出 |
-| `sessions.ts` | 894 | 会话扫描/解析（Claude, Codex, OpenClaw, Claude Desktop） |
-| `proxy.ts` | 427 | 路由组 CRUD、代理启停、takeover/restore |
-| `proxy-daemon.ts` | 638 | HTTP 代理服务（隐藏 BrowserWindow），failover + 熔断 |
-| `proxy-converter.ts` | 663 | 协议转换：Responses API ↔ Chat Completions ↔ Anthropic Messages |
-| `mcp.ts` | 492 | MCP 服务器配置管理 |
-| `prompts.ts` | 457 | Prompt CRUD、备份/恢复、应用到 Agent 配置 |
-| `skills.ts` | 583 | Skill nest 管理、deploy/undeploy、项目目标 |
-| `stats.ts` | 178 | 用量统计扫描 |
-| `cleanup.ts` | 313 | 数据迁移（版本化）、MCP 映射清理 |
-| `test-connection.ts` | 235 | API 连接测试 |
+| 文件                 | 行数 | 职责                                                            |
+| -------------------- | ---- | --------------------------------------------------------------- |
+| `services.ts`        | 178  | 入口文件，组装所有模块到 `window.ztoolsCctoggle`                |
+| `utils.ts`           | 667  | 基础工具：路径、ID 生成、日志、Codex 指令常量                   |
+| `config-rw.ts`       | 633  | 5 种 Agent 的配置文件读写                                       |
+| `provider-db.ts`     | 267  | 供应商 CRUD、切换、导入导出                                     |
+| `sessions.ts`        | 894  | 会话扫描/解析（Claude, Codex, OpenClaw, Claude Desktop）        |
+| `proxy.ts`           | 427  | 路由组 CRUD、代理启停、takeover/restore                         |
+| `proxy-daemon.ts`    | 638  | HTTP 代理服务（隐藏 BrowserWindow），failover + 熔断            |
+| `proxy-converter.ts` | 663  | 协议转换：Responses API ↔ Chat Completions ↔ Anthropic Messages |
+| `mcp.ts`             | 492  | MCP 服务器配置管理                                              |
+| `prompts.ts`         | 457  | Prompt CRUD、备份/恢复、应用到 Agent 配置                       |
+| `skills.ts`          | 583  | Skill nest 管理、deploy/undeploy、项目目标                      |
+| `stats.ts`           | 178  | 用量统计扫描                                                    |
+| `cleanup.ts`         | 313  | 数据迁移（版本化）、MCP 映射清理                                |
+| `test-connection.ts` | 235  | API 连接测试                                                    |
 
 ---
 
@@ -41,32 +41,32 @@
 
 ### P0 — 高收益（状态复杂、逻辑内聚）
 
-| 模块 | 行数 | 现状 | 改造为 Class | 理由 |
-|---|---|---|---|---|
-| `proxy-daemon.ts` | 638 | 12 个模块级变量 + 20+ 散落函数 | `ProxyDaemon` | 最大受益者：HTTP server 生命周期、熔断状态机、负载均衡策略天然适合封装为类 |
-| `sessions.ts` | 894 | 2 个缓存对象 + 大量解析函数 | `SessionScanner` | 扫描缓存 + 文件解析逻辑内聚，可封装为带缓存策略的扫描器 |
-| `provider-db.ts` | 267 | CRUD + 切换逻辑 | `ProviderStore` | 供应商数据的完整生命周期管理，天然领域对象 |
+| 模块              | 行数 | 现状                           | 改造为 Class     | 理由                                                                       |
+| ----------------- | ---- | ------------------------------ | ---------------- | -------------------------------------------------------------------------- |
+| `proxy-daemon.ts` | 638  | 12 个模块级变量 + 20+ 散落函数 | `ProxyDaemon`    | 最大受益者：HTTP server 生命周期、熔断状态机、负载均衡策略天然适合封装为类 |
+| `sessions.ts`     | 894  | 2 个缓存对象 + 大量解析函数    | `SessionScanner` | 扫描缓存 + 文件解析逻辑内聚，可封装为带缓存策略的扫描器                    |
+| `provider-db.ts`  | 267  | CRUD + 切换逻辑                | `ProviderStore`  | 供应商数据的完整生命周期管理，天然领域对象                                 |
 
 ### P1 — 中等收益（逻辑聚合、减少文件间耦合）
 
-| 模块 | 行数 | 改造为 Class | 理由 |
-|---|---|---|---|
-| `config-rw.ts` | 633 | `ConfigReader` / `ConfigWriter` | 5 种 agent 的配置读写逻辑相似，可用策略模式统一 |
-| `proxy.ts` | 427 | `ProxyManager` | 路由组 CRUD + 代理启停管理，状态（运行中的代理）需要封装 |
-| `prompts.ts` | 457 | `PromptManager` | Prompt CRUD + 备份/恢复 + 应用到 agent 的编排逻辑 |
-| `skills.ts` | 583 | `SkillManager` | Skill nest 管理 + 部署/取消部署 + 项目目标 |
+| 模块           | 行数 | 改造为 Class                    | 理由                                                     |
+| -------------- | ---- | ------------------------------- | -------------------------------------------------------- |
+| `config-rw.ts` | 633  | `ConfigReader` / `ConfigWriter` | 5 种 agent 的配置读写逻辑相似，可用策略模式统一          |
+| `proxy.ts`     | 427  | `ProxyManager`                  | 路由组 CRUD + 代理启停管理，状态（运行中的代理）需要封装 |
+| `prompts.ts`   | 457  | `PromptManager`                 | Prompt CRUD + 备份/恢复 + 应用到 agent 的编排逻辑        |
+| `skills.ts`    | 583  | `SkillManager`                  | Skill nest 管理 + 部署/取消部署 + 项目目标               |
 
 ### P2 — 低收益（工具性质、无状态或状态简单）
 
-| 模块 | 行数 | 建议 | 理由 |
-|---|---|---|---|
-| `utils.ts` | 667 | **保持函数式** | 纯工具函数集合，无状态，强行 OOP 反而增加复杂度 |
-| `mcp.ts` | 492 | 可选 `McpStore` | 逻辑相对简单，改造收益一般 |
-| `stats.ts` | 178 | **保持函数式** | 扫描逻辑简单，无复杂状态 |
-| `cleanup.ts` | 313 | **保持函数式** | 迁移脚本性质，一次执行，无需 OOP |
-| `test-connection.ts` | 235 | **保持函数式** | 纯函数：发起请求、检查响应 |
-| `proxy-converter.ts` | 663 | **保持函数式** | 纯数据转换，无状态 |
-| `services.ts` | 178 | 改为 `ServiceContainer` | 作为组装入口，可改为依赖注入容器 |
+| 模块                 | 行数 | 建议                    | 理由                                            |
+| -------------------- | ---- | ----------------------- | ----------------------------------------------- |
+| `utils.ts`           | 667  | **保持函数式**          | 纯工具函数集合，无状态，强行 OOP 反而增加复杂度 |
+| `mcp.ts`             | 492  | 可选 `McpStore`         | 逻辑相对简单，改造收益一般                      |
+| `stats.ts`           | 178  | **保持函数式**          | 扫描逻辑简单，无复杂状态                        |
+| `cleanup.ts`         | 313  | **保持函数式**          | 迁移脚本性质，一次执行，无需 OOP                |
+| `test-connection.ts` | 235  | **保持函数式**          | 纯函数：发起请求、检查响应                      |
+| `proxy-converter.ts` | 663  | **保持函数式**          | 纯数据转换，无状态                              |
+| `services.ts`        | 178  | 改为 `ServiceContainer` | 作为组装入口，可改为依赖注入容器                |
 
 ---
 
@@ -219,13 +219,13 @@ class SkillManager {
 
 ### 6.1 命名规范
 
-| 类型 | 规范 | 示例 |
-|---|---|---|
-| 类名 | PascalCase | `ProxyDaemon`, `SessionScanner` |
-| 方法/属性 | camelCase | `listProviders`, `scanCache` |
-| 私有成员 | TypeScript `private` 修饰符 | `private server: http.Server` |
-| 常量 | UPPER_SNAKE_CASE | `DB_PREFIX`, `MAX_REQUEST_BYTES` |
-| 接口 | 名词或 `I` 前缀 | `Provider`, `RouteGroup`, `MemberState` |
+| 类型      | 规范                        | 示例                                    |
+| --------- | --------------------------- | --------------------------------------- |
+| 类名      | PascalCase                  | `ProxyDaemon`, `SessionScanner`         |
+| 方法/属性 | camelCase                   | `listProviders`, `scanCache`            |
+| 私有成员  | TypeScript `private` 修饰符 | `private server: http.Server`           |
+| 常量      | UPPER_SNAKE_CASE            | `DB_PREFIX`, `MAX_REQUEST_BYTES`        |
+| 接口      | 名词或 `I` 前缀             | `Provider`, `RouteGroup`, `MemberState` |
 
 ### 6.2 类设计原则
 

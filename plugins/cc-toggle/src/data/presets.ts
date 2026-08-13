@@ -2,71 +2,68 @@
 // Presets aggregator - merges provider metadata + per-app diffs
 // Public API is unchanged: import { PRESETS } from "./presets"
 
-import { PROVIDERS } from "./providers";
-import codexRaw from "./presets-codex";
-import claudeRaw from "./presets-claude";
-import claudeDesktopRaw from "./presets-claude-desktop";
-import openclawRaw from "./presets-openclaw";
-import geminiRaw from "./presets-gemini";
+import { PROVIDERS } from './providers';
+import codexRaw from './presets-codex';
+import claudeRaw from './presets-claude';
+import claudeDesktopRaw from './presets-claude-desktop';
+import openclawRaw from './presets-openclaw';
+import geminiRaw from './presets-gemini';
 
 const CODEX_DEFAULTS = {
-  configType: "openai",
-  baseUrl: "",
-  model: "",
-  reasoningEffort: "high",
-  wireApi: "responses",
-  apiFormat: "",
+  configType: 'openai',
+  baseUrl: '',
+  model: '',
+  reasoningEffort: 'high',
+  wireApi: 'responses',
+  apiFormat: '',
   models: [],
   modelCatalog: [],
   endpointCandidates: [],
-  config: "",
-  authData: { OPENAI_API_KEY: "" },
+  config: '',
+  authData: { OPENAI_API_KEY: '' }
 };
 
 const CLAUDE_DEFAULTS = {
-  configType: "anthropic",
-  baseUrl: "",
-  model: "",
+  configType: 'anthropic',
+  baseUrl: '',
+  model: '',
   endpointCandidates: [],
-  settingsConfig: { env: {} },
+  settingsConfig: { env: {} }
 };
 
 const OPENCLAW_DEFAULTS = {
-  configType: "openclaw",
-  apiProtocol: "openai-completions",
-  baseUrl: "",
-  model: "",
+  configType: 'openclaw',
+  apiProtocol: 'openai-completions',
+  baseUrl: '',
+  model: '',
   models: [],
   endpointCandidates: [],
   settingsConfig: {},
-  suggestedDefaults: null,
+  suggestedDefaults: null
 };
 
 const GEMINI_DEFAULTS = {
-  configType: "gemini",
-  baseUrl: "",
-  model: "",
+  configType: 'gemini',
+  baseUrl: '',
+  model: '',
   endpointCandidates: [],
-  settingsConfig: { env: {} },
+  settingsConfig: { env: {} }
 };
 
 const CLAUDE_DESKTOP_DEFAULTS = {
-  configType: "anthropic",
-  baseUrl: "",
-  model: "",
+  configType: 'anthropic',
+  baseUrl: '',
+  model: '',
   endpointCandidates: [],
-  settingsConfig: { env: {} },
+  settingsConfig: { env: {} }
 };
 
 // Generate Codex `config` TOML from structured fields
 function generateCodexConfig(p) {
-  const lines = [
-    `model_provider = "custom"`,
-    `model = "${p.model || ""}"`,
-  ];
+  const lines = [`model_provider = "custom"`, `model = "${p.model || ''}"`];
   if (p.reviewModel) lines.push(`review_model = "${p.reviewModel}"`);
   if (!p.noReasoningEffort) {
-    lines.push(`model_reasoning_effort = "${p.reasoningEffort || "high"}"`);
+    lines.push(`model_reasoning_effort = "${p.reasoningEffort || 'high'}"`);
   }
   lines.push(`disable_response_storage = true`);
   if (p.modelVerbosity) lines.push(`model_verbosity = "${p.modelVerbosity}"`);
@@ -77,19 +74,26 @@ function generateCodexConfig(p) {
     lines.push(`model_context_window = ${p.contextWindow}`);
     lines.push(`model_auto_compact_token_limit = ${p.contextWindow}`);
   }
-  lines.push("");
-  lines.push("[model_providers.custom]");
+  lines.push('');
+  lines.push('[model_providers.custom]');
   lines.push(`name = "${p.configName || p.provider}"`);
-  lines.push(`base_url = "${p.baseUrl || ""}"`);
-  lines.push(`wire_api = "${p.wireApi || "responses"}"`);
+  lines.push(`base_url = "${p.baseUrl || ''}"`);
+  lines.push(`wire_api = "${p.wireApi || 'responses'}"`);
   lines.push(`requires_openai_auth = true`);
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 // Fields that are meta/generation params, not directly copied to output
 const CODEX_META_KEYS = new Set([
-  "provider", "configName", "reviewModel", "modelVerbosity", "envKey",
-  "queryParams", "personality", "contextWindow", "noReasoningEffort",
+  'provider',
+  'configName',
+  'reviewModel',
+  'modelVerbosity',
+  'envKey',
+  'queryParams',
+  'personality',
+  'contextWindow',
+  'noReasoningEffort'
 ]);
 
 function mergeCodex(entry) {
@@ -99,10 +103,10 @@ function mergeCodex(entry) {
     if (!CODEX_META_KEYS.has(k)) merged[k] = v;
   }
   // Generate config unless explicitly provided (or preset is a blank placeholder)
-  if (merged.config === undefined || merged.config === "") {
+  if (merged.config === undefined || merged.config === '') {
     const hasContent = !!(entry.baseUrl || entry.model);
     if (hasContent) merged.config = generateCodexConfig(entry);
-    else merged.config = "";
+    else merged.config = '';
   }
   return merged;
 }
@@ -111,17 +115,17 @@ function mergeSimple(entry, defaults) {
   const meta = PROVIDERS[entry.provider] || {};
   const merged = { ...defaults, ...meta };
   for (const [k, v] of Object.entries(entry)) {
-    if (k !== "provider") merged[k] = v;
+    if (k !== 'provider') merged[k] = v;
   }
   return merged;
 }
 
 export const PRESETS = {
   codex: codexRaw.map(mergeCodex),
-  claude: claudeRaw.map((e) => mergeSimple(e, CLAUDE_DEFAULTS)),
-  "claude-desktop": claudeDesktopRaw.map((e) => mergeSimple(e, CLAUDE_DESKTOP_DEFAULTS)),
-  openclaw: openclawRaw.map((e) => mergeSimple(e, OPENCLAW_DEFAULTS)),
-  gemini: geminiRaw.map((e) => mergeSimple(e, GEMINI_DEFAULTS)),
+  claude: claudeRaw.map(e => mergeSimple(e, CLAUDE_DEFAULTS)),
+  'claude-desktop': claudeDesktopRaw.map(e => mergeSimple(e, CLAUDE_DESKTOP_DEFAULTS)),
+  openclaw: openclawRaw.map(e => mergeSimple(e, OPENCLAW_DEFAULTS)),
+  gemini: geminiRaw.map(e => mergeSimple(e, GEMINI_DEFAULTS))
 };
 
 export default PRESETS;

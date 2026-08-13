@@ -3,8 +3,5 @@
     "allowJs": true,
     "types": ["@ztools-center/ztools-api-types"]
   },
-  "include": [
-    "src/**/*.vue",
-    "src/**/*.js"
-  ]
+  "include": ["src/**/*.vue", "src/**/*.js"]
 }

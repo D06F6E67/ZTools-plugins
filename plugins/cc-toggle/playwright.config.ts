@@ -11,18 +11,18 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5273',
     trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
+    screenshot: 'only-on-failure'
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
+      use: { ...devices['Desktop Chrome'] }
+    }
   ],
   webServer: {
     command: 'pnpm dev:browser',
     url: 'http://localhost:5273',
     reuseExistingServer: true,
-    timeout: 120_000,
-  },
+    timeout: 120_000
+  }
 });

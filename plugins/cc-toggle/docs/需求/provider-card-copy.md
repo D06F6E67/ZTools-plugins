@@ -26,15 +26,15 @@
 
 ## 复制规则
 
-| 字段 | 处理 |
-|------|------|
-| id | 重新生成（saveProvider 走 generateId） |
-| name | `{原名} (copy)` |
-| isCurrent | 强制 false |
-| createdAt | 当前时间（置空由 saveProvider 生成） |
-| sortOrder | 0 |
-| apiKey | 一并复制（getProvider 返回明文 Key） |
-| 其余字段 | 全量原样复制 |
+| 字段      | 处理                                   |
+| --------- | -------------------------------------- |
+| id        | 重新生成（saveProvider 走 generateId） |
+| name      | `{原名} (copy)`                        |
+| isCurrent | 强制 false                             |
+| createdAt | 当前时间（置空由 saveProvider 生成）   |
+| sortOrder | 0                                      |
+| apiKey    | 一并复制（getProvider 返回明文 Key）   |
+| 其余字段  | 全量原样复制                           |
 
 不继承代理路由组成员关系（路由组按 providerId 引用），副本需用户手动加入。
 
@@ -51,14 +51,15 @@
 2. **`src/composables/useProviders.ts`**
    - 新增 `copyProvider(id)`：
      ```ts
-     const full = getFullProvider(id)          // 含 apiKey
+     const full = getFullProvider(id) // 含 apiKey
      if (!full) return warning
-     delete full.id; delete full.appType
+     delete full.id
+     delete full.appType
      full.isCurrent = false
      full.name = full.name + ' (copy)'
      full.createdAt = ''
      full.sortOrder = 0
-     saveProvider(activeTab(), full)           // 内部已 loadProviders
+     saveProvider(activeTab(), full) // 内部已 loadProviders
      success('已复制 ' + full.name)
      ```
    - 在 `useProviders()` 返回值中导出
@@ -76,12 +77,12 @@
 
 ## 边界情况
 
-| 场景 | 行为 |
-|------|------|
+| 场景               | 行为                                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | 复制当前激活供应商 | 允许；副本不激活，不重写 CLI 配置（saveProvider 的 reapply 仅对 isCurrent 副本生效，副本 isCurrent=false 不触发） |
-| 名称重复 | `(copy)` 后缀可叠加；saveProvider 本就无名称唯一性校验，与现状一致 |
-| 代理运行中 | 复制只写 profile，不触碰代理状态 |
-| 源供应商不存在 | getFullProvider 返回 null，toast 提示后中止 |
+| 名称重复           | `(copy)` 后缀可叠加；saveProvider 本就无名称唯一性校验，与现状一致                                                |
+| 代理运行中         | 复制只写 profile，不触碰代理状态                                                                                  |
+| 源供应商不存在     | getFullProvider 返回 null，toast 提示后中止                                                                       |
 
 ---
 

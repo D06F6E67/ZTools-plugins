@@ -23,7 +23,7 @@ export const deepnightTheme = {
       primaryLight: '#1e2d3d',
       danger: '#f14c4c',
       dangerLight: '#2d1a1a',
-      success: '#73c991',
+      success: '#73c991'
     },
     dark: {
       bg: '#1e1e1e',
@@ -40,15 +40,16 @@ export const deepnightTheme = {
       primaryLight: '#1e2d3d',
       danger: '#f14c4c',
       dangerLight: '#2d1a1a',
-      success: '#73c991',
-    },
+      success: '#73c991'
+    }
   },
 
   components: {
     common: {
       borderRadius: '8px',
       borderRadiusSmall: '6px',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       fontSize: '13px',
       fontSizeMini: '11px',
       fontSizeTiny: '11px',
@@ -59,21 +60,21 @@ export const deepnightTheme = {
       heightTiny: '28px',
       heightSmall: '32px',
       heightMedium: '34px',
-      heightLarge: '40px',
+      heightLarge: '40px'
     },
     Card: {
       borderRadius: '8px',
       titleFontWeight: '600',
       titleFontSize: '13px',
       paddingSmall: '12px 14px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15)'
     },
     Button: {
       borderRadiusMedium: '6px',
       borderRadiusSmall: '6px',
       fontWeight: '500',
       paddingSmall: '0 14px',
-      paddingMedium: '0 18px',
+      paddingMedium: '0 18px'
     },
     Input: { borderRadius: '6px' },
     InputNumber: { borderRadius: '6px' },
@@ -83,9 +84,9 @@ export const deepnightTheme = {
       labelFontWeight: '500',
       labelFontSize: '11px',
       valueFontWeight: '700',
-      valueFontSize: '18px',
+      valueFontSize: '18px'
     },
     Descriptions: { labelFontWeight: '500' },
-    Code: { borderRadius: '6px' },
-  },
-}
+    Code: { borderRadius: '6px' }
+  }
+};
