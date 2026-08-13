@@ -9,7 +9,7 @@ marked.setOptions({
 /** 将 Markdown 渲染为 HTML */
 export function renderMarkdown(src: string): string {
   if (!src) return ''
-  return marked.parse(src, { async: false }) as string
+  return marked.parse(src) as string
 }
 
 /** 从 Markdown 提取标题：首个标题或首段非空文本 */

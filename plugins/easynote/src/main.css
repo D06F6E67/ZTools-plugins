@@ -449,19 +449,56 @@ textarea {
   color: var(--note-text-secondary);
 }
 
+.home-columns {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* 两栏模式下每栏为一个卡片，各自独立滚动 */
+.home-col {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--note-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--note-bg);
+}
+
+.home-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--note-border);
+  background: var(--note-panel);
+}
+
+.home-col-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .home-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px;
 }
 
 .home-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 8px;
   border: 1px solid var(--note-border);
   border-radius: 6px;
   cursor: pointer;
@@ -475,6 +512,11 @@ textarea {
 .home-item-main {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+}
+
+.home-item-check {
+  margin-right: 2px;
 }
 
 .home-item-title {
@@ -485,7 +527,15 @@ textarea {
   white-space: nowrap;
 }
 
+.home-item-title.home-item-done {
+  color: var(--note-text-secondary);
+  text-decoration: line-through;
+}
+
 .home-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   color: var(--note-text-secondary);
   margin-top: 2px;

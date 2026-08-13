@@ -8,6 +8,7 @@
  */
 
 let stickyWin: BrowserWindow.WindowInstance | null = null
+let stickyWatcher: ReturnType<typeof setInterval> | null = null
 
 const STICKY_W = 360
 const STICKY_H = 480
@@ -38,6 +39,29 @@ export function isStandaloneSupported(): boolean {
 /** 便利贴窗口是否正在打开（未被销毁） */
 export function isStickyNoteOpen(): boolean {
   return stickyWin !== null && !stickyWin.isDestroyed()
+}
+
+function stopStickyWatcher() {
+  if (stickyWatcher) {
+    clearInterval(stickyWatcher)
+    stickyWatcher = null
+  }
+}
+
+/** 监听便利贴窗口关闭：一旦销毁即结束整个插件进程（主窗口已被隐藏，无其他用途） */
+function watchStickyClose() {
+  stopStickyWatcher()
+  stickyWatcher = setInterval(() => {
+    if (!stickyWin || stickyWin.isDestroyed()) {
+      stopStickyWatcher()
+      stickyWin = null
+      try {
+        window.ztools.outPlugin(true)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, 300)
 }
 
 /** 创建/聚焦便利贴窗口。noteId 为空=新建草稿；非空=打开已保存便签 */
@@ -73,7 +97,7 @@ export function openStickyWindow(noteId?: string | null): boolean {
         // parent: null 让窗口独立于主窗口，关闭主窗口时不连带关闭
         parent: null,
         webPreferences: { zoomFactor: 1 }
-      } as BrowserWindow.InitOptions,
+      } as unknown as BrowserWindow.InitOptions,
       () => {
         try {
           window.ztools.hideMainWindow()
@@ -82,9 +106,12 @@ export function openStickyWindow(noteId?: string | null): boolean {
         }
       }
     )
+    // 主窗口已被隐藏，便利贴关闭后插件应随之结束
+    watchStickyClose()
     return true
   } catch (e) {
     console.error('创建便利贴窗口失败:', e)
+    stopStickyWatcher()
     stickyWin = null
     return false
   }
@@ -92,6 +119,7 @@ export function openStickyWindow(noteId?: string | null): boolean {
 
 /** 关闭当前便利贴窗口（如果存在） */
 export function closeStickyWindow(): void {
+  stopStickyWatcher()
   if (stickyWin && !stickyWin.isDestroyed()) {
     try {
       stickyWin.close()
