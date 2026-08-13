@@ -19,9 +19,27 @@
             {{ n.title || '无标题' }}
           </div>
           <div class="home-item-meta">
-            <span>{{ formatTime(n.updatedAt) }}</span>
+            <el-tooltip placement="bottom" :show-after="300">
+              <template #content>
+                <div class="meta-tooltip">
+                  <div>创建于 {{ formatFullTime(n.createdAt) }}</div>
+                  <div>更新于 {{ formatFullTime(n.updatedAt) }}</div>
+                  <div v-if="n.done && n.doneAt">完成于 {{ formatFullTime(n.doneAt) }}</div>
+                </div>
+              </template>
+              <span>
+                <template v-if="n.done && n.doneAt">完成于 {{ formatTime(n.doneAt) }}</template>
+                <template v-else>{{ formatTime(n.updatedAt) }}</template>
+              </span>
+            </el-tooltip>
           </div>
         </div>
+        <el-button
+          link
+          :icon="Switch"
+          :title="n.type === 'note' ? '转为待办' : '转为笔记'"
+          @click.stop="$emit('changeType', n.id)"
+        />
         <el-button
           link
           :icon="Memo"
@@ -36,8 +54,8 @@
 </template>
 
 <script setup lang="ts">
-import { Delete, Memo } from '@element-plus/icons-vue'
-import { formatTime } from '../utils/time'
+import { Delete, Memo, Switch } from '@element-plus/icons-vue'
+import { formatTime, formatFullTime } from '../utils/time'
 import type { Note } from '../composables/useNotes'
 
 defineProps<{
@@ -50,6 +68,7 @@ defineProps<{
 defineEmits<{
   (e: 'open', id: string): void
   (e: 'openSticky', id: string): void
+  (e: 'changeType', id: string): void
   (e: 'delete', id: string): void
 }>()
 </script>

@@ -541,6 +541,15 @@ textarea {
   margin-top: 2px;
 }
 
+/* 时间详情 tooltip（el-tooltip 内容传送到 body，使用全局样式） */
+.meta-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .home-empty {
   padding: 30px 10px;
   text-align: center;

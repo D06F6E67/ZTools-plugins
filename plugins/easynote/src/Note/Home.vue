@@ -39,6 +39,7 @@
         tag-type="primary"
         @open="$emit('open', $event)"
         @open-sticky="$emit('openSticky', $event)"
+        @change-type="onChangeType"
         @delete="onDelete"
       />
 
@@ -49,6 +50,7 @@
         tag-type="warning"
         @open="$emit('open', $event)"
         @open-sticky="$emit('openSticky', $event)"
+        @change-type="onChangeType"
         @delete="onDelete"
       >
         <template #count>{{ doneCount }}/{{ todos.length }}</template>
@@ -78,11 +80,15 @@ defineEmits<{
   (e: 'openSticky', id: string): void
 }>()
 
-const { sortedNotes, deleteNote, toggleDone } = useNotes()
+const { sortedNotes, deleteNote, toggleDone, changeType } = useNotes()
 const { settings, setMode, setFontSize } = useSettings()
 
 const notes = computed(() => sortedNotes.value.filter((n) => n.type === 'note'))
-const todos = computed(() => sortedNotes.value.filter((n) => n.type === 'todo'))
+const todos = computed(() => {
+  const list = sortedNotes.value.filter((n) => n.type === 'todo')
+  // 未完成在上，已完成在下；各组内按 updatedAt 降序
+  return list.sort((a, b) => Number(a.done) - Number(b.done))
+})
 const doneCount = computed(() => todos.value.filter((n) => n.done).length)
 
 function onMode(v: string | number | boolean | undefined) {
@@ -99,5 +105,8 @@ function onDelete(id: string) {
 }
 function onToggleDone(id: string) {
   toggleDone(id)
+}
+function onChangeType(id: string) {
+  changeType(id)
 }
 </script>

@@ -11,6 +11,8 @@ export interface Note {
   type: NoteType
   /** 待办是否已完成 */
   done: boolean
+  /** 待办完成时间（仅待办且 done=true 时有值） */
+  doneAt?: number
   createdAt: number
   updatedAt: number
 }
@@ -134,7 +136,31 @@ export function useNotes() {
     const i = savedNotes.value.findIndex((x) => x.id === id)
     if (i >= 0) {
       const notes = [...savedNotes.value]
-      notes[i] = { ...notes[i], done: !notes[i].done }
+      const cur = notes[i]
+      const newDone = !cur.done
+      notes[i] = {
+        ...cur,
+        done: newDone,
+        doneAt: newDone ? Date.now() : undefined
+      }
+      persist(notes)
+      savedNotes.value = notes
+    }
+  }
+
+  /** 切换便签类型：笔记 ↔ 待办 */
+  function changeType(id: string) {
+    const i = savedNotes.value.findIndex((x) => x.id === id)
+    if (i >= 0) {
+      const notes = [...savedNotes.value]
+      const cur = notes[i]
+      notes[i] = {
+        ...cur,
+        type: cur.type === 'note' ? 'todo' : 'note',
+        done: false,
+        doneAt: undefined, // 转换类型时清除完成时间
+        updatedAt: Date.now()
+      }
       persist(notes)
       savedNotes.value = notes
     }
@@ -159,6 +185,7 @@ export function useNotes() {
     updateDraft,
     saveDraft,
     toggleDone,
+    changeType,
     deleteNote
   }
 }
