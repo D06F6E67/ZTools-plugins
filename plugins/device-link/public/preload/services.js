@@ -1,0 +1,417 @@
+'use strict'
+
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const crypto = require('node:crypto')
+const QRCode = require('qrcode')
+const { clipboard, nativeImage, safeStorage, shell } = require('electron')
+const { createRepository } = require('./core/repository')
+const { CHUNK_SIZE, createDeviceLinkServer } = require('./core/server')
+const { randomDigits, randomId } = require('./core/crypto')
+const {
+  cleanDeviceName,
+  cleanText,
+  detectKind,
+  normalizePort,
+  safeFilename,
+  validatePairingCode,
+  validateWebDavUrl,
+} = require('./core/validation')
+const { runWebDavSync } = require('./core/webdav')
+
+const ztools = window.ztools
+const dataDir = path.join(ztools.getPath('userData'), 'device-link')
+fs.mkdirSync(dataDir, { recursive: true })
+
+const repository = createRepository(ztools.db.promises, dataDir)
+let server = null
+
+const DEFAULT_SETTINGS = {
+  deviceId: '',
+  deviceName: os.hostname() || '我的电脑',
+  port: 32125,
+  pairingCodeMode: 'random',
+  customPairingCode: '',
+  autoAcceptTrustedText: true,
+  autoAcceptTrustedFiles: false,
+  maxIncomingFileBytes: 10 * 1024 * 1024 * 1024,
+}
+
+const DEFAULT_WEBDAV = {
+  enabled: false,
+  baseUrl: '',
+  username: '',
+  password: '',
+  syncPassword: '',
+  salt: '',
+  lastSyncedAt: '',
+  status: 'disabled',
+}
+
+function emit(type, data) {
+  window.dispatchEvent(new CustomEvent('device-link:event', { detail: { type, data } }))
+}
+
+function fallbackKey() {
+  const nativeId = typeof ztools.getNativeId === 'function' ? ztools.getNativeId() : os.hostname()
+  return crypto.createHash('sha256').update(`device-link-local:${nativeId}:${dataDir}`).digest()
+}
+
+function seal(value) {
+  if (!value) return ''
+  if (safeStorage.isEncryptionAvailable()) return `safe:${safeStorage.encryptString(value).toString('base64')}`
+  const nonce = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', fallbackKey(), nonce)
+  const body = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
+  return `local:${Buffer.concat([nonce, cipher.getAuthTag(), body]).toString('base64')}`
+}
+
+function unseal(value) {
+  if (!value) return ''
+  if (value.startsWith('safe:')) return safeStorage.decryptString(Buffer.from(value.slice(5), 'base64'))
+  if (value.startsWith('local:')) {
+    const bytes = Buffer.from(value.slice(6), 'base64')
+    const decipher = crypto.createDecipheriv('aes-256-gcm', fallbackKey(), bytes.subarray(0, 12))
+    decipher.setAuthTag(bytes.subarray(12, 28))
+    return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8')
+  }
+  return ''
+}
+
+async function getSettingsRecord() {
+  const stored = (await repository.getSettings()) || {}
+  const settings = { ...DEFAULT_SETTINGS, ...stored }
+  if (!Number.isSafeInteger(settings.maxIncomingFileBytes) || settings.maxIncomingFileBytes < 1024 * 1024 || settings.maxIncomingFileBytes > 1024 ** 4) {
+    settings.maxIncomingFileBytes = DEFAULT_SETTINGS.maxIncomingFileBytes
+  }
+  if (!settings.deviceId) {
+    settings.deviceId = typeof ztools.getNativeId === 'function' ? ztools.getNativeId() : randomId(16)
+    await repository.putSettings(settings)
+  }
+  return settings
+}
+
+async function getWebDavRecord() {
+  return { ...DEFAULT_WEBDAV, ...((await repository.getSyncSettings()) || {}) }
+}
+
+function publicWebDav(settings) {
+  return {
+    enabled: Boolean(settings.enabled),
+    baseUrl: settings.baseUrl || '',
+    username: settings.username || '',
+    hasPassword: Boolean(settings.password),
+    hasSyncPassword: Boolean(settings.syncPassword),
+    lastSyncedAt: settings.lastSyncedAt || undefined,
+    status: settings.status || 'disabled',
+  }
+}
+
+async function publicSettings() {
+  const settings = await getSettingsRecord()
+  return {
+    deviceName: settings.deviceName,
+    port: settings.port,
+    pairingCodeMode: settings.pairingCodeMode,
+    customPairingCodeSet: Boolean(settings.customPairingCode),
+    autoAcceptTrustedText: settings.autoAcceptTrustedText,
+    autoAcceptTrustedFiles: settings.autoAcceptTrustedFiles,
+    maxIncomingFileBytes: settings.maxIncomingFileBytes,
+    webdav: publicWebDav(await getWebDavRecord()),
+  }
+}
+
+async function currentPairingCode(settings) {
+  if (settings.pairingCodeMode === 'custom') {
+    const code = unseal(settings.customPairingCode)
+    if (code) return code
+  }
+  return randomDigits(6)
+}
+
+async function serverStatus() {
+  if (!server) {
+    return {
+      running: false,
+      port: (await getSettingsRecord()).port,
+      lanIPs: [],
+      selectedIP: '',
+      accessUrl: '',
+      pairingUrl: '',
+      pairingCode: '',
+      pairingExpiresAt: '',
+      qrDataUrl: '',
+    }
+  }
+  const pairing = server.pairing
+  const base = server.status
+  const pairingUrl = `${base.accessUrl}/#pair=${encodeURIComponent(pairing.secret)}`
+  return {
+    ...base,
+    pairingUrl,
+    pairingCode: pairing.code,
+    pairingExpiresAt: new Date(pairing.expiresAt).toISOString(),
+    qrDataUrl: await QRCode.toDataURL(pairingUrl, { width: 360, margin: 1, errorCorrectionLevel: 'M' }),
+  }
+}
+
+async function startServer() {
+  if (server) return serverStatus()
+  const settings = await getSettingsRecord()
+  server = await createDeviceLinkServer({
+    repository,
+    deviceId: settings.deviceId,
+    deviceName: settings.deviceName,
+    port: settings.port,
+    pairingCode: await currentPairingCode(settings),
+    maxIncomingFileBytes: settings.maxIncomingFileBytes,
+    onEvent: emit,
+  })
+  const status = await serverStatus()
+  emit('server:changed', status)
+  return status
+}
+
+async function stopServer() {
+  if (server) await server.close()
+  server = null
+  const status = await serverStatus()
+  emit('server:changed', status)
+  return status
+}
+
+async function regeneratePairingCode() {
+  if (!server) return startServer()
+  const settings = await getSettingsRecord()
+  server.regeneratePairing(await currentPairingCode(settings))
+  const status = await serverStatus()
+  emit('server:changed', status)
+  return status
+}
+
+function newMessageBase(settings, kind) {
+  const now = new Date().toISOString()
+  return {
+    id: randomId(18),
+    senderId: settings.deviceId,
+    senderName: settings.deviceName,
+    direction: 'outgoing',
+    kind,
+    attachments: [],
+    createdAt: now,
+    updatedAt: now,
+    status: 'sent',
+  }
+}
+
+async function publishDesktopMessage(message) {
+  if (!server) await startServer()
+  await server.publishMessage(message)
+  return message
+}
+
+async function desktopMessages() {
+  const settings = await getSettingsRecord()
+  return (await repository.listMessages()).map((message) => ({
+    ...message,
+    direction: message.senderId === settings.deviceId ? 'outgoing' : 'incoming',
+  }))
+}
+
+function mimeFor(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  const known = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf', '.zip': 'application/zip', '.json': 'application/json', '.md': 'text/markdown', '.txt': 'text/plain',
+    '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  }
+  return known[ext] || 'application/octet-stream'
+}
+
+function collectFiles(paths, maxFiles = 1000) {
+  const files = []
+  const visit = (candidate) => {
+    if (files.length >= maxFiles) throw new RangeError(`单次最多发送 ${maxFiles} 个文件`)
+    const stat = fs.lstatSync(candidate)
+    if (stat.isSymbolicLink()) return
+    if (stat.isDirectory()) {
+      for (const child of fs.readdirSync(candidate)) visit(path.join(candidate, child))
+    } else if (stat.isFile()) {
+      files.push({ path: candidate, stat })
+    }
+  }
+  for (const candidate of paths) visit(candidate)
+  return files
+}
+
+async function sendFiles(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) throw new TypeError('请选择要发送的文件')
+  const settings = await getSettingsRecord()
+  const files = collectFiles(paths.map(String))
+  if (files.length === 0) throw new TypeError('没有可发送的普通文件')
+  const message = newMessageBase(settings, files.every(({ path: filePath }) => mimeFor(filePath).startsWith('image/')) ? 'image' : 'file')
+  message.attachments = files.map(({ path: filePath, stat }) => ({
+    id: randomId(18),
+    name: safeFilename(path.basename(filePath)),
+    size: stat.size,
+    mime: mimeFor(filePath),
+    path: filePath,
+    chunkSize: CHUNK_SIZE,
+    chunks: Math.ceil(stat.size / CHUNK_SIZE),
+  }))
+  return publishDesktopMessage(message)
+}
+
+async function sendImage(dataUrl) {
+  const match = /^data:image\/([a-z0-9.+-]{1,30});base64,([a-z0-9+/=]+)$/i.exec(String(dataUrl || ''))
+  if (!match) throw new TypeError('图片数据格式无效')
+  const bytes = Buffer.from(match[2], 'base64')
+  if (bytes.length > 32 * 1024 * 1024) throw new RangeError('剪贴板图片不能超过 32 MiB')
+  const extension = match[1] === 'jpeg' ? 'jpg' : match[1].replace(/[^a-z0-9]/gi, '')
+  const destination = repository.newAttachmentPath(`clipboard-${Date.now()}.${extension}`)
+  fs.writeFileSync(destination, bytes, { flag: 'wx' })
+  return sendFiles([destination])
+}
+
+async function sendText(text) {
+  const content = cleanText(text)
+  const settings = await getSettingsRecord()
+  const message = { ...newMessageBase(settings, detectKind(content)), text: content }
+  return publishDesktopMessage(message)
+}
+
+window.deviceLink = {
+  async getState() {
+    const running = await startServer()
+    const connected = new Set(server?.connectedDevices() || [])
+    const devices = (await repository.listDevices()).map((device) => ({ ...device, connected: connected.has(device.id) }))
+    return {
+      settings: await publicSettings(),
+      server: running,
+      devices,
+      messages: await desktopMessages(),
+    }
+  },
+  startServer,
+  stopServer,
+  regeneratePairingCode,
+  async saveSettings(input) {
+    const current = await getSettingsRecord()
+    const requestedFileLimit = Number(input.maxIncomingFileBytes)
+    if (!Number.isSafeInteger(requestedFileLimit) || requestedFileLimit < 1024 * 1024) throw new TypeError('文件接收上限无效')
+    const next = {
+      ...current,
+      deviceName: cleanDeviceName(input.deviceName),
+      port: normalizePort(input.port),
+      pairingCodeMode: input.pairingCodeMode === 'custom' ? 'custom' : 'random',
+      autoAcceptTrustedText: Boolean(input.autoAcceptTrustedText),
+      autoAcceptTrustedFiles: Boolean(input.autoAcceptTrustedFiles),
+      maxIncomingFileBytes: Math.min(requestedFileLimit, 1024 * 1024 * 1024 * 1024),
+    }
+    if (input.customPairingCode) next.customPairingCode = seal(validatePairingCode(input.customPairingCode))
+    if (next.pairingCodeMode === 'custom' && !next.customPairingCode) throw new TypeError('请设置自定义匹配码')
+    const restart = server && (next.port !== current.port || next.deviceName !== current.deviceName || next.maxIncomingFileBytes !== current.maxIncomingFileBytes)
+    await repository.putSettings(next)
+    if (restart) {
+      await stopServer()
+      await startServer()
+    } else if (server) {
+      server.updatePairingCode(await currentPairingCode(next))
+      emit('server:changed', await serverStatus())
+    }
+    return publicSettings()
+  },
+  async saveWebDavSettings(input) {
+    const current = await getWebDavRecord()
+    const next = {
+      ...current,
+      enabled: Boolean(input.enabled),
+      baseUrl: input.baseUrl ? validateWebDavUrl(input.baseUrl) : '',
+      username: String(input.username || '').trim(),
+      status: input.enabled ? 'ready' : 'disabled',
+    }
+    if (input.password) next.password = seal(input.password)
+    if (input.syncPassword) next.syncPassword = seal(input.syncPassword)
+    if (next.enabled && (!next.baseUrl || !next.username || !next.password || !next.syncPassword)) throw new TypeError('启用 WebDAV 前请完整填写地址、用户名、密码和同步密码')
+    await repository.putSyncSettings(next)
+    return publicWebDav(next)
+  },
+  async syncWebDav() {
+    const settings = await getWebDavRecord()
+    if (!settings.enabled) throw new Error('请先启用 WebDAV 同步')
+    await repository.putSyncSettings({ ...settings, status: 'syncing' })
+    emit('sync:changed', { status: 'syncing' })
+    try {
+      const result = await runWebDavSync({
+        repository,
+        baseUrl: settings.baseUrl,
+        username: settings.username,
+        password: unseal(settings.password),
+        syncPassword: unseal(settings.syncPassword),
+        salt: settings.salt,
+      })
+      const completed = { ...settings, salt: result.salt, status: 'success', lastSyncedAt: new Date().toISOString() }
+      await repository.putSyncSettings(completed)
+      emit('sync:changed', publicWebDav(completed))
+      emit('messages:changed', await desktopMessages())
+      return result
+    } catch (error) {
+      await repository.putSyncSettings({ ...settings, status: 'failed' })
+      emit('sync:changed', { status: 'failed', error: error.message })
+      throw error
+    }
+  },
+  sendText,
+  sendFiles,
+  sendImage,
+  async selectFiles() {
+    const result = ztools.showOpenDialog({ title: '选择要发送的文件或文件夹', properties: ['openFile', 'openDirectory', 'multiSelections'] })
+    return Array.isArray(result) ? result : []
+  },
+  async copyMessage(messageId) {
+    const message = (await repository.listMessages()).find((item) => item.id === messageId)
+    if (!message) return false
+    if (message.text) clipboard.writeText(message.text)
+    else if (message.attachments?.[0]?.path) {
+      const attachment = message.attachments[0]
+      if (attachment.mime.startsWith('image/')) clipboard.writeImage(nativeImage.createFromPath(attachment.path))
+      else ztools.copyFile(attachment.path)
+    } else return false
+    return true
+  },
+  async openAttachment(attachmentId) {
+    const messages = await repository.listMessages()
+    const attachment = messages.flatMap((message) => message.attachments || []).find((item) => item.id === attachmentId)
+    if (!attachment?.path || !fs.existsSync(attachment.path)) return false
+    await shell.openPath(attachment.path)
+    return true
+  },
+  async deleteMessage(messageId) {
+    const message = (await repository.listMessages()).find((item) => item.id === messageId)
+    if (!message) return false
+    const settings = await getSettingsRecord()
+    await repository.putTombstone({
+      id: messageId,
+      deletedAt: new Date().toISOString(),
+      sourceDeviceId: settings.deviceId,
+    })
+    for (const attachment of message.attachments || []) {
+      if (attachment.path && path.resolve(attachment.path).startsWith(`${path.resolve(dataDir)}${path.sep}`)) fs.rmSync(attachment.path, { force: true })
+    }
+    await repository.removeMessage(messageId)
+    emit('message:deleted', { id: messageId })
+    return true
+  },
+  async disconnectDevice(deviceId) {
+    server?.disconnectDevice(deviceId)
+    const removed = await repository.removeDevice(deviceId)
+    emit('device:deleted', { id: deviceId })
+    return removed
+  },
+  subscribe(callback) {
+    const listener = (event) => callback(event.detail)
+    window.addEventListener('device-link:event', listener)
+    return () => window.removeEventListener('device-link:event', listener)
+  },
+}
