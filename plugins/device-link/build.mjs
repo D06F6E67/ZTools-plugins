@@ -17,6 +17,14 @@ execFileSync(path.join(root, 'node_modules', 'esbuild', 'bin', 'esbuild'), [
 ], { cwd: root, stdio: 'inherit' })
 execFileSync(process.execPath, [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { cwd: root, stdio: 'inherit' })
 
+// ZTools' developer loader gives development.main precedence even when the
+// selected directory is dist/. Keep the Vite URL in the source manifest for
+// development, but never ship it in an installable build.
+const distManifestPath = path.join(root, 'dist', 'plugin.json')
+const distManifest = JSON.parse(fs.readFileSync(distManifestPath, 'utf8'))
+delete distManifest.development
+fs.writeFileSync(distManifestPath, `${JSON.stringify(distManifest, null, 2)}\n`)
+
 const targetModules = path.join(root, 'dist', 'preload', 'node_modules')
 const queue = ['ws', 'qrcode']
 const copied = new Map()

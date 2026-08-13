@@ -613,7 +613,9 @@ async function createDeviceLinkServer(options) {
     }
     void cleanupOrphanTransferFiles(now)
   }, Math.min(60 * 1000, Math.max(1000, transferTtlMs)))
-  cleanupTimer.unref()
+  // In ZTools' renderer preload, the browser timer implementation can return
+  // a numeric handle instead of Node.js' Timeout object.
+  if (typeof cleanupTimer?.unref === 'function') cleanupTimer.unref()
   await cleanupOrphanTransferFiles()
 
   await new Promise((resolve, reject) => {

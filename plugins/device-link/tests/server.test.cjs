@@ -33,6 +33,50 @@ function memoryRepository(root) {
   }
 }
 
+test('server accepts browser-style numeric interval handles', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-timer-test-'))
+  const repository = memoryRepository(root)
+  const port = await freePort()
+  const nativeSetInterval = global.setInterval
+  const nativeClearInterval = global.clearInterval
+  const handles = new Map()
+  let nextHandle = 1
+  let server
+
+  global.setInterval = (...args) => {
+    const handle = nextHandle++
+    handles.set(handle, nativeSetInterval(...args))
+    return handle
+  }
+  global.clearInterval = (handle) => {
+    const nativeHandle = handles.get(handle)
+    handles.delete(handle)
+    return nativeClearInterval(nativeHandle ?? handle)
+  }
+
+  try {
+    server = await createDeviceLinkServer({
+      repository,
+      deviceId: 'desktop-device',
+      deviceName: 'Test Desktop',
+      port,
+      pairingCode: '834921',
+      maxIncomingFileBytes: 10 * 1024 * 1024,
+      onEvent() {},
+    })
+    assert.equal(server.status.running, true)
+    await server.close()
+    server = null
+    assert.equal(handles.size, 0)
+  } finally {
+    if (server) await server.close()
+    for (const handle of handles.values()) nativeClearInterval(handle)
+    global.setInterval = nativeSetInterval
+    global.clearInterval = nativeClearInterval
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('pairing establishes an encrypted session and supports text plus chunked files', async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-test-'))
   const repository = memoryRepository(root)
