@@ -12,6 +12,7 @@
 
     <MarkdownEditor
       :content="draft.content"
+      :note-id="draft.noteId"
       :mode="settings.mode"
       @update:content="updateDraft"
     />
@@ -19,11 +20,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, h } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import MarkdownEditor from './components/MarkdownEditor.vue'
-import { useNotes } from './composables/useNotes'
+import { useNotes, type NoteType } from './composables/useNotes'
 import { useSettings } from './composables/useSettings'
 import { toPlainText, extractTitle } from './utils/md'
 
@@ -38,14 +39,51 @@ const { settings } = useSettings()
 
 const draftTitle = computed(() => extractTitle(draft.value.content))
 
-function onSave() {
+async function onSave() {
   if (!draft.value.content.trim()) {
     ElMessage.warning('内容为空，未保存')
     return
   }
-  saveDraft()
+  // 新便签保存前选择类型：待办 / 笔记（已保存便签沿用原类型）
+  let type: NoteType = draft.value.type
+  if (!draft.value.noteId) {
+    const picked = await askSaveType()
+    if (!picked) return
+    type = picked
+  }
+  saveDraft(type)
   ElMessage.success('已保存')
   emit('saved')
+}
+
+/** 弹窗选择保存类型：待办 / 笔记，取消返回 null */
+function askSaveType(): Promise<NoteType | null> {
+  let selected: NoteType = 'note'
+  const radio = (value: NoteType, label: string) =>
+    h('label', { style: 'margin-right: 16px; cursor: pointer; font-size: 14px' }, [
+      h('input', {
+        type: 'radio',
+        name: 'easynote-save-type',
+        value,
+        checked: selected === value,
+        onChange: () => (selected = value)
+      }),
+      ' ' + label
+    ])
+
+  return ElMessageBox({
+    title: '选择保存类型',
+    message: () =>
+      h('div', { style: 'display: flex; align-items: center' }, [
+        radio('todo', '待办'),
+        radio('note', '笔记')
+      ]),
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    closeOnClickModal: false
+  })
+    .then(() => selected)
+    .catch(() => null)
 }
 
 function copyRaw() {
@@ -65,8 +103,16 @@ function onClose() {
   if (isDirty && !confirm('当前便签有未保存的修改，确定要关闭吗？')) {
     return
   }
-  // embedded（dev 主窗口内）：返回 Home；独立窗口：关闭自身
-  if (props.embedded) emit('back')
-  else window.close()
+  // embedded（主窗口内）：返回 Home；独立便利贴窗口：关闭并结束插件进程
+  if (props.embedded) {
+    emit('back')
+  } else {
+    try {
+      window.ztools.outPlugin(true)
+    } catch {
+      /* ignore */
+    }
+    window.close()
+  }
 }
 </script>

@@ -2,6 +2,7 @@
   <div class="md-editor" @wheel="onWheel">
     <MilkdownEditor
       v-if="mode === 'wysiwyg'"
+      :key="noteId"
       :model-value="content"
       @update:model-value="onUpdate"
     />
@@ -24,7 +25,7 @@ import MilkdownEditor from './MilkdownEditor.vue'
 import { renderMarkdown } from '../utils/md'
 import { useSettings, type EditMode } from '../composables/useSettings'
 
-const props = defineProps<{ content: string; mode: EditMode }>()
+const props = defineProps<{ content: string; noteId?: string | null; mode: EditMode }>()
 const emit = defineEmits<{ (e: 'update:content', v: string): void }>()
 
 const { adjustFontSize } = useSettings()

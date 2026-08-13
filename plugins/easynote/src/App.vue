@@ -10,6 +10,8 @@ const view = ref<'home' | 'editor'>('home')
 
 const { reloadNotes, loadDraft } = useNotes()
 
+let unloadTimer: ReturnType<typeof setInterval> | null = null
+
 // 独立便利贴窗口：同步加载草稿，确保 MilkdownEditor 初始值正确
 if (winType.value === 'browser') {
   const noteId = new URLSearchParams(location.search).get('note')
@@ -30,7 +32,7 @@ onMounted(() => {
       return
     }
     if (action.code === 'new-note') {
-      openEditor(null)
+      openSticky(null)
       return
     }
   })
@@ -41,6 +43,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
+  if (unloadTimer) {
+    clearInterval(unloadTimer)
+    unloadTimer = null
+  }
 })
 
 function onBeforeUnload(e: BeforeUnloadEvent) {
@@ -55,16 +61,20 @@ function onBeforeUnload(e: BeforeUnloadEvent) {
     }
 
     // 轮询检测便利贴窗口是否已关闭，关闭后结束插件进程
-    const timer = setInterval(() => {
+    if (unloadTimer) clearInterval(unloadTimer)
+    unloadTimer = setInterval(() => {
       if (!isStickyNoteOpen()) {
-        clearInterval(timer)
+        if (unloadTimer) {
+          clearInterval(unloadTimer)
+          unloadTimer = null
+        }
         window.ztools.outPlugin(true)
       }
     }, 500)
   }
 }
 
-function openEditor(noteId: string | null) {
+function openSticky(noteId: string | null) {
   loadDraft(noteId)
   if (isStandaloneSupported()) {
     // 独立窗口模式：创建便利贴窗口，如果失败则回退到嵌入模式
@@ -85,6 +95,12 @@ function openEditor(noteId: string | null) {
   }
 }
 
+/** 在列表直接打开：进入普通内容页面（主窗口内嵌，可查看、可编辑） */
+function openContent(noteId: string) {
+  loadDraft(noteId)
+  view.value = 'editor'
+}
+
 function onBack() {
   reloadNotes()
   view.value = 'home'
@@ -103,5 +119,10 @@ function onSaved() {
     @back="onBack"
     @saved="onSaved"
   />
-  <Home v-else @new="openEditor(null)" @open="openEditor($event)" />
+  <Home
+    v-else
+    @new="openSticky(null)"
+    @open="openContent($event)"
+    @open-sticky="openSticky($event)"
+  />
 </template>

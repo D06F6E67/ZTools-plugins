@@ -26,23 +26,31 @@ function load(): Settings {
 const settings = ref<Settings>(load())
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let persistWatcherStarted = false
 
-watch(
-  settings,
-  (v) => {
-    if (debounceTimer) clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(() => {
-      try {
-        window.ztools.dbStorage.setItem(KEY, JSON.stringify(v))
-      } catch {
-        /* ignore */
-      }
-    }, 300)
-  },
-  { deep: true }
-)
+function startPersistWatcher() {
+  if (persistWatcherStarted) return
+  persistWatcherStarted = true
+
+  watch(
+    settings,
+    (v) => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        try {
+          window.ztools.dbStorage.setItem(KEY, JSON.stringify(v))
+        } catch {
+          /* ignore */
+        }
+      }, 300)
+    },
+    { deep: true }
+  )
+}
 
 export function useSettings() {
+  startPersistWatcher()
+
   function setMode(m: EditMode) {
     settings.value.mode = m
   }
