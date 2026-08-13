@@ -3,8 +3,20 @@ import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import { open as openDialogFn, save as saveDialogFn } from '@tauri-apps/plugin-dialog';
 import { openPath as openPathFn, openUrl as openUrlFn } from '@tauri-apps/plugin-opener';
-import type { PlatformAPI, ProjectInfo, TerminalInfo, PortEntry, PackageManagerResolveResult } from '../types';
-import type { NodeVersion, GitStatusResult, GitBranch, GitCommit, GitSummary, GitCommitFile } from '../../types';
+import type { PlatformAPI, ProjectInfo, TerminalInfo, EditorInfo, PortEntry, PackageManagerResolveResult } from '../types';
+import type {
+    NodeVersion,
+    GitStatusResult,
+    GitBranch,
+    GitCommit,
+    GitSummary,
+    GitCommitFile,
+    GitOwnCommitResult,
+    GitStashEntry,
+    GitTag,
+    GitResetMode,
+    GitPullStrategy,
+} from '../../types';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -15,19 +27,19 @@ export class TauriAdapter implements PlatformAPI {
     async getNvmList(): Promise<NodeVersion[]> {
         return invoke('get_nvm_list');
     }
-    
+
     async installNode(version: string): Promise<string> {
         return invoke('install_node', { version });
     }
-    
+
     async uninstallNode(version: string): Promise<string> {
         return invoke('uninstall_node', { version });
     }
-    
+
     async useNode(version: string): Promise<string> {
         return invoke('use_node', { version });
     }
-    
+
     async getSystemNodePath(): Promise<string> {
         return invoke('get_system_node_path');
     }
@@ -39,6 +51,14 @@ export class TauriAdapter implements PlatformAPI {
     // Project
     async scanProject(path: string): Promise<ProjectInfo> {
         return invoke('scan_project', { path });
+    }
+
+    async scanSubProjects(path: string, maxDepth?: number): Promise<import('../types').ImportNode[]> {
+        return invoke('scan_sub_projects', { path, maxDepth });
+    }
+
+    async scanImportTree(path: string): Promise<import('../types').ImportNode[]> {
+        return invoke('scan_import_tree', { path });
     }
 
     async gitListRemoteBranches(url: string): Promise<string[]> {
@@ -61,7 +81,7 @@ export class TauriAdapter implements PlatformAPI {
     async runCustomCommand(id: string, path: string, command: string): Promise<void> {
         return invoke('run_custom_command', { id, path, command });
     }
-    
+
     async stopProjectCommand(id: string): Promise<void> {
         return invoke('stop_project_command', { id });
     }
@@ -82,7 +102,7 @@ export class TauriAdapter implements PlatformAPI {
     async openInTerminal(path: string, terminal?: string, nodePath?: string, packageManager?: string): Promise<void> {
         return invoke('open_in_terminal', { path, terminal: terminal || 'cmd', nodePath: nodePath || '', packageManager: packageManager || '' });
     }
-    
+
     async openFolder(path: string): Promise<void> {
         try {
             await openPathFn(path);
@@ -90,10 +110,10 @@ export class TauriAdapter implements PlatformAPI {
             return invoke('open_folder', { path });
         }
     }
-    
+
     async openUrl(url: string): Promise<void> {
         // Prefer plugin if available, or backend if needed.
-        // The project has both. Let's use the backend one if it does custom logic, 
+        // The project has both. Let's use the backend one if it does custom logic,
         // or the plugin one if it's standard.
         // Settings.vue uses plugin.
         try {
@@ -108,7 +128,7 @@ export class TauriAdapter implements PlatformAPI {
     async readConfigFile(filename: string): Promise<string> {
         return invoke('read_config_file', { filename });
     }
-    
+
     async writeConfigFile(filename: string, content: string): Promise<void> {
         return invoke('write_config_file', { filename, content });
     }
@@ -133,11 +153,11 @@ export class TauriAdapter implements PlatformAPI {
     async installUpdate(url: string): Promise<void> {
         return invoke('install_update', { url });
     }
-    
+
     async cancelUpdate(): Promise<void> {
         return invoke('cancel_update');
     }
-    
+
     async getAppVersion(): Promise<string> {
         return getVersion();
     }
@@ -146,7 +166,7 @@ export class TauriAdapter implements PlatformAPI {
     async openDialog(options: any): Promise<string | string[] | null> {
         return openDialogFn(options);
     }
-    
+
     async saveDialog(options: any): Promise<string | null> {
         return saveDialogFn(options);
     }
@@ -163,7 +183,7 @@ export class TauriAdapter implements PlatformAPI {
             callback(event.payload);
         });
     }
-    
+
     async onDownloadProgress(callback: (percentage: number) => void): Promise<() => void> {
         return listen<number>('download-progress', (event) => {
             callback(event.payload);
@@ -228,6 +248,10 @@ export class TauriAdapter implements PlatformAPI {
         return invoke('detect_available_terminals');
     }
 
+    async detectAvailableEditors(): Promise<EditorInfo[]> {
+        return invoke('detect_available_editors');
+    }
+
     async listUsedPorts(): Promise<PortEntry[]> {
         return invoke('list_used_ports');
     }
@@ -273,12 +297,38 @@ export class TauriAdapter implements PlatformAPI {
         return invoke('git_commit', { path, message });
     }
 
-    async gitPull(path: string, remote?: string, branch?: string, operationId?: string): Promise<string> {
-        return invoke('git_pull', { path, remote, branch, operationId });
+    async gitAmend(path: string, message?: string): Promise<string> {
+        return invoke('git_amend', { path, message });
     }
 
-    async gitPush(path: string, remote?: string, branch?: string, force?: boolean, setUpstream?: boolean, operationId?: string): Promise<string> {
-        return invoke('git_push', { path, remote, branch, force, setUpstream, operationId });
+    async gitPull(
+        path: string,
+        remote?: string,
+        branch?: string,
+        operationId?: string,
+        strategy?: GitPullStrategy,
+    ): Promise<string> {
+        return invoke('git_pull', { path, remote, branch, operationId, strategy });
+    }
+
+    async gitPush(
+        path: string,
+        remote?: string,
+        branch?: string,
+        force?: boolean,
+        setUpstream?: boolean,
+        operationId?: string,
+        forceWithLease?: boolean,
+    ): Promise<string> {
+        return invoke('git_push', {
+            path,
+            remote,
+            branch,
+            force,
+            setUpstream,
+            operationId,
+            forceWithLease,
+        });
     }
 
     async gitFetch(path: string, remote?: string, operationId?: string): Promise<string> {
@@ -329,8 +379,72 @@ export class TauriAdapter implements PlatformAPI {
         return invoke('git_rename_branch', { path, oldName, newName });
     }
 
+    async gitMerge(path: string, branch: string): Promise<string> {
+        return invoke('git_merge', { path, branch });
+    }
+
+    async gitMergeContinue(path: string): Promise<string> {
+        return invoke('git_merge_continue', { path });
+    }
+
+    async gitMergeAbort(path: string): Promise<string> {
+        return invoke('git_merge_abort', { path });
+    }
+
+    async gitRebase(path: string, branch: string): Promise<string> {
+        return invoke('git_rebase', { path, branch });
+    }
+
+    async gitReset(path: string, mode: GitResetMode, target?: string): Promise<string> {
+        return invoke('git_reset', { path, mode, target });
+    }
+
+    async gitCherryPick(path: string, hash: string): Promise<string> {
+        return invoke('git_cherry_pick', { path, hash });
+    }
+
+    async gitRevertCommit(path: string, hash: string): Promise<string> {
+        return invoke('git_revert_commit', { path, hash });
+    }
+
+    async gitStashList(path: string): Promise<GitStashEntry[]> {
+        return invoke('git_stash_list', { path });
+    }
+
+    async gitStashSave(path: string, message?: string): Promise<string> {
+        return invoke('git_stash_save', { path, message });
+    }
+
+    async gitStashPop(path: string, index?: number): Promise<string> {
+        return invoke('git_stash_pop', { path, index });
+    }
+
+    async gitStashApply(path: string, index?: number): Promise<string> {
+        return invoke('git_stash_apply', { path, index });
+    }
+
+    async gitStashDrop(path: string, index: number): Promise<string> {
+        return invoke('git_stash_drop', { path, index });
+    }
+
+    async gitTags(path: string): Promise<GitTag[]> {
+        return invoke('git_tags', { path });
+    }
+
+    async gitCreateTag(path: string, name: string, message?: string, target?: string): Promise<string> {
+        return invoke('git_create_tag', { path, name, message, target });
+    }
+
+    async gitDeleteTag(path: string, name: string): Promise<string> {
+        return invoke('git_delete_tag', { path, name });
+    }
+
     async gitHistory(path: string, maxCount?: number): Promise<GitCommit[]> {
         return invoke('git_history', { path, maxCount });
+    }
+
+    async gitOwnCommits(path: string, since: string, until: string): Promise<GitOwnCommitResult> {
+        return invoke('git_own_commits', { path, since, until });
     }
 
     async gitCommitDetail(path: string, hash: string): Promise<GitCommit> {

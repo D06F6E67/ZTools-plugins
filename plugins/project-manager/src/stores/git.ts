@@ -9,6 +9,10 @@ import type {
   GitCommit,
   GitCommitFile,
   GitSummary,
+  GitStashEntry,
+  GitTag,
+  GitResetMode,
+  GitPullStrategy,
 } from '../types';
 
 const REPO_CHECK_MAX_AGE = 60_000;
@@ -20,6 +24,7 @@ type GitOperationKind =
   | 'stageAll'
   | 'unstageAll'
   | 'commit'
+  | 'amend'
   | 'pull'
   | 'push'
   | 'fetch'
@@ -27,6 +32,13 @@ type GitOperationKind =
   | 'createBranch'
   | 'deleteBranch'
   | 'renameBranch'
+  | 'merge'
+  | 'rebase'
+  | 'reset'
+  | 'cherryPick'
+  | 'revertCommit'
+  | 'stash'
+  | 'tag'
   | 'revertHunk'
   | 'discard'
   | 'discardUntracked';
@@ -58,6 +70,11 @@ export const useGitStore = defineStore('git', () => {
   const operationLoading = ref(false);
   const activeOperationKind = ref<GitOperationKind | null>(null);
   const activeOperationId = ref<string | null>(null);
+  // projectId that owns the in-flight operation; UI gates loading display by
+  // comparing this to the currently viewed project so a long-running pull/push
+  // on project A does not paint a fake loading state onto project B when the
+  // user switches projects mid-operation.
+  const activeOperationProjectId = ref<string | null>(null);
   const operationCancellable = ref(false);
   const operationCancelling = ref(false);
   const coldStorage = ref(false);
@@ -131,12 +148,14 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function withOperationLoading<T>(
+    projectId: string | null,
     kind: GitOperationKind,
     task: (operationId?: string) => Promise<T>,
     options: { cancellable?: boolean } = {},
   ): Promise<T> {
     operationLoading.value = true;
     activeOperationKind.value = kind;
+    activeOperationProjectId.value = projectId;
     operationCancellable.value = options.cancellable ?? false;
     operationCancelling.value = false;
     activeOperationId.value = operationCancellable.value ? crypto.randomUUID() : null;
@@ -146,6 +165,7 @@ export const useGitStore = defineStore('git', () => {
     } finally {
       operationLoading.value = false;
       activeOperationKind.value = null;
+      activeOperationProjectId.value = null;
       activeOperationId.value = null;
       operationCancellable.value = false;
       operationCancelling.value = false;
@@ -373,107 +393,315 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  async function refreshRepositoryState(
+    projectId: string,
+    path: string,
+    options: { includeHistory?: boolean; includeBranches?: boolean } = {},
+  ): Promise<void> {
+    await refreshSummaryAndStatus(projectId, path);
+
+    const tasks: Promise<void>[] = [];
+    if (options.includeHistory) {
+      tasks.push(refreshHistory(projectId, path));
+    }
+    if (options.includeBranches) {
+      tasks.push(refreshBranches(projectId, path));
+    }
+
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+  }
+
   // ─── Git Operations ──────────────────────────────────────────────────────
 
   async function stageFiles(projectId: string, path: string, files: string[]): Promise<void> {
-    await withOperationLoading('stage', async () => {
+    await withOperationLoading(projectId, 'stage', async () => {
       await api.gitStage(path, files);
       await refreshStatus(projectId, path);
     });
   }
 
   async function unstageFiles(projectId: string, path: string, files: string[]): Promise<void> {
-    await withOperationLoading('unstage', async () => {
+    await withOperationLoading(projectId, 'unstage', async () => {
       await api.gitUnstage(path, files);
       await refreshStatus(projectId, path);
     });
   }
 
   async function stageAll(projectId: string, path: string): Promise<void> {
-    await withOperationLoading('stageAll', async () => {
+    await withOperationLoading(projectId, 'stageAll', async () => {
       await api.gitStageAll(path);
       await refreshStatus(projectId, path);
     });
   }
 
   async function unstageAll(projectId: string, path: string): Promise<void> {
-    await withOperationLoading('unstageAll', async () => {
+    await withOperationLoading(projectId, 'unstageAll', async () => {
       await api.gitUnstageAll(path);
       await refreshStatus(projectId, path);
     });
   }
 
   async function commit(projectId: string, path: string, message: string): Promise<string> {
-    return withOperationLoading('commit', async () => {
+    return withOperationLoading(projectId, 'commit', async () => {
       const result = await api.gitCommit(path, message);
       clearDiff();
-      await refreshSummaryAndStatus(projectId, path);
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     });
   }
 
-  async function pull(projectId: string, path: string, remote?: string, branch?: string): Promise<string> {
-    return withOperationLoading('pull', async (operationId) => {
-      const result = await api.gitPull(path, remote, branch, operationId);
-      await refreshSummaryAndStatus(projectId, path);
+  /**
+   * 无 staged 时自动 stage 全部再提交；有冲突时拒绝。
+   * 供工作区「一键提交」使用。
+   */
+  async function commitWithAutoStage(
+    projectId: string,
+    path: string,
+    message: string,
+  ): Promise<string> {
+    const s = status.value[projectId];
+    const summaryState = summary.value[projectId];
+    if (summaryState?.has_conflicts || (s?.conflicted?.length ?? 0) > 0) {
+      throw new Error('has_conflicts');
+    }
+    const stagedCount = s?.staged?.length ?? 0;
+    const dirtyCount =
+      (s?.unstaged?.length ?? 0) + (s?.untracked?.length ?? 0);
+    if (stagedCount === 0 && dirtyCount > 0) {
+      await stageAll(projectId, path);
+    }
+    return commit(projectId, path, message);
+  }
+
+  async function amend(projectId: string, path: string, message?: string): Promise<string> {
+    return withOperationLoading(projectId, 'amend', async () => {
+      const result = await api.gitAmend(path, message);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function pull(
+    projectId: string,
+    path: string,
+    remote?: string,
+    branch?: string,
+    strategy?: GitPullStrategy,
+  ): Promise<string> {
+    return withOperationLoading(projectId, 'pull', async (operationId) => {
+      const result = await api.gitPull(path, remote, branch, operationId, strategy);
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     }, { cancellable: true });
   }
 
-  async function push(projectId: string, path: string, remote?: string, branch?: string, force?: boolean, setUpstream?: boolean): Promise<string> {
-    return withOperationLoading('push', async (operationId) => {
-      const result = await api.gitPush(path, remote, branch, force, setUpstream, operationId);
-      await refreshSummary(projectId, path);
+  async function push(
+    projectId: string,
+    path: string,
+    remote?: string,
+    branch?: string,
+    force?: boolean,
+    setUpstream?: boolean,
+    forceWithLease?: boolean,
+  ): Promise<string> {
+    return withOperationLoading(projectId, 'push', async (operationId) => {
+      const result = await api.gitPush(
+        path,
+        remote,
+        branch,
+        force,
+        setUpstream,
+        operationId,
+        forceWithLease,
+      );
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     }, { cancellable: true });
   }
 
   async function fetch(projectId: string, path: string, remote?: string): Promise<string> {
-    return withOperationLoading('fetch', async (operationId) => {
+    return withOperationLoading(projectId, 'fetch', async (operationId) => {
       const result = await api.gitFetch(path, remote, operationId);
-      await refreshSummary(projectId, path);
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     }, { cancellable: true });
   }
 
   async function switchBranch(projectId: string, path: string, branch: string): Promise<string> {
-    return withOperationLoading('switchBranch', async () => {
+    return withOperationLoading(projectId, 'switchBranch', async () => {
       const result = await api.gitSwitchBranch(path, branch);
-      await refreshSummaryAndStatus(projectId, path);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     });
   }
 
   async function createAndSwitchBranch(projectId: string, path: string, name: string, startPoint?: string): Promise<string> {
-    return withOperationLoading('createBranch', async () => {
+    return withOperationLoading(projectId, 'createBranch', async () => {
       const result = await api.gitCreateAndSwitchBranch(path, name, startPoint);
-      await refreshSummaryAndStatus(projectId, path);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
       return result;
     });
   }
 
   async function deleteBranch(projectId: string, path: string, name: string, force?: boolean): Promise<string> {
-    return withOperationLoading('deleteBranch', async () => {
+    return withOperationLoading(projectId, 'deleteBranch', async () => {
       const result = await api.gitDeleteBranch(path, name, force);
-      await refreshBranches(projectId, path);
+      await refreshRepositoryState(projectId, path, { includeBranches: true });
       return result;
     });
   }
 
   async function renameBranch(projectId: string, path: string, oldName: string, newName: string): Promise<string> {
-    return withOperationLoading('renameBranch', async () => {
+    return withOperationLoading(projectId, 'renameBranch', async () => {
       const result = await api.gitRenameBranch(path, oldName, newName);
-      await refreshSummary(projectId, path);
+      await refreshRepositoryState(projectId, path, { includeBranches: true });
       return result;
     });
   }
 
+  async function mergeBranch(projectId: string, path: string, branch: string): Promise<string> {
+    return withOperationLoading(projectId, 'merge', async () => {
+      const result = await api.gitMerge(path, branch);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function mergeContinue(projectId: string, path: string): Promise<string> {
+    return withOperationLoading(projectId, 'merge', async () => {
+      const result = await api.gitMergeContinue(path);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function mergeAbort(projectId: string, path: string): Promise<string> {
+    return withOperationLoading(projectId, 'merge', async () => {
+      const result = await api.gitMergeAbort(path);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function rebaseBranch(projectId: string, path: string, branch: string): Promise<string> {
+    return withOperationLoading(projectId, 'rebase', async () => {
+      const result = await api.gitRebase(path, branch);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function resetTo(
+    projectId: string,
+    path: string,
+    mode: GitResetMode,
+    target?: string,
+  ): Promise<string> {
+    return withOperationLoading(projectId, 'reset', async () => {
+      const result = await api.gitReset(path, mode, target);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function cherryPick(projectId: string, path: string, hash: string): Promise<string> {
+    return withOperationLoading(projectId, 'cherryPick', async () => {
+      const result = await api.gitCherryPick(path, hash);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  async function revertCommit(projectId: string, path: string, hash: string): Promise<string> {
+    return withOperationLoading(projectId, 'revertCommit', async () => {
+      const result = await api.gitRevertCommit(path, hash);
+      clearDiff();
+      await refreshRepositoryState(projectId, path, { includeHistory: true, includeBranches: true });
+      return result;
+    });
+  }
+
+  // ─── Stash / Tags ───────────────────────────────────────────────────────
+
+  async function listStashes(path: string): Promise<GitStashEntry[]> {
+    return api.gitStashList(path);
+  }
+
+  async function stashSave(projectId: string, path: string, message?: string): Promise<string> {
+    return withOperationLoading(projectId, 'stash', async () => {
+      const result = await api.gitStashSave(path, message);
+      await refreshStatus(projectId, path);
+      return result;
+    });
+  }
+
+  async function stashPop(projectId: string, path: string, index?: number): Promise<string> {
+    return withOperationLoading(projectId, 'stash', async () => {
+      const result = await api.gitStashPop(path, index);
+      await refreshRepositoryState(projectId, path, { includeHistory: true });
+      return result;
+    });
+  }
+
+  async function stashApply(projectId: string, path: string, index?: number): Promise<string> {
+    return withOperationLoading(projectId, 'stash', async () => {
+      const result = await api.gitStashApply(path, index);
+      await refreshStatus(projectId, path);
+      return result;
+    });
+  }
+
+  async function stashDrop(projectId: string, path: string, index: number): Promise<string> {
+    return withOperationLoading(projectId, 'stash', async () => {
+      return api.gitStashDrop(path, index);
+    });
+  }
+
+  async function listTags(path: string): Promise<GitTag[]> {
+    return api.gitTags(path);
+  }
+
+  async function createTag(
+    projectId: string,
+    path: string,
+    name: string,
+    message?: string,
+    target?: string,
+  ): Promise<string> {
+    return withOperationLoading(projectId, 'tag', async () => {
+      return api.gitCreateTag(path, name, message, target);
+    });
+  }
+
+  async function deleteTag(projectId: string, path: string, name: string): Promise<string> {
+    return withOperationLoading(projectId, 'tag', async () => {
+      return api.gitDeleteTag(path, name);
+    });
+  }
+
   async function getDiff(path: string, file?: string, staged?: boolean): Promise<string> {
-    const result = await api.gitDiff(path, file, staged);
-    selectedDiff.value = result;
-    selectedDiffFile.value = file || '';
-    selectedDiffStaged.value = staged || false;
-    return result;
+    try {
+      const result = await api.gitDiff(path, file, staged);
+      selectedDiff.value = result;
+      selectedDiffFile.value = file || '';
+      selectedDiffStaged.value = staged || false;
+      return result;
+    } catch (e) {
+      // 加载diff失败时清除当前diff状态，避免显示过期内容
+      clearDiff();
+      throw e;
+    }
   }
 
   async function getDiffCommit(path: string, hash: string): Promise<string> {
@@ -520,7 +748,7 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function revertHunk(projectId: string, path: string, patch: string, staged?: boolean): Promise<string> {
-    return withOperationLoading('revertHunk', async () => {
+    return withOperationLoading(projectId, 'revertHunk', async () => {
       const result = await api.gitRevertHunk(path, patch, staged);
       await refreshStatus(projectId, path);
       if (selectedDiffFile.value) {
@@ -573,7 +801,7 @@ export const useGitStore = defineStore('git', () => {
   void generateAiCommitMessage;
 
   async function discardFiles(projectId: string, path: string, files: string[]): Promise<void> {
-    await withOperationLoading('discard', async () => {
+    await withOperationLoading(projectId, 'discard', async () => {
       await api.gitDiscard(path, files);
       await refreshStatus(projectId, path);
     });
@@ -669,7 +897,7 @@ export const useGitStore = defineStore('git', () => {
   }
 
   async function discardUntracked(projectId: string, path: string, files: string[]): Promise<void> {
-    await withOperationLoading('discardUntracked', async () => {
+    await withOperationLoading(projectId, 'discardUntracked', async () => {
       await api.gitDiscardUntracked(path, files);
       await refreshStatus(projectId, path);
     });
@@ -698,6 +926,7 @@ export const useGitStore = defineStore('git', () => {
     loading,
     operationLoading,
     activeOperationKind,
+    activeOperationProjectId,
     operationCancellable,
     operationCancelling,
     coldStorage,
@@ -719,6 +948,7 @@ export const useGitStore = defineStore('git', () => {
     refreshStatus,
     refreshSummaryAndStatus,
     refreshHistory,
+    refreshRepositoryState,
     ensureSummaryAndStatus,
     ensureHistory,
     refreshBranches,
@@ -732,6 +962,8 @@ export const useGitStore = defineStore('git', () => {
     stageAll,
     unstageAll,
     commit,
+    commitWithAutoStage,
+    amend,
     pull,
     push,
     fetch,
@@ -739,6 +971,21 @@ export const useGitStore = defineStore('git', () => {
     createAndSwitchBranch,
     deleteBranch,
     renameBranch,
+    mergeBranch,
+    mergeContinue,
+    mergeAbort,
+    rebaseBranch,
+    resetTo,
+    cherryPick,
+    revertCommit,
+    listStashes,
+    stashSave,
+    stashPop,
+    stashApply,
+    stashDrop,
+    listTags,
+    createTag,
+    deleteTag,
     getDiff,
     getDiffCommit,
     getDiffCommitFile,

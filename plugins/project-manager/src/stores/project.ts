@@ -1,24 +1,37 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { api } from '../api';
-import type { Project } from '../types';
-import type { PackageManagerResolveResult } from '../api/types';
+import type { Project, ProjectGroup } from '../types';
+import type { PackageManagerResolveResult, ImportNode } from '../api/types';
 import { useNodeStore } from './node';
 import { useSettingsStore } from './settings';
 import { useUsageStore } from './usage';
 import { getCustomCommandDisplayNameByLocale } from '../utils/projectCommands';
 import { resolveNodePathFromVersion, resolveProjectNodePath, isExplicitNodeVersion } from '../utils/nodeRuntime';
 import { normalizeNvmVersion } from '../utils/nvm';
+import { scanFrontendEnvProject } from '../utils/frontendEnvSwitcher';
+import { normalizeProjectTags } from '../utils/projectTags';
+import { createProjectId } from '../utils/projectId';
+import { flattenImportNodeTree } from '../utils/importProjectTree';
+import { MAX_PROJECT_DEPTH, normalizeProjectPath, assignSortOrders } from '../utils/projectTree';
 import { ElMessage } from 'element-plus';
 
-type WorkspaceTab = 'console' | 'git' | 'files' | 'memo';
+type WorkspaceTab = 'console' | 'git' | 'files' | 'memo' | 'env';
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<Project[]>([]);
+  const projectGroups = ref<ProjectGroup[]>([]);
   const runningStatus = ref<Record<string, boolean>>({});
   const runningProjectCount = ref<Record<string, number>>({});
   const logs = ref<Record<string, string[]>>({});
+  // activeProjectId 语义为「当前叶子/子项目」：命令运行、git、环境切换绑定它（ConsoleView/GitView 读取此值）
   const activeProjectId = ref<string | null>(null);
+  // activeRootId 语义为「当前钻取进入的一级项目」：文件、备忘录绑定它
+  const activeRootId = ref<string | null>(null);
+  // 外部（如全局搜索）请求打开的根项目工作区；Dashboard 挂载或 watch 时消费并置空
+  const pendingWorkspaceRootId = ref<string | null>(null);
+  // 外部工作区请求中需要定位的具体项目；可为根项目或任意子项目
+  const pendingWorkspaceProjectId = ref<string | null>(null);
   const requestedRightTab = ref<WorkspaceTab | null>(null);
   const requestedRightTabToken = ref(0);
 
@@ -95,6 +108,9 @@ export const useProjectStore = defineStore('project', () => {
   function addProject(project: Project) {
     projects.value.unshift(project);
     try { useUsageStore().markAdded(project.id); } catch {}
+    void scanFrontendEnvForProject(project.id).catch((error) => {
+      console.error(`Failed to scan frontend env for added project ${project.name}`, error);
+    });
   }
 
   function updateProject(project: Project) {
@@ -105,9 +121,177 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   function removeProject(id: string) {
-    projects.value = projects.value.filter((p) => p.id !== id);
-    if (activeProjectId.value === id) activeProjectId.value = null;
+    // 级联删除：收集自身 + 所有后代项目 id 一并移除
+    const idsToRemove = collectDescendantIds(id);
+    idsToRemove.add(id);
+    projects.value = projects.value.filter((p) => !idsToRemove.has(p.id));
+    if (activeProjectId.value && idsToRemove.has(activeProjectId.value)) activeProjectId.value = null;
+    if (activeRootId.value && idsToRemove.has(activeRootId.value)) activeRootId.value = null;
     try { useUsageStore().cleanupRemovedProjects(projects.value.map(p => p.id)); } catch {}
+  }
+
+  /***********************项目嵌套（多级）辅助*********************/
+
+  /** 获取指定父项目的直接子项目（按 sortOrder 升序） */
+  function getChildren(parentId: string): Project[] {
+    return projects.value
+      .filter((p) => p.parentId === parentId)
+      .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
+  }
+
+  /** 获取所有一级项目（无 parentId 的根项目） */
+  function getRootProjects(): Project[] {
+    return projects.value.filter((p) => !p.parentId);
+  }
+
+  /** 是否存在直接子项目 */
+  function hasChildren(id: string): boolean {
+    return projects.value.some((p) => p.parentId === id);
+  }
+
+  /** 计算项目深度：一级项目为 1，其子为 2，以此类推（含循环保护） */
+  function getProjectDepth(id: string): number {
+    let depth = 1;
+    const seen = new Set<string>();
+    let current = projects.value.find((p) => p.id === id);
+    while (current?.parentId && !seen.has(current.id)) {
+      seen.add(current.id);
+      depth += 1;
+      const parentId: string = current.parentId;
+      current = projects.value.find((p) => p.id === parentId);
+    }
+    return depth;
+  }
+
+  /** 向上回溯到最顶层的根项目 id（含循环保护）；找不到时返回入参本身 */
+  function getRootProjectId(id: string): string {
+    const seen = new Set<string>();
+    let current = projects.value.find((p) => p.id === id);
+    if (!current) return id;
+    while (current.parentId && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parent = projects.value.find((p) => p.id === current!.parentId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current.id;
+  }
+
+  /** 递归收集某项目的所有后代 id（不含自身） */
+  function collectDescendantIds(id: string): Set<string> {
+    const result = new Set<string>();
+    const walk = (parentId: string) => {
+      for (const p of projects.value) {
+        if (p.parentId === parentId && !result.has(p.id)) {
+          result.add(p.id);
+          walk(p.id);
+        }
+      }
+    };
+    walk(id);
+    return result;
+  }
+
+  /** 批量创建子项目（挂到指定父项目下），跳过路径重复的项 */
+  function addSubProjects(parentId: string, children: Omit<Project, 'id' | 'parentId'>[]): Project[] {
+    const existingPaths = new Set(projects.value.map((p) => p.path));
+    const created: Project[] = [];
+    let order = getChildren(parentId).length;
+    for (const child of children) {
+      if (existingPaths.has(child.path)) continue;
+      const newProject: Project = {
+        ...child,
+        id: createProjectId(),
+        parentId,
+        sortOrder: order++,
+      };
+      projects.value.push(newProject);
+      existingPaths.add(newProject.path);
+      created.push(newProject);
+      try { useUsageStore().markAdded(newProject.id); } catch {}
+      void scanFrontendEnvForProject(newProject.id).catch((error) => {
+        console.error(`Failed to scan frontend env for added sub project ${newProject.name}`, error);
+      });
+    }
+    // 更新父项目扫描时间戳
+    const parent = projects.value.find((p) => p.id === parentId);
+    if (parent) parent.subScannedAt = Date.now();
+    return created;
+  }
+
+  /**
+   * 将一棵扫描出的项目树按**真实层级**挂到指定父项目下
+   * （`parentId` 为空表示作为一级项目导入）。
+   *
+   * 与只处理单层的 `addSubProjects` 不同：孙级会挂到它真实的父节点上，
+   * 而不是被平铺成同一个父项目的直接子级。路径已存在的节点复用既有项目
+   * 作为其后代的父级，超过 `MAX_PROJECT_DEPTH` 的节点直接截断丢弃。
+   */
+  function addProjectTree(parentId: string | undefined, nodes: ImportNode[]): Project[] {
+    if (nodes.length === 0) return [];
+
+    // 父项目自身占一层，故其子节点从 parentDepth + 1 起算。
+    const parentDepth = parentId ? getProjectDepth(parentId) : 0;
+    const remainingDepth = MAX_PROJECT_DEPTH - parentDepth;
+    if (remainingDepth <= 0) return [];
+
+    const existingByPath = new Map<string, string>();
+    for (const project of projects.value) {
+      existingByPath.set(normalizeProjectPath(project.path), project.id);
+    }
+
+    const flattened = flattenImportNodeTree(nodes, parentId, {
+      resolveExistingId: (path) => existingByPath.get(normalizeProjectPath(path)),
+      maxDepth: remainingDepth,
+    });
+
+    // sortOrder 按父级分桶：每个父级下的子项目各自从已有数量续号。
+    const ordered = assignSortOrders(flattened, (id) => getChildren(id).length);
+
+    const created: Project[] = [];
+    const touchedParentIds = new Set<string>();
+    for (const newProject of ordered) {
+      const key = normalizeProjectPath(newProject.path);
+      // flattenImportNodeTree 已跳过入库前就存在的路径；这里再挡一次
+      // 同批次内部可能出现的重复路径。
+      if (existingByPath.has(key)) continue;
+
+      projects.value.push(newProject);
+      existingByPath.set(key, newProject.id);
+      created.push(newProject);
+      if (newProject.parentId) touchedParentIds.add(newProject.parentId);
+
+      try { useUsageStore().markAdded(newProject.id); } catch {}
+      void scanFrontendEnvForProject(newProject.id).catch((error) => {
+        console.error(`Failed to scan frontend env for added sub project ${newProject.name}`, error);
+      });
+    }
+
+    // 更新所有被挂载了子项目的父项目扫描时间戳
+    if (parentId) touchedParentIds.add(parentId);
+    for (const id of touchedParentIds) {
+      const parent = projects.value.find((p) => p.id === id);
+      if (parent) parent.subScannedAt = Date.now();
+    }
+
+    return created;
+  }
+
+  /***********************收藏*********************/
+
+  function favoriteProject(id: string) {
+    const project = projects.value.find((p) => p.id === id);
+    if (project) project.favorite = true;
+  }
+
+  function unfavoriteProject(id: string) {
+    const project = projects.value.find((p) => p.id === id);
+    if (project) project.favorite = false;
+  }
+
+  function toggleFavorite(id: string) {
+    const project = projects.value.find((p) => p.id === id);
+    if (project) project.favorite = !project.favorite;
   }
 
   function requestRightTab(tab: WorkspaceTab) {
@@ -298,18 +482,66 @@ export const useProjectStore = defineStore('project', () => {
     const updates = await Promise.all(
       projects.value.map(async (p) => {
         try {
-          const info: any = await api.scanProject(p.path);
-          if (p.type === 'node') {
-            return { ...p, scripts: info.scripts || [] };
-          }
-          return p;
-        } catch (e) {
-          console.error(`Failed to refresh project ${p.name}`, e);
+          await api.readDir(p.path);
+        } catch {
           return p;
         }
+
+        const [info, frontendEnvGroups] = await Promise.all([
+          api.scanProject(p.path).catch((error) => {
+            console.error(`Failed to refresh project ${p.name}`, error);
+            return null;
+          }),
+          scanFrontendEnvProject(p.path, api).catch((error) => {
+            console.error(`Failed to refresh frontend env for project ${p.name}`, error);
+            return undefined;
+          }),
+        ]);
+
+        const nextProject: Project = {
+          ...p,
+          frontendEnvGroups: frontendEnvGroups || p.frontendEnvGroups || [],
+          frontendEnvScannedAt: frontendEnvGroups ? Date.now() : p.frontendEnvScannedAt,
+        };
+
+        if (info && p.type === 'node') {
+          return { ...nextProject, scripts: info.scripts || [] };
+        }
+
+        return nextProject;
       })
     );
     projects.value = updates;
+  }
+
+  /***********************前端环境扫描*********************/
+
+  async function scanFrontendEnvForProject(projectId: string) {
+    const index = projects.value.findIndex((p) => p.id === projectId);
+    if (index === -1) {
+      return [];
+    }
+
+    const project = projects.value[index];
+    const groups = await scanFrontendEnvProject(project.path, api);
+    projects.value[index] = {
+      ...project,
+      frontendEnvGroups: groups,
+      frontendEnvScannedAt: Date.now(),
+    };
+
+    return groups;
+  }
+
+  async function scanFrontendEnvForAll() {
+    await Promise.all(
+      projects.value.map((project) =>
+        scanFrontendEnvForProject(project.id).catch((error) => {
+          console.error(`Failed to scan frontend env for project ${project.name}`, error);
+          return [];
+        }),
+      ),
+    );
   }
 
   function pinProject(id: string) {
@@ -332,17 +564,141 @@ export const useProjectStore = defineStore('project', () => {
     project.pinOrder = undefined;
   }
 
+  /***********************批量选择状态*********************/
+
+  /** 批量模式：仅在 UI 主动开启时使用，不影响普通选中项目 */
+  const batchMode = ref(false);
+  const selectedIds = ref<Set<string>>(new Set());
+
+  function enterBatchMode(initialIds: string[] = []) {
+    batchMode.value = true;
+    selectedIds.value = new Set(initialIds);
+  }
+
+  function exitBatchMode() {
+    batchMode.value = false;
+    selectedIds.value = new Set();
+  }
+
+  function toggleSelect(id: string) {
+    const next = new Set(selectedIds.value);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selectedIds.value = next;
+  }
+
+  function selectAllVisible(ids: string[]) {
+    selectedIds.value = new Set(ids);
+  }
+
+  function clearSelection() {
+    selectedIds.value = new Set();
+  }
+
+  /** 对一组项目并发应用 partial 更新；遇失败不抛，返回失败 id 集合 */
+  async function batchUpdate(ids: string[], patch: Partial<Project>): Promise<{ updated: string[]; failed: string[] }> {
+    const targets = ids
+      .map((id) => projects.value.find((p) => p.id === id))
+      .filter((p): p is Project => !!p);
+    const updated: string[] = [];
+    const failed: string[] = [];
+    await Promise.all(
+      targets.map(async (p) => {
+        try {
+          Object.assign(p, patch);
+          updated.push(p.id);
+        } catch (e) {
+          console.error('batchUpdate failed for', p.id, e);
+          failed.push(p.id);
+        }
+      })
+    );
+    return { updated, failed };
+  }
+
+  /** 批量添加/删除标签（add=true 添加，否则移除） */
+  async function batchSetTags(ids: string[], tags: string[], add: boolean): Promise<void> {
+    const normalizedTags = normalizeProjectTags(tags);
+    const targets = ids
+      .map((id) => projects.value.find((p) => p.id === id))
+      .filter((p): p is Project => !!p);
+    for (const p of targets) {
+      const set = new Set(p.tags ?? []);
+      for (const t of normalizedTags) {
+        if (add) set.add(t);
+        else set.delete(t);
+      }
+      p.tags = normalizeProjectTags(Array.from(set));
+    }
+  }
+
+  /** 批量删除项目 */
+  async function batchRemove(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      removeProject(id);
+    }
+  }
+
+  /***********************项目分组管理*********************/
+
+  /** 新增分组 */
+  function addProjectGroup(group: Omit<ProjectGroup, 'id'>) {
+    projectGroups.value.push({
+      id: crypto.randomUUID(),
+      ...group,
+    });
+  }
+
+  /** 更新分组（合并 patch） */
+  function updateProjectGroup(id: string, patch: Partial<Omit<ProjectGroup, 'id'>>) {
+    const group = projectGroups.value.find((g) => g.id === id);
+    if (!group) return;
+    Object.assign(group, patch);
+  }
+
+  /** 删除分组，并把该分组下的项目 groupId 清空（不删除项目） */
+  function removeProjectGroup(id: string) {
+    projectGroups.value = projectGroups.value.filter((g) => g.id !== id);
+    for (const p of projects.value) {
+      if (p.groupId === id) {
+        p.groupId = undefined;
+      }
+    }
+  }
+
+  /** 切换分组折叠状态 */
+  function toggleProjectGroupCollapsed(id: string) {
+    const group = projectGroups.value.find((g) => g.id === id);
+    if (!group) return;
+    group.collapsed = !group.collapsed;
+  }
+
   return {
     projects,
+    projectGroups,
     runningStatus,
     runningProjectCount,
     logs,
     activeProjectId,
+    activeRootId,
+    pendingWorkspaceRootId,
+    pendingWorkspaceProjectId,
     requestedRightTab,
     requestedRightTabToken,
     addProject,
     updateProject,
     removeProject,
+    getChildren,
+    getRootProjects,
+    hasChildren,
+    getProjectDepth,
+    getRootProjectId,
+    collectDescendantIds,
+    addSubProjects,
+    addProjectTree,
+    favoriteProject,
+    unfavoriteProject,
+    toggleFavorite,
     requestRightTab,
     runProject,
     runCustomCommand,
@@ -350,7 +706,23 @@ export const useProjectStore = defineStore('project', () => {
     resolvePmForProject,
     clearLog,
     refreshAll,
+    scanFrontendEnvForProject,
+    scanFrontendEnvForAll,
     pinProject,
     unpinProject,
+    addProjectGroup,
+    updateProjectGroup,
+    removeProjectGroup,
+    toggleProjectGroupCollapsed,
+    batchMode,
+    selectedIds,
+    enterBatchMode,
+    exitBatchMode,
+    toggleSelect,
+    selectAllVisible,
+    clearSelection,
+    batchUpdate,
+    batchSetTags,
+    batchRemove,
   };
 });

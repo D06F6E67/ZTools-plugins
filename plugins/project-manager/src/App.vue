@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, h } from 'vue';
+import { computed, ref, onMounted, onUnmounted, watch, h } from 'vue';
 import { api } from './api';
 import { ElMessageBox, ElMessage, ElLoading } from 'element-plus';
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -9,6 +9,7 @@ import Dashboard from './views/Dashboard.vue';
 import Settings from './views/Settings.vue';
 import NodeManager from './views/NodeManager.vue';
 import PortManager from './views/PortManager.vue';
+import CommitCalendar from './views/CommitCalendar.vue';
 import TitleBar from './components/TitleBar.vue';
 import UpdateProgress from './components/UpdateProgress.vue';
 import { loadData, scheduleSaveData, flushPendingSave } from './utils/persistence';
@@ -22,18 +23,25 @@ import { normalizeNvmVersion, findInstalledNodeVersion } from './utils/nvm';
 import { DEFAULT_NETWORK_TIMEOUT_MS, fetchWithTimeout, isAbortError } from './utils/network';
 import { ensureNodeInstallCommand } from './utils/projectCommands';
 import { selectReleaseAsset } from './utils/updateReleaseAsset';
+import {
+  DEFAULT_QUICK_SEARCH_APP_SHORTCUT,
+  DEFAULT_QUICK_SEARCH_GLOBAL_SHORTCUT,
+  isShortcutEvent,
+  normalizeShortcut,
+} from './utils/shortcut';
 
 const target = import.meta.env.VITE_TARGET;
 const isPlugin = target === 'utools' || target === 'ztools';
 
 const { t } = useI18n();
-const currentView = ref<'dashboard' | 'settings' | 'nodes' | 'ports'>('dashboard');
+const currentView = ref<'dashboard' | 'settings' | 'nodes' | 'ports' | 'commitCalendar'>('dashboard');
 const loaded = ref(false);
 const isDragging = ref(false);
 let unlistenDragEnter: UnlistenFn | null = null;
 let unlistenDragLeave: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
 let unlistenSingleInstance: UnlistenFn | null = null;
+let unlistenQuickSearchSelect: UnlistenFn | null = null;
 let manualUpdateCheckListener: (() => void) | null = null;
 
 const showUpdateProgress = ref(false);
@@ -44,6 +52,9 @@ const rememberCloseAction = ref(false);
 let trayIcon: { close?: () => Promise<void> } | null = null;
 let pendingCloseResolver: ((action: 'tray' | 'exit' | 'cancel') => void) | null = null;
 let unlistenCloseRequested: UnlistenFn | null = null;
+let registeredQuickSearchGlobalShortcut = '';
+let quickSearchShortcutRecording = false;
+let quickSearchShortcutRecordingListener: ((event: Event) => void) | null = null;
 let allowWindowClose = false;
 let traySetupToken = 0;
 let exiting = false;
@@ -59,7 +70,7 @@ async function handleImportProject(path: string) {
   const loading = ElLoading.service({
     lock: true,
     text: 'Scanning...',
-    background: 'rgba(0, 0, 0, 0.7)',
+    background: 'color-mix(in srgb, black 70%, transparent)',
   });
 
   try {
@@ -125,6 +136,100 @@ async function handleImportProject(path: string) {
     ElMessage.error('Failed to import: ' + e);
   } finally {
     loading.close();
+  }
+}
+
+/***********************快速搜索快捷键*********************/
+
+async function openQuickSearch() {
+  if (isPlugin) return;
+
+  try {
+    await flushPendingSave();
+    const [{ WebviewWindow }, { emitTo }] = await Promise.all([
+      import('@tauri-apps/api/webviewWindow'),
+      import('@tauri-apps/api/event'),
+    ]);
+    const quickSearchWindow = await WebviewWindow.getByLabel('quick-search');
+    if (!quickSearchWindow) {
+      throw new Error('Quick search window is unavailable');
+    }
+
+    await emitTo('quick-search', 'quick-search-open');
+    await quickSearchWindow.center().catch(() => undefined);
+    await quickSearchWindow.show();
+    await quickSearchWindow.setFocus();
+  } catch (error) {
+    console.error('Failed to open quick search window:', error);
+    ElMessage.error(`${t('common.error')}: ${String(error)}`);
+  }
+}
+
+async function unregisterQuickSearchGlobalShortcut() {
+  if (!registeredQuickSearchGlobalShortcut) return;
+  const shortcut = registeredQuickSearchGlobalShortcut;
+  registeredQuickSearchGlobalShortcut = '';
+  try {
+    const { unregister } = await import('@tauri-apps/plugin-global-shortcut');
+    await unregister(shortcut);
+  } catch (error) {
+    console.error('Failed to unregister quick search global shortcut:', error);
+  }
+}
+
+async function syncQuickSearchGlobalShortcut() {
+  if (isPlugin) return;
+
+  if (quickSearchShortcutRecording) {
+    await unregisterQuickSearchGlobalShortcut();
+    return;
+  }
+
+  const enabled = settingsStore.settings.quickSearchGlobalShortcutEnabled === true;
+  const shortcut = normalizeShortcut(
+    settingsStore.settings.quickSearchGlobalShortcut || DEFAULT_QUICK_SEARCH_GLOBAL_SHORTCUT,
+  );
+
+  if (!enabled || !shortcut) {
+    await unregisterQuickSearchGlobalShortcut();
+    return;
+  }
+
+  if (registeredQuickSearchGlobalShortcut === shortcut) return;
+
+  await unregisterQuickSearchGlobalShortcut();
+  try {
+    const { register } = await import('@tauri-apps/plugin-global-shortcut');
+    await register(shortcut, (event) => {
+      if (event.state === 'Pressed') {
+        void openQuickSearch();
+      }
+    });
+    registeredQuickSearchGlobalShortcut = shortcut;
+  } catch (error) {
+    console.error('Failed to register quick search global shortcut:', error);
+    ElMessage.warning(t('settings.quickSearchGlobalShortcutRegisterFailed'));
+  }
+}
+
+/** 应用内键盘事件处理：按设置项打开快速搜索 */
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (isPlugin) return;
+  const shortcut = settingsStore.settings.quickSearchAppShortcut || DEFAULT_QUICK_SEARCH_APP_SHORTCUT;
+  if (isShortcutEvent(event, shortcut)) {
+    event.preventDefault();
+    void openQuickSearch();
+  }
+}
+
+async function activateQuickSearchSelection(projectId: string) {
+  const store = useProjectStore();
+  // 请求 Dashboard 打开该项目所属根项目的工作区（Dashboard 挂载或 watch 时消费）
+  store.pendingWorkspaceProjectId = projectId;
+  store.pendingWorkspaceRootId = store.getRootProjectId(projectId);
+  currentView.value = 'dashboard';
+  if (!isPlugin) {
+    await showMainWindow();
   }
 }
 
@@ -427,6 +532,19 @@ onMounted(async () => {
   await loadData();
   loaded.value = true;
 
+  if (!isPlugin) {
+    const handleShortcutRecording = (event: Event) => {
+      quickSearchShortcutRecording = (event as CustomEvent<boolean>).detail === true;
+      if (quickSearchShortcutRecording) {
+        void unregisterQuickSearchGlobalShortcut();
+      } else {
+        void syncQuickSearchGlobalShortcut();
+      }
+    };
+    quickSearchShortcutRecordingListener = handleShortcutRecording;
+    window.addEventListener('quick-search-shortcut-recording', handleShortcutRecording);
+  }
+
   // Handle Startup Args / uTools/ZTools Plugin Enter
   if (isPlugin) {
     const pluginApi = (window as any).ztools || (window as any).utools;
@@ -520,6 +638,12 @@ onMounted(async () => {
           handleImportProject(path);
         }
       });
+
+      unlistenQuickSearchSelect = await listen<{ projectId: string; scriptName?: string }>('quick-search-selected', (event) => {
+        if (event.payload.projectId) {
+          void activateQuickSearchSelection(event.payload.projectId);
+        }
+      });
     } catch (e) {
       console.error('Failed to setup drag listeners', e);
     }
@@ -550,6 +674,10 @@ onMounted(async () => {
   const handleManualUpdateCheck = () => checkUpdate(true);
   manualUpdateCheckListener = () => window.removeEventListener('manual-check-update', handleManualUpdateCheck);
   window.addEventListener('manual-check-update', handleManualUpdateCheck);
+
+  if (!isPlugin) {
+    document.addEventListener('keydown', handleGlobalKeydown);
+  }
 });
 
 onUnmounted(() => {
@@ -557,8 +685,14 @@ onUnmounted(() => {
   if (unlistenDragLeave) unlistenDragLeave();
   if (unlistenDragDrop) unlistenDragDrop();
   if (unlistenSingleInstance) unlistenSingleInstance();
+  if (unlistenQuickSearchSelect) unlistenQuickSearchSelect();
   if (manualUpdateCheckListener) manualUpdateCheckListener();
+  if (quickSearchShortcutRecordingListener) {
+    window.removeEventListener('quick-search-shortcut-recording', quickSearchShortcutRecordingListener);
+  }
   if (unlistenCloseRequested) unlistenCloseRequested();
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  void unregisterQuickSearchGlobalShortcut();
   void destroyTray();
   void flushPendingSave();
 });
@@ -566,6 +700,12 @@ onUnmounted(() => {
 // Watch stores and save
 const projectStore = useProjectStore();
 const settingsStore = useSettingsStore();
+const appBackgroundStyle = computed(() => ({
+  backgroundImage: settingsStore.backgroundImageDataUrl
+    ? `url("${settingsStore.backgroundImageDataUrl}")`
+    : 'none',
+  opacity: String(settingsStore.backgroundImagePreviewOpacity),
+}));
 const nodeStore = useNodeStore();
 const usageStore = useUsageStore();
 
@@ -574,6 +714,7 @@ const triggerSave = () => {
 };
 
 watch(() => projectStore.projects, triggerSave, { deep: true });
+watch(() => projectStore.projectGroups, triggerSave, { deep: true });
 watch(() => settingsStore.settings, triggerSave, { deep: true });
 watch(() => nodeStore.versions, triggerSave, { deep: true });
 watch(() => usageStore.usageData, triggerSave, { deep: true });
@@ -593,30 +734,33 @@ watch(
     await setupCloseRequestedHandler();
   }
 );
+
+watch(
+  () => [
+    loaded.value,
+    settingsStore.settings.quickSearchGlobalShortcutEnabled,
+    settingsStore.settings.quickSearchGlobalShortcut,
+  ],
+  async ([isLoaded]) => {
+    if (!isLoaded || isPlugin) return;
+    await syncQuickSearchGlobalShortcut();
+  }
+);
 </script>
 
 <template>
-  <div class="h-screen w-screen flex flex-col bg-slate-50 dark:bg-[#0f172a] text-slate-900 dark:text-gray-100 font-sans overflow-hidden transition-colors duration-200 antialiased">
+  <div class="app-shell">
+    <div class="app-background-layer" :style="appBackgroundStyle" aria-hidden="true" />
     <TitleBar v-if="!isPlugin" />
 
-    <div class="flex-1 flex overflow-hidden relative">
-      <Sidebar @navigate="v => currentView = v" />
-      <main class="flex-1 h-full overflow-hidden relative">
-        <!-- Modern deep gradient background -->
-        <div
-          class="absolute inset-0 bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 dark:from-[#0f172a] dark:via-[#131c2e] dark:to-[#0f172a] opacity-100 pointer-events-none transition-colors duration-200" />
-        <!-- Subtle accent glow -->
-        <div
-          class="absolute top-[-20%] right-[-10%] w-[400px] h-[400px] bg-blue-500/5 dark:bg-blue-500/8 rounded-full blur-[100px] pointer-events-none">
-        </div>
-        <div
-          class="absolute bottom-[-20%] left-[-10%] w-[400px] h-[400px] bg-purple-500/5 dark:bg-purple-500/8 rounded-full blur-[100px] pointer-events-none">
-        </div>
-
-        <div class="relative h-full z-10">
-          <Transition name="page-fade" mode="out-in">
+    <div class="app-layout">
+      <Sidebar :active="currentView" @navigate="v => currentView = v" />
+      <main class="app-main">
+        <div class="app-view-stack">
+          <Transition name="page-fade">
           <KeepAlive>
             <Dashboard v-if="currentView === 'dashboard'" key="dashboard" />
+            <CommitCalendar v-else-if="currentView === 'commitCalendar'" key="commitCalendar" />
             <Settings v-else-if="currentView === 'settings'" key="settings" />
             <NodeManager v-else-if="currentView === 'nodes'" key="nodes" />
             <PortManager v-else-if="currentView === 'ports'" key="ports" />
@@ -625,9 +769,9 @@ watch(
         </div>
 
         <!-- Drag Overlay -->
-        <div v-if="isDragging" class="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center border-4 border-blue-500 border-dashed m-4 rounded-xl transition-all duration-300">
-          <div class="text-center text-white">
-             <div class="text-6xl mb-4 text-blue-400 flex justify-center">
+        <div v-if="isDragging" class="app-drag-overlay">
+          <div class="text-center">
+             <div class="text-6xl mb-4 text-blue-500 dark:text-blue-300 flex justify-center">
                <div class="i-mdi-folder-upload" />
              </div>
              <h2 class="text-2xl font-bold">{{ t('dashboard.dropToImport') || 'Drop folder to import' }}</h2>
@@ -673,216 +817,6 @@ watch(
         </div>
       </template>
     </el-dialog>
+
   </div>
 </template>
-
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-:root {
-  font-family: 'IBM Plex Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
-}
-
-html.dark {
-  color-scheme: dark;
-  --el-bg-color: #1e293b !important;
-  --el-bg-color-overlay: #1e293b !important;
-  --el-border-color: #334155 !important;
-  --el-border-color-light: #334155 !important;
-  --el-border-color-lighter: #334155 !important;
-  --el-text-color-primary: #f1f5f9 !important;
-  --el-text-color-regular: #cbd5e1 !important;
-  --el-fill-color-blank: #0f172a !important;
-}
-
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  background-color: transparent;
-}
-
-/* Monospace font for all font-mono elements */
-.font-mono, code, pre, kbd, samp {
-  font-family: var(--font-mono);
-}
-
-/* Respect reduced motion preference */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* Focus visible styles for all interactive elements */
-button:focus-visible,
-[role="button"]:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.5);
-  outline-offset: 1px;
-  border-radius: 4px;
-}
-
-/* Ensure all buttons get cursor-pointer */
-button, [role="button"] {
-  cursor: pointer;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
-
-/* Element Plus refinements */
-.el-button {
-  transition: all 0.2s ease-out !important;
-}
-
-.el-card {
-  transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out !important;
-}
-
-.el-input__wrapper {
-  transition: box-shadow 0.2s ease-out !important;
-}
-
-.app-dialog,
-.project-modal,
-.install-node-dialog,
-.branch-dialog,
-.git-remote-dialog,
-.import-preview-dialog,
-.app-centered-dialog {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  max-width: calc(100vw - 32px);
-}
-
-.app-dialog {
-  width: min(500px, calc(100vw - 32px)) !important;
-  max-height: 90vh;
-}
-
-.project-modal {
-  width: min(750px, calc(100vw - 32px)) !important;
-  max-height: 90vh;
-}
-
-.install-node-dialog {
-  width: min(600px, calc(100vw - 32px)) !important;
-  max-height: 90vh;
-}
-
-.branch-dialog {
-  width: min(480px, calc(100vw - 32px)) !important;
-  max-height: 90vh;
-}
-
-.git-remote-dialog {
-  width: min(640px, calc(100vw - 32px)) !important;
-  max-height: 90vh;
-}
-
-.import-preview-dialog {
-  width: min(960px, calc(100vw - 32px)) !important;
-  max-height: 92vh;
-}
-
-.app-centered-dialog {
-  width: min(420px, calc(100vw - 32px)) !important;
-  max-height: 92vh;
-}
-
-.app-dialog .el-dialog__body,
-.project-modal .el-dialog__body,
-.install-node-dialog .el-dialog__body,
-.branch-dialog .el-dialog__body,
-.git-remote-dialog .el-dialog__body,
-.app-centered-dialog .el-dialog__body {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-.project-modal .el-dialog__body,
-.branch-dialog .el-dialog__body,
-.git-remote-dialog .el-dialog__body,
-.install-node-dialog .el-dialog__body {
-  max-height: calc(90vh - 120px);
-}
-
-.project-modal .el-dialog__footer,
-.import-preview-dialog .el-dialog__footer {
-  padding-top: 12px;
-}
-
-.import-preview-dialog .el-dialog__body {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow: hidden;
-  padding-top: 12px;
-}
-
-.app-dialog .el-dialog__body > *,
-.project-modal .el-dialog__body > *,
-.install-node-dialog .el-dialog__body > *,
-.branch-dialog .el-dialog__body > *,
-.git-remote-dialog .el-dialog__body > *,
-.import-preview-dialog .el-dialog__body > *,
-.app-centered-dialog .el-dialog__body > * {
-  min-width: 0;
-}
-
-/* Smoother tag transitions */
-.el-tag {
-  transition: all 0.15s ease-out !important;
-}
-
-/* Page transition (view switching) */
-.page-fade-enter-active,
-.page-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.page-fade-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-.page-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-</style>
