@@ -5,6 +5,12 @@ import type { TerminalInfo } from '../api/types';
 import { api } from '../api';
 import i18n from '../i18n';
 import { normalizeTerminalConfigs } from '../utils/terminalConfig';
+import {
+  DEFAULT_QUICK_SEARCH_APP_SHORTCUT,
+  DEFAULT_QUICK_SEARCH_GLOBAL_SHORTCUT,
+  normalizeShortcut,
+} from '../utils/shortcut';
+import { createImageDataUrl } from '../utils/backgroundImage';
 
 function createDefaultAiService(overrides: Partial<AiServiceConfig> = {}): AiServiceConfig {
   return {
@@ -38,10 +44,15 @@ export const useSettingsStore = defineStore('settings', () => {
     layoutState: {},
     locale: 'zh',
     themeMode: 'auto',
+    backgroundImagePath: '',
+    backgroundImageOpacity: 0.35,
     autoUpdate: true,
     trayEnabled: true,
     closeAction: 'ask',
     autoLaunch: false,
+    quickSearchAppShortcut: DEFAULT_QUICK_SEARCH_APP_SHORTCUT,
+    quickSearchGlobalShortcutEnabled: false,
+    quickSearchGlobalShortcut: DEFAULT_QUICK_SEARCH_GLOBAL_SHORTCUT,
     gitAiEnabled: false,
     gitAiPrimaryService: createDefaultAiService(),
     gitAiStream: true,
@@ -49,6 +60,8 @@ export const useSettingsStore = defineStore('settings', () => {
     gitAiApiKey: '',
     gitAiModel: 'gpt-4o-mini',
     gitAiPromptTemplate: '',
+    gitPullStrategy: 'default',
+    gitConfirmDestructive: true,
   });
 
   const availableTerminals = ref<TerminalInfo[]>([]);
@@ -102,6 +115,13 @@ export const useSettingsStore = defineStore('settings', () => {
       if (!parsed.sortMode) {
         parsed.sortMode = parsed.usageWeightEnabled ? 'smart' : 'default';
       }
+      // 项目总控能力新字段兜底
+      if (!Array.isArray(parsed.projectViewPresets)) {
+        parsed.projectViewPresets = [];
+      }
+      if (!Array.isArray(parsed.workspaceProfiles)) {
+        parsed.workspaceProfiles = [];
+      }
       settings.value = { ...settings.value, ...parsed };
     } catch (e) {
       console.error(e);
@@ -112,6 +132,12 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value.gitAiStream = true;
   }
   settings.value.customTerminals = normalizeTerminalConfigs(settings.value.customTerminals);
+  if (!Array.isArray(settings.value.projectViewPresets)) {
+    settings.value.projectViewPresets = [];
+  }
+  if (!Array.isArray(settings.value.workspaceProfiles)) {
+    settings.value.workspaceProfiles = [];
+  }
   // Ensure at least one editor exists
   if (!settings.value.editors || settings.value.editors.length === 0) {
     settings.value.editors = [{ id: crypto.randomUUID(), name: 'VS Code', path: settings.value.editorPath || 'code' }];
@@ -123,18 +149,88 @@ export const useSettingsStore = defineStore('settings', () => {
   if (!settings.value.layoutState || typeof settings.value.layoutState !== 'object' || Array.isArray(settings.value.layoutState)) {
     settings.value.layoutState = {};
   }
-  
+  if (typeof settings.value.quickSearchAppShortcut !== 'string') {
+    settings.value.quickSearchAppShortcut = DEFAULT_QUICK_SEARCH_APP_SHORTCUT;
+  } else {
+    settings.value.quickSearchAppShortcut = normalizeShortcut(settings.value.quickSearchAppShortcut);
+  }
+  if (typeof settings.value.quickSearchGlobalShortcutEnabled !== 'boolean') {
+    settings.value.quickSearchGlobalShortcutEnabled = false;
+  }
+  if (typeof settings.value.quickSearchGlobalShortcut !== 'string') {
+    settings.value.quickSearchGlobalShortcut = DEFAULT_QUICK_SEARCH_GLOBAL_SHORTCUT;
+  } else {
+    settings.value.quickSearchGlobalShortcut = normalizeShortcut(settings.value.quickSearchGlobalShortcut);
+  }
+  if (typeof settings.value.backgroundImagePath !== 'string') {
+    settings.value.backgroundImagePath = '';
+  }
+  if (typeof settings.value.backgroundImageOpacity !== 'number') {
+    settings.value.backgroundImageOpacity = 0.35;
+  }
+  settings.value.backgroundImageOpacity = Math.min(1, Math.max(0.1, settings.value.backgroundImageOpacity));
+
   const systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
-  
+
   const updateTheme = (e?: MediaQueryListEvent) => {
       const mode = settings.value.themeMode;
       const isDark = mode === 'dark' || (mode === 'auto' && (e ? e.matches : systemThemeMedia.matches));
-      
+
       if (isDark) {
           document.documentElement.classList.add('dark');
       } else {
           document.documentElement.classList.remove('dark');
       }
+  };
+
+  let backgroundLoadToken = 0;
+  let appliedBackgroundPath = '';
+  const backgroundImageDataUrl = ref('');
+  const backgroundImagePreviewOpacity = ref(settings.value.backgroundImageOpacity ?? 0.35);
+
+  const applyBackgroundImage = async (
+    imagePath = settings.value.backgroundImagePath?.trim() || '',
+    opacity = settings.value.backgroundImageOpacity ?? 0.35,
+    preparedDataUrl?: string,
+  ) => {
+    const root = document.documentElement;
+    const normalizedOpacity = Math.min(1, Math.max(0.1, opacity));
+    backgroundImagePreviewOpacity.value = normalizedOpacity;
+
+    if (!imagePath) {
+      backgroundLoadToken++;
+      appliedBackgroundPath = '';
+      backgroundImageDataUrl.value = '';
+      root.classList.remove('has-custom-background');
+      return;
+    }
+
+    if (preparedDataUrl) {
+      backgroundLoadToken++;
+      backgroundImageDataUrl.value = preparedDataUrl;
+      root.classList.add('has-custom-background');
+      appliedBackgroundPath = imagePath;
+      return;
+    }
+
+    if (imagePath === appliedBackgroundPath && backgroundImageDataUrl.value) {
+      return;
+    }
+
+    const token = ++backgroundLoadToken;
+    try {
+      const base64 = await api.readBinaryFileBase64(imagePath);
+      if (token !== backgroundLoadToken) return;
+      backgroundImageDataUrl.value = createImageDataUrl(imagePath, base64);
+      root.classList.add('has-custom-background');
+      appliedBackgroundPath = imagePath;
+    } catch (error) {
+      if (token !== backgroundLoadToken) return;
+      console.error('Failed to load custom background image', error);
+      appliedBackgroundPath = '';
+      backgroundImageDataUrl.value = '';
+      root.classList.remove('has-custom-background');
+    }
   };
 
   // Listen for system changes
@@ -150,9 +246,10 @@ export const useSettingsStore = defineStore('settings', () => {
       // @ts-ignore
       i18n.global.locale.value = settings.value.locale;
     }
-    
+
     // Theme Mode
     updateTheme();
+    void applyBackgroundImage();
   };
 
   // Apply on init
@@ -174,6 +271,9 @@ export const useSettingsStore = defineStore('settings', () => {
     settings,
     availableTerminals,
     allTerminals,
-    fetchAvailableTerminals
+    fetchAvailableTerminals,
+    applyBackgroundImage,
+    backgroundImageDataUrl,
+    backgroundImagePreviewOpacity,
   };
 });
