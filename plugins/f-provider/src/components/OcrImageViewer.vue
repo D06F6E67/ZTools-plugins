@@ -27,8 +27,12 @@ const props = withDefaults(
     emptyText?: string
     /** 隐藏内置结果列表（父组件自行渲染右侧结果面板时使用）。 */
     hideResult?: boolean
+    /** 隐藏图片预览区（仅保留结果列表，常用于历史记录文字 OCR 详情）。 */
+    hideImage?: boolean
+    /** 结果列表底部留白（px），用于避开外层悬浮导航栏遮挡。 */
+    resultPadBottom?: number
   }>(),
-  { loading: false, emptyText: '', hideResult: false }
+  { loading: false, emptyText: '', hideResult: false, hideImage: false, resultPadBottom: 0 }
 )
 
 const emit = defineEmits<{
@@ -213,6 +217,10 @@ function closeFullscreen() {
   dragging.value = false
 }
 
+// 对外暴露打开全屏：供 HistoryView 等父组件点击 OCR 缩略图时直接触发，
+// 复用内部 canvas 绘图 + 文字层 + 缩放/拖拽的整套全屏预览能力。
+defineExpose({ openFullscreen })
+
 // 滚轮缩放：以鼠标位置为锚点
 function onFsWheel(e: WheelEvent) {
   e.preventDefault()
@@ -361,7 +369,7 @@ onUnmounted(() => {
 <template>
   <div class="viewer">
     <div
-      v-if="imageSrc"
+      v-if="imageSrc && !hideImage"
       class="canvas-stage"
       :class="{ 'is-dragging': inlineDragging }"
       @wheel.prevent="onInlineWheel"
@@ -443,7 +451,11 @@ onUnmounted(() => {
     </div>
 
     <!-- 明细结果列表（可由父组件通过 hideResult 接管渲染） -->
-    <div v-if="hasResult && !hideResult" class="result">
+    <div
+      v-if="hasResult && !hideResult"
+      class="result"
+      :style="{ paddingBottom: resultPadBottom ? resultPadBottom + 'px' : undefined }"
+    >
       <div class="result-head">
         <span class="result-title">识别明细（{{ lines.length }} 行）</span>
         <span class="result-tip">图上文字可直接鼠标选中，或点击对应文字复制</span>

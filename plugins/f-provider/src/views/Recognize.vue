@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
-import { ZButton, ZTag, useToast } from "ztools-ui";
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch, nextTick } from "vue";
+import { ZButton, ZTag, useToast, useColorScheme } from "ztools-ui";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import EngineStatusCard from "../components/EngineStatusCard.vue";
@@ -43,13 +43,20 @@ const props = withDefaults(
   { initialImage: "", initialMode: "text", autoCapture: false },
 );
 
+// 响应式暗色标记：宿主切换主题时同步，用于避免 :global(html.dark) 在 scoped 下不生效。
+const { isDark } = useColorScheme();
+
 /**
  * 模式变化时上报父组件：公式模式下底部悬浮导航栏会移到左下角，
  * 避免遮挡右下角的三个复制按钮（见 SettingLayout 的 dockAlign）。
  * immediate：组件每次按 :key 重建时同步当前模式，保证 dock 位置正确。
+ *
+ * 识别成功后上抛 history 事件：由 Manage 统一写入历史记录单例（dbStorage），
+ * 不在子组件内直接依赖 dbStorage。
  */
 const emit = defineEmits<{
   (e: "mode-change", mode: "text" | "formula"): void;
+  (e: "history", item: HistoryEmitItem): void;
 }>();
 
 const { success, error } = useToast();
@@ -250,7 +257,22 @@ async function recognizeText() {
     if (result.ok) {
       ocrLines.value = result.lines ?? [];
       if (ocrLines.value.length === 0) error("未识别到文字");
-      else success(`识别完成，共 ${ocrLines.value.length} 行`);
+      else {
+        success(`识别完成，共 ${ocrLines.value.length} 行`);
+        // 上抛历史记录：只有真正调识别服务成功才留一笔（命中缓存不会进此分支）
+        emit("history", {
+          kind: "ocr-text",
+          thumbnail: imageSrc.value,
+          title: ocrLines.value[0]?.text
+            ? ocrLines.value[0].text.slice(0, 40)
+            : "（未识别到文字）",
+          payload: {
+            kind: "ocr-text",
+            imageSrc: imageSrc.value,
+            lines: ocrLines.value.map((l) => ({ ...l })),
+          },
+        });
+      }
     } else {
       ocrError.value = result.error || "识别失败";
       error(ocrError.value);
@@ -278,7 +300,20 @@ async function recognizeFormula() {
     if (result.ok) {
       latex.value = result.latex || "";
       if (!latex.value) error("未识别到公式");
-      else success("公式识别完成");
+      else {
+        success("公式识别完成");
+        // 上抛历史记录：只有真正调识别服务成功才留一笔（命中缓存不会进此分支）
+        emit("history", {
+          kind: "ocr-formula",
+          thumbnail: imageSrc.value,
+          title: latex.value.slice(0, 40),
+          payload: {
+            kind: "ocr-formula",
+            imageSrc: imageSrc.value,
+            latex: latex.value,
+          },
+        });
+      }
     } else {
       latexError.value = result.error || "识别失败";
       error(latexError.value);
@@ -402,6 +437,21 @@ onMounted(() => {
   maybeAutoCapture();
 });
 
+// keep-alive 缓存后切 tab 触发 onActivated/onDeactivated（而非重新挂载）：
+//   - activated：重绑 paste 监听（deactivated 时已移除）、重新 check 引擎状态
+//     （长时间切走后 ready 可能已过期），不再重复触发自动截图（autoCaptureDone
+//     在缓存实例中保留为 true，未触发过的由引擎就绪 watcher 补截图）。
+//   - deactivated：暂停 paste 监听，避免非可见时仍响应剪贴板。
+onActivated(() => {
+  window.addEventListener("paste", onPaste);
+  checkNative();
+  checkLatex();
+});
+
+onDeactivated(() => {
+  window.removeEventListener("paste", onPaste);
+});
+
 onUnmounted(() => {
   window.removeEventListener("paste", onPaste);
   window.services.ocrDispose();
@@ -493,6 +543,7 @@ onUnmounted(() => {
         <!-- 模式切换：独占一行撑满 -->
         <div
           class="mode-switch"
+          :class="{ dark: isDark }"
           role="tablist"
           aria-label="识别模式"
           ref="modeSwitchRef"
@@ -596,7 +647,7 @@ onUnmounted(() => {
               选择图片或截图后自动识别，结果将在此显示
             </div>
             <template v-else>
-              <div class="formula-layout">
+              <div class="formula-layout" :class="{ dark: isDark }">
                 <!-- 上半：渲染预览（随下方源码实时渲染） -->
                 <div class="result-section formula-half">
                   <div class="section-title">渲染预览</div>
@@ -780,8 +831,10 @@ onUnmounted(() => {
   transition: none;
 }
 
-:global(html.dark) .mode-indicator {
-  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.14));
+/* scoped 下 :global 失效，改用 .dark 类驱动暗色高亮（不刺眼） */
+.mode-switch.dark .mode-indicator {
+  background: var(--sub-item-active-bg, rgba(255, 255, 255, 0.08));
+  box-shadow: none;
 }
 
 .mode-btn {
@@ -931,8 +984,11 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-:global(html.dark) .katex-preview {
+/* scoped 下 :global 失效，用 .dark 类驱动暗色渲染预览 */
+.formula-layout.dark .katex-preview {
   background: #2a2a2a;
+  border-color: var(--border-color, #374151);
+  color: var(--text-color, #f3f4f6);
 }
 
 .katex-error {
@@ -954,8 +1010,15 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1.5;
   resize: none;
-  color: var(--text-primary, #333);
+  color: var(--text-color, #333);
   outline: none;
+}
+
+/* scoped 下 :global 失效，用 .dark 类驱动暗色 LaTeX 源码框 */
+.formula-layout.dark .latex-source {
+  background: var(--code-bg, #2a2a2a);
+  color: var(--text-color, #f3f4f6);
+  border-color: var(--border-color, #374151);
 }
 
 .copy-actions {

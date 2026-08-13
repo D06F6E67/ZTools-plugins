@@ -89,6 +89,47 @@ declare global {
     cancelled?: boolean
   }
 
+  // ─── 历史记录 ─────────────────────────────────────────────────────────
+  /** 历史记录的类型：OCR 文字 / OCR 公式 / 翻译。 */
+  type HistoryKind = 'ocr-text' | 'ocr-formula' | 'translate'
+
+  /**
+   * 历史记录条目。由 Recognize / Translate 在完成识别/翻译后上抛给 Manage，
+   * 由 Manage 统一写入 dbStorage（key: `history.list`），最多保留 100 条。
+   *
+   * - OCR 记录：thumbnail / payload.imageSrc 均为 data URI（用户选择直接存，
+   *   不落盘），点缩略图可复用 OcrImageViewer 的全屏预览能力。
+   * - 翻译记录：thumbnail 字段不用（HistoryView 按 payload.source 首字动态渲染
+   *   圆形首字缩略图），故置空串；payload 含原文 / 译文 / 语言 / provider。
+   */
+  interface HistoryItem {
+    /** 唯一 id（crypto.randomUUID()）。 */
+    id: string
+    /** 记录类型。 */
+    kind: HistoryKind
+    /** 缩略图源：OCR 为 data URI，翻译为空串（渲染时按首字动态生成）。 */
+    thumbnail: string
+    /** 标题：截取的一段结果文本，约 40 字。 */
+    title: string
+    /** 触发时间戳（ms）。 */
+    ts: number
+    /** 类型相关的明细 payload。 */
+    payload:
+      | { kind: 'ocr-text'; imageSrc: string; lines: OcrLine[] }
+      | { kind: 'ocr-formula'; imageSrc: string; latex: string }
+      | {
+          kind: 'translate'
+          source: string
+          target: string
+          from: string
+          to: string
+          provider: TranslateProviderName
+        }
+  }
+
+  /** 上抛给父级的历史记录条目（不含 id / ts，由父级补全）。 */
+  type HistoryEmitItem = Omit<HistoryItem, 'id' | 'ts'>
+
   // ─── 翻译 Provider 相关 ───────────────────────────────────────────────
   /** 翻译 Provider 输出（对齐宿主 TranslationOutput）。 */
   interface TranslateProviderOutput {
