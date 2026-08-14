@@ -28,6 +28,11 @@ fs.mkdirSync(dataDir, { recursive: true })
 
 const repository = createRepository(ztools.db.promises, dataDir)
 let server = null
+const SHARED_CONVERSATION_ID = 'shared'
+
+function privateConversationId(deviceId) {
+  return `device:${deviceId}`
+}
 
 const DEFAULT_SETTINGS = {
   deviceId: '',
@@ -146,16 +151,24 @@ async function serverStatus() {
       qrDataUrl: '',
     }
   }
-  const pairing = server.pairing
-  const base = server.status
-  const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}`
-  return {
-    ...base,
-    pairingUrl,
-    pairingCode: pairing.code,
-    pairingExpiresAt: new Date(pairing.expiresAt).toISOString(),
-    qrDataUrl: await QRCode.toDataURL(pairingUrl, { width: 360, margin: 1, errorCorrectionLevel: 'M' }),
+  // QR generation is asynchronous. If another device pairs while it is running,
+  // retry with the newest state so an older QR can never overwrite the UI.
+  while (server) {
+    const currentServer = server
+    const pairing = currentServer.pairing
+    const base = currentServer.status
+    const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}`
+    const qrDataUrl = await QRCode.toDataURL(pairingUrl, { width: 360, margin: 1, errorCorrectionLevel: 'M' })
+    if (server !== currentServer || currentServer.pairing.sessionId !== pairing.sessionId) continue
+    return {
+      ...base,
+      pairingUrl,
+      pairingCode: pairing.code,
+      pairingExpiresAt: new Date(pairing.expiresAt).toISOString(),
+      qrDataUrl,
+    }
   }
+  return serverStatus()
 }
 
 async function startServer() {
@@ -169,6 +182,9 @@ async function startServer() {
     pairingCode: await currentPairingCode(settings),
     maxIncomingFileBytes: settings.maxIncomingFileBytes,
     onEvent: emit,
+    async onPairingExpired() {
+      return currentPairingCode(await getSettingsRecord())
+    },
     onPairingChanged() {
       void serverStatus().then((status) => emit('server:changed', status)).catch(() => {})
     },
@@ -195,12 +211,22 @@ async function regeneratePairingCode() {
   return status
 }
 
-function newMessageBase(settings, kind) {
+async function validateConversationId(conversationId) {
+  const value = String(conversationId || '')
+  if (value === SHARED_CONVERSATION_ID) return value
+  if (!value.startsWith('device:')) throw new TypeError('请选择要发送到的会话')
+  const targetDeviceId = value.slice('device:'.length)
+  if (!(await repository.listDevices()).some((device) => device.id === targetDeviceId)) throw new TypeError('目标设备不存在或授权已撤销')
+  return value
+}
+
+function newMessageBase(settings, kind, conversationId) {
   const now = new Date().toISOString()
   return {
     id: randomId(18),
     senderId: settings.deviceId,
     senderName: settings.deviceName,
+    conversationId,
     direction: 'outgoing',
     kind,
     attachments: [],
@@ -212,14 +238,16 @@ function newMessageBase(settings, kind) {
 
 async function publishDesktopMessage(message) {
   if (!server) await startServer()
-  await server.publishMessage(message)
-  return message
+  return server.publishMessage(message, message.conversationId)
 }
 
 async function desktopMessages() {
   const settings = await getSettingsRecord()
-  return (await repository.listMessages()).map((message) => ({
+  return (await repository.listMessages(1000, {
+    groupBy: (message) => message.conversationId || (message.senderId === settings.deviceId ? SHARED_CONVERSATION_ID : privateConversationId(message.senderId)),
+  })).map((message) => ({
     ...message,
+    conversationId: message.conversationId || (message.senderId === settings.deviceId ? SHARED_CONVERSATION_ID : privateConversationId(message.senderId)),
     direction: message.senderId === settings.deviceId ? 'outgoing' : 'incoming',
   }))
 }
@@ -250,12 +278,13 @@ function collectFiles(paths, maxFiles = 1000) {
   return files
 }
 
-async function sendFiles(paths) {
+async function sendFiles(paths, requestedConversationId) {
   if (!Array.isArray(paths) || paths.length === 0) throw new TypeError('请选择要发送的文件')
   const settings = await getSettingsRecord()
+  const conversationId = await validateConversationId(requestedConversationId)
   const files = collectFiles(paths.map(String))
   if (files.length === 0) throw new TypeError('没有可发送的普通文件')
-  const message = newMessageBase(settings, files.every(({ path: filePath }) => mimeFor(filePath).startsWith('image/')) ? 'image' : 'file')
+  const message = newMessageBase(settings, files.every(({ path: filePath }) => mimeFor(filePath).startsWith('image/')) ? 'image' : 'file', conversationId)
   message.attachments = files.map(({ path: filePath, stat }) => ({
     id: randomId(18),
     name: safeFilename(path.basename(filePath)),
@@ -268,7 +297,7 @@ async function sendFiles(paths) {
   return publishDesktopMessage(message)
 }
 
-async function sendImage(dataUrl) {
+async function sendImage(dataUrl, conversationId) {
   const match = /^data:image\/([a-z0-9.+-]{1,30});base64,([a-z0-9+/=]+)$/i.exec(String(dataUrl || ''))
   if (!match) throw new TypeError('图片数据格式无效')
   const bytes = Buffer.from(match[2], 'base64')
@@ -276,13 +305,19 @@ async function sendImage(dataUrl) {
   const extension = match[1] === 'jpeg' ? 'jpg' : match[1].replace(/[^a-z0-9]/gi, '')
   const destination = repository.newAttachmentPath(`clipboard-${Date.now()}.${extension}`)
   fs.writeFileSync(destination, bytes, { flag: 'wx' })
-  return sendFiles([destination])
+  try {
+    return await sendFiles([destination], conversationId)
+  } catch (error) {
+    try { fs.rmSync(destination, { force: true }) } catch {}
+    throw error
+  }
 }
 
-async function sendText(text) {
+async function sendText(text, requestedConversationId) {
   const content = cleanText(text)
   const settings = await getSettingsRecord()
-  const message = { ...newMessageBase(settings, detectKind(content)), text: content }
+  const conversationId = await validateConversationId(requestedConversationId)
+  const message = { ...newMessageBase(settings, detectKind(content), conversationId), text: content }
   return publishDesktopMessage(message)
 }
 
@@ -370,16 +405,16 @@ window.deviceLink = {
   sendText,
   sendFiles,
   sendImage,
-  sendDroppedFiles(files) {
+  sendDroppedFiles(files, conversationId) {
     const getPathForFile = typeof webUtils?.getPathForFile === 'function' ? (file) => webUtils.getPathForFile(file) : undefined
-    return sendFiles(resolveDroppedFilePaths(files, getPathForFile))
+    return sendFiles(resolveDroppedFilePaths(files, getPathForFile), conversationId)
   },
   async selectFiles() {
     const result = ztools.showOpenDialog({ title: '选择要发送的文件或文件夹', properties: ['openFile', 'openDirectory', 'multiSelections'] })
     return Array.isArray(result) ? result : []
   },
   async copyMessage(messageId) {
-    const message = (await repository.listMessages()).find((item) => item.id === messageId)
+    const message = (await repository.listMessages(Number.MAX_SAFE_INTEGER)).find((item) => item.id === messageId)
     if (!message) return false
     if (message.text) clipboard.writeText(message.text)
     else if (message.attachments?.[0]?.path) {
@@ -390,14 +425,14 @@ window.deviceLink = {
     return true
   },
   async openAttachment(attachmentId) {
-    const messages = await repository.listMessages()
+    const messages = await repository.listMessages(Number.MAX_SAFE_INTEGER)
     const attachment = messages.flatMap((message) => message.attachments || []).find((item) => item.id === attachmentId)
     if (!attachment?.path || !fs.existsSync(attachment.path)) return false
     await shell.openPath(attachment.path)
     return true
   },
   async deleteMessage(messageId) {
-    const message = (await repository.listMessages()).find((item) => item.id === messageId)
+    const message = (await repository.listMessages(Number.MAX_SAFE_INTEGER)).find((item) => item.id === messageId)
     if (!message) return false
     const settings = await getSettingsRecord()
     await removeMessageFromHistory(repository, message, settings.deviceId, new Date().toISOString())

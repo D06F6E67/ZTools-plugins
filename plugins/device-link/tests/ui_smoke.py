@@ -12,8 +12,25 @@ with sync_playwright() as playwright:
     page.on("console", lambda message: errors.append(message.text) if message.type == "error" and "favicon.ico" not in message.text else None)
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto("http://127.0.0.1:5173", wait_until="networkidle")
-    page.get_by_role("heading", name="发送给我的设备").wait_for()
+    page.get_by_role("heading", name="Harris 的 iPhone").wait_for()
     assert page.get_by_text("Harris 的 iPhone", exact=True).count() >= 1
+    assert page.get_by_text("刚拍的白板", exact=True).count() == 1
+    assert page.get_by_text("https://ztools.app/device-link", exact=True).count() == 0
+    page.locator(".device-card__select", has_text="Pixel 9 Pro").click()
+    page.get_by_role("heading", name="Pixel 9 Pro").wait_for()
+    page.get_by_role("heading", name="把内容放进这段私人会话").wait_for()
+    assert page.get_by_text("刚拍的白板", exact=True).count() == 0
+    page.get_by_role("button", name="设置与同步", exact=True).click()
+    page.get_by_role("button", name="立即同步").click()
+    page.get_by_text("同步完成：上传 2，下载 0", exact=True).wait_for()
+    assert page.get_by_role("heading", name="Pixel 9 Pro").count() == 1
+    page.get_by_role("button", name="关闭").click()
+    page.locator(".device-card__select", has_text="全部设备").click()
+    page.get_by_role("heading", name="全部设备").wait_for()
+    assert page.get_by_text("https://ztools.app/device-link", exact=True).count() == 1
+    assert page.get_by_text("刚拍的白板", exact=True).count() == 0
+    page.locator(".device-card__select", has_text="Harris 的 iPhone").click()
+    page.get_by_role("heading", name="Harris 的 iPhone").wait_for()
     page.screenshot(path=str(ARTIFACTS / "desktop-main.png"), full_page=True)
 
     page.evaluate("""
@@ -85,7 +102,7 @@ with sync_playwright() as playwright:
     page.get_by_text("接收服务已停止", exact=True).wait_for()
     page.get_by_role("button", name="更多操作").click()
     page.get_by_role("button", name="启动接收服务 恢复局域网连接").click()
-    page.get_by_text("192.168.1.23:32125 · 局域网实时通道", exact=True).wait_for()
+    page.get_by_text("192.168.1.23:32125 · 仅此设备可见", exact=True).wait_for()
 
     page.get_by_role("button", name="连接新设备").click()
     page.get_by_role("heading", name="连接一台新设备").wait_for()
@@ -112,7 +129,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="关闭").click()
 
     page.get_by_role("button", name="更多操作").click()
-    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("button", name="清理全部历史 删除所有会话消息与本地附件").click()
     page.get_by_role("heading", name="清理历史消息？").wait_for()
     assert page.get_by_role("button", name="取消").evaluate("element => element === document.activeElement")
     assert page.get_by_text("4 条消息", exact=False).count() == 1
@@ -122,12 +139,12 @@ with sync_playwright() as playwright:
     assert page.get_by_text("drag-demo.zip", exact=True).count() == 1
 
     page.get_by_role("button", name="更多操作").click()
-    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("button", name="清理全部历史 删除所有会话消息与本地附件").click()
     page.get_by_role("button", name="清理历史", exact=True).click()
     page.get_by_role("heading", name="把内容放进这段私人会话").wait_for()
     page.get_by_text("已清理 4 条历史消息", exact=True).wait_for()
     assert page.get_by_text("Harris 的 iPhone", exact=True).count() >= 1
     page.get_by_role("button", name="更多操作").click()
-    assert page.get_by_role("button", name="清理历史消息 删除消息与本地附件").is_disabled()
+    assert page.get_by_role("button", name="清理全部历史 删除所有会话消息与本地附件").is_disabled()
     assert not errors, errors
     browser.close()

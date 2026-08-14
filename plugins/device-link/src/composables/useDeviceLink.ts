@@ -19,11 +19,20 @@ export function useDeviceLink() {
   const settings = ref<DeviceLinkSettings | null>(null)
   const error = ref('')
   const notice = ref('')
+  const selectedConversationId = ref('shared')
   let unsubscribe: (() => void) | undefined
   let noticeTimer: ReturnType<typeof setTimeout> | undefined
+  let selectionInitialized = false
 
   const connectedCount = computed(() => devices.value.filter((device) => device.connected).length)
   const orderedMessages = computed(() => [...messages.value].sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
+  const selectedDevice = computed(() => {
+    if (!selectedConversationId.value.startsWith('device:')) return null
+    return devices.value.find((device) => `device:${device.id}` === selectedConversationId.value) || null
+  })
+  const conversationMessages = computed(() => orderedMessages.value.filter((message) => message.conversationId === selectedConversationId.value))
+  const conversationTitle = computed(() => selectedConversationId.value === 'shared' ? '全部设备' : selectedDevice.value?.name || '设备会话')
+  const conversationTargetCount = computed(() => selectedConversationId.value === 'shared' ? connectedCount.value : Number(Boolean(selectedDevice.value?.connected)))
 
   function toast(message: string) {
     notice.value = message
@@ -56,6 +65,12 @@ export function useDeviceLink() {
       devices.value = state.devices
       server.value = state.server
       settings.value = state.settings
+      const selectionStillExists = selectedConversationId.value === 'shared' || state.devices.some((device) => `device:${device.id}` === selectedConversationId.value)
+      if (!selectionInitialized) {
+        const firstDevice = state.devices.find((device) => device.connected) || state.devices[0]
+        selectedConversationId.value = firstDevice ? `device:${firstDevice.id}` : 'shared'
+        selectionInitialized = true
+      } else if (!selectionStillExists) selectedConversationId.value = 'shared'
     } catch (reason) {
       report(reason)
     } finally {
@@ -67,7 +82,7 @@ export function useDeviceLink() {
     if (!text.trim()) return
     busy.value = true
     try {
-      upsertMessage(await window.deviceLink.sendText(text))
+      upsertMessage(await window.deviceLink.sendText(text, selectedConversationId.value))
     } catch (reason) {
       report(reason)
       throw reason
@@ -81,7 +96,7 @@ export function useDeviceLink() {
     if (!paths.length) return
     busy.value = true
     try {
-      upsertMessage(await window.deviceLink.sendFiles(paths))
+      upsertMessage(await window.deviceLink.sendFiles(paths, selectedConversationId.value))
       toast(paths.length === 1 ? '文件已加入会话' : `${paths.length} 个项目已加入会话`)
     } catch (reason) {
       report(reason)
@@ -94,7 +109,7 @@ export function useDeviceLink() {
     if (!files.length) return
     busy.value = true
     try {
-      upsertMessage(await window.deviceLink.sendDroppedFiles(files))
+      upsertMessage(await window.deviceLink.sendDroppedFiles(files, selectedConversationId.value))
       toast(files.length === 1 ? '拖入项目已加入会话' : `${files.length} 个拖入项目已加入会话`)
     } catch (reason) {
       report(reason)
@@ -176,6 +191,7 @@ export function useDeviceLink() {
   async function disconnectDevice(id: string) {
     await window.deviceLink.disconnectDevice(id)
     devices.value = devices.value.filter((device) => device.id !== id)
+    if (selectedConversationId.value === `device:${id}`) selectedConversationId.value = 'shared'
     toast('设备授权已撤销')
   }
 
@@ -190,9 +206,9 @@ export function useDeviceLink() {
             const paths = params.payload
               .map((item) => (typeof item === 'string' ? item : typeof item === 'object' && item && 'path' in item ? String(item.path) : ''))
               .filter(Boolean)
-            if (paths.length) upsertMessage(await window.deviceLink.sendFiles(paths))
+            if (paths.length) upsertMessage(await window.deviceLink.sendFiles(paths, selectedConversationId.value))
           } else if (params.type === 'img' && typeof params.payload === 'string') {
-            upsertMessage(await window.deviceLink.sendImage(params.payload))
+            upsertMessage(await window.deviceLink.sendImage(params.payload, selectedConversationId.value))
           }
         } catch (reason) {
           report(reason)
@@ -207,8 +223,20 @@ export function useDeviceLink() {
     unsubscribe = window.deviceLink.subscribe((event) => {
       if (event.type === 'message:new') upsertMessage(event.data as DeviceLinkMessage)
       if (event.type === 'message:deleted') messages.value = messages.value.filter((item) => item.id !== (event.data as { id: string }).id)
-      if (event.type === 'device:changed') upsertDevice(event.data as PairedDevice)
-      if (event.type === 'device:deleted') devices.value = devices.value.filter((item) => item.id !== (event.data as { id: string }).id)
+      if (event.type === 'device:changed') {
+        const device = event.data as PairedDevice
+        const isNew = !devices.value.some((item) => item.id === device.id)
+        upsertDevice(device)
+        if (isNew) {
+          selectedConversationId.value = `device:${device.id}`
+          selectionInitialized = true
+        }
+      }
+      if (event.type === 'device:deleted') {
+        const { id } = event.data as { id: string }
+        devices.value = devices.value.filter((item) => item.id !== id)
+        if (selectedConversationId.value === `device:${id}`) selectedConversationId.value = 'shared'
+      }
       if (event.type === 'server:changed') server.value = event.data as ServerStatus
       if (event.type === 'messages:changed') messages.value = event.data as DeviceLinkMessage[]
       if (event.type === 'sync:changed' && settings.value) settings.value = { ...settings.value, webdav: { ...settings.value.webdav, ...(event.data as Partial<WebDavSettings>) } }
@@ -222,13 +250,18 @@ export function useDeviceLink() {
 
   return {
     busy,
+    allMessages: orderedMessages,
     connectedCount,
+    conversationTargetCount,
+    conversationTitle,
     devices,
     error,
     loading,
-    messages: orderedMessages,
+    messages: conversationMessages,
     notice,
     server,
+    selectedConversationId,
+    selectedDevice,
     settings,
     chooseAndSendFiles,
     clearHistory,

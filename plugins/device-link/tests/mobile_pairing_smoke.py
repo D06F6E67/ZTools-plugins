@@ -6,6 +6,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE_HTML = (ROOT / "public" / "web" / "index.html").read_text()
+MOBILE_APP = (ROOT / "public" / "web" / "app.js").read_text()
 FALLBACK_CRYPTO = (ROOT / "public" / "web" / "crypto-fallback.js").read_text()
 
 old_pairing = {
@@ -34,6 +35,8 @@ def route_request(route):
         route.fulfill(status=200, content_type="text/html", body=MOBILE_HTML)
     elif request.url == "http://device.test/crypto-fallback.js":
         route.fulfill(status=200, content_type="application/javascript", body=FALLBACK_CRYPTO)
+    elif request.url == "http://device.test/app.js":
+        route.fulfill(status=200, content_type="application/javascript", body=MOBILE_APP)
     elif request.url == "http://device.test/api/pairing":
         pairing_request_count += 1
         route.fulfill(status=200, content_type="application/json", body=json.dumps(active_pairing))

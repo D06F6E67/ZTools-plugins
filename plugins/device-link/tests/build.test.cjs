@@ -18,10 +18,13 @@ test('installable manifest always opens the bundled UI', () => {
 test('pairing links and mobile client refresh the pairing generation', () => {
   const preload = fs.readFileSync(path.join(root, 'public', 'preload', 'services.js'), 'utf8')
   const mobile = fs.readFileSync(path.join(root, 'public', 'web', 'index.html'), 'utf8')
+  const mobileApp = fs.readFileSync(path.join(root, 'public', 'web', 'app.js'), 'utf8')
 
   assert.match(preload, /\?pairing=\$\{encodeURIComponent\(pairing\.sessionId\)\}#pair=/)
-  assert.match(mobile, /async function loadPairing\(\)/)
-  assert.match(mobile, /await loadPairing\(\)/)
-  assert.match(mobile, /window\.addEventListener\('hashchange',refreshPairing\)/)
-  assert.match(mobile, /requestedSessionId!==latestPairing\.sessionId/)
+  assert.match(preload, /onPairingExpired/)
+  assert.match(mobile, /<script src="\/app\.js"><\/script>/)
+  assert.match(mobileApp, /async function loadPairing\(\)/)
+  assert.match(mobileApp, /await loadPairing\(\)/)
+  assert.match(mobileApp, /window\.addEventListener\(["']hashchange["'],\s*refreshPairing\)/)
+  assert.match(mobileApp, /requestedSessionId\s*!==\s*latestPairing\.sessionId/)
 })

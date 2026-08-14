@@ -169,9 +169,11 @@ onUnmounted(() => {
       :devices="link.devices.value"
       :server="link.server.value"
       :connected-count="link.connectedCount.value"
+      :selected-conversation-id="link.selectedConversationId.value"
       @pair="pairingOpen = true"
       @settings="settingsOpen = true"
       @disconnect="link.disconnectDevice"
+      @select="link.selectedConversationId.value = $event"
     />
 
     <section
@@ -189,7 +191,7 @@ onUnmounted(() => {
         <small>将通过加密会话和大文件分块通道传输</small>
       </div>
       <header class="conversation-header">
-        <div><div class="conversation-header__title"><h1>发送给我的设备</h1><span><ShieldCheck :size="13" />私人会话</span></div><p>{{ link.server.value?.running ? `${link.server.value.selectedIP}:${link.server.value.port} · 局域网实时通道` : '接收服务已停止' }}</p></div>
+        <div><div class="conversation-header__title"><h1>{{ link.conversationTitle.value }}</h1><span><ShieldCheck :size="13" />{{ link.selectedConversationId.value === 'shared' ? '共享会话' : '单独会话' }}</span></div><p>{{ link.server.value?.running ? `${link.server.value.selectedIP}:${link.server.value.port} · ${link.selectedConversationId.value === 'shared' ? '已授权设备共同可见' : '仅此设备可见'}` : '接收服务已停止' }}</p></div>
         <div ref="headerActions" class="conversation-header__actions">
           <div class="header-search">
             <button
@@ -226,7 +228,7 @@ onUnmounted(() => {
               <button type="button" @click="openSettings"><Settings :size="15" aria-hidden="true" /><span><strong>设置与同步</strong><small>端口、权限与 WebDAV</small></span></button>
               <button type="button" :disabled="link.busy.value" @click="toggleServer"><Radio :size="15" aria-hidden="true" /><span><strong>{{ link.server.value?.running ? '停止接收服务' : '启动接收服务' }}</strong><small>{{ link.server.value?.running ? '暂停局域网连接' : '恢复局域网连接' }}</small></span></button>
               <div class="header-more__separator" role="separator" />
-              <button class="header-more__danger" type="button" :disabled="link.busy.value || !link.messages.value.length" @click="openClearHistory"><Trash2 :size="15" aria-hidden="true" /><span><strong>清理历史消息</strong><small>删除消息与本地附件</small></span></button>
+              <button class="header-more__danger" type="button" :disabled="link.busy.value || !link.allMessages.value.length" @click="openClearHistory"><Trash2 :size="15" aria-hidden="true" /><span><strong>清理全部历史</strong><small>删除所有会话消息与本地附件</small></span></button>
             </div>
           </div>
         </div>
@@ -234,11 +236,11 @@ onUnmounted(() => {
 
       <div v-if="link.loading.value" class="loading-state"><span class="spinner" />正在建立本机会话…</div>
       <MessageList v-else :messages="filteredMessages" :search-query="searchQuery" @copy="link.copyMessage" @open="link.openAttachment" @delete="link.deleteMessage" />
-      <MessageComposer :busy="link.busy.value" :connected-count="link.connectedCount.value" @send="sendText" @attach="link.chooseAndSendFiles" />
+      <MessageComposer :busy="link.busy.value" :target-count="link.conversationTargetCount.value" :target-label="link.conversationTitle.value" @send="sendText" @attach="link.chooseAndSendFiles" />
     </section>
 
     <PairingDialog v-if="pairingOpen" :server="link.server.value" :busy="link.busy.value" @close="pairingOpen = false" @regenerate="link.regeneratePairing" @toggle="link.toggleServer" />
-    <ClearHistoryDialog v-if="historyClearOpen" :busy="link.busy.value" :message-count="link.messages.value.length" @close="historyClearOpen = false" @confirm="confirmClearHistory" />
+    <ClearHistoryDialog v-if="historyClearOpen" :busy="link.busy.value" :message-count="link.allMessages.value.length" @close="historyClearOpen = false" @confirm="confirmClearHistory" />
     <SettingsPanel
       v-if="settingsOpen && link.settings.value"
       :settings="link.settings.value"

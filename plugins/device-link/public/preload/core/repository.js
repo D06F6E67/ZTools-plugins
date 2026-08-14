@@ -44,13 +44,24 @@ function createRepository(db, dataDir) {
       await db.remove(current)
       return true
     },
-    async listMessages(limit = 1000) {
+    async listMessages(limit = 1000, options = {}) {
       const docs = await allDocs(MESSAGE_PREFIX)
-      return docs
+      const messages = docs
         .filter((doc) => doc && doc.type === 'device-link-message')
         .map(({ _id, _rev, type, ...message }) => message)
+        .filter((message) => typeof options.filter !== 'function' || options.filter(message))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-        .slice(-limit)
+      if (typeof options.groupBy !== 'function') return messages.slice(-limit)
+      const groups = new Map()
+      for (const message of messages) {
+        const key = String(options.groupBy(message))
+        const group = groups.get(key) || []
+        group.push(message)
+        groups.set(key, group)
+      }
+      return [...groups.values()]
+        .flatMap((group) => group.slice(-limit))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     },
     async putMessage(message) {
       await this.put({ _id: `${MESSAGE_PREFIX}${message.id}`, type: 'device-link-message', ...message })
