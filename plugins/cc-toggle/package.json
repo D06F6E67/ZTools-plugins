@@ -1,7 +1,7 @@
 {
   "name": "ccToggle",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,8 @@
     "build:preload": "pnpm tsc:preload",
     "preview": "vite preview",
     "type-check": "pnpm tsc:check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "parallel:vue-preload": "concurrently -n vue,preload \"vite\" \"pnpm tsc:preload:watch\"",
     "parallel:vue-preload-api": "concurrently -n vue,preload,api \"vite --mode browser\" \"pnpm tsc:preload:watch\" \"node scripts/dev-api-server.cjs\"",
     "tsc:preload": "node scripts/build-preload.cjs",
@@ -39,6 +41,7 @@
     "@vue/tsconfig": "^0.9.1",
     "@ztools-center/ztools-api-types": "^1.0.3",
     "concurrently": "^10.0.4",
+    "prettier": "^3.9.6",
     "sass": "^1.102.0",
     "sharp": "^0.35.3",
     "typescript": "^5.9.3",

@@ -17,6 +17,7 @@ public/preload/
 
 # 开发数据库
 scripts/.dev-db.json
+.dev-db.json
 
 # Playwright 产物
 test-results/

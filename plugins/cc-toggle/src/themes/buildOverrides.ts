@@ -6,8 +6,8 @@
  * @returns {object} Naive UI themeOverrides
  */
 export function buildOverrides(theme, isDark) {
-  const c = isDark ? theme.colors.dark : theme.colors.light
-  const comp = theme.components
+  const c = isDark ? theme.colors.dark : theme.colors.light;
+  const comp = theme.components;
 
   return {
     common: {
@@ -36,21 +36,21 @@ export function buildOverrides(theme, isDark) {
       hoverColor: c.primarySuppl,
       tableHeaderColor: c.bgHover,
       tableColorHover: c.primaryLight,
-      tableColorStriped: c.bgHover,
+      tableColorStriped: c.bgHover
     },
     Card: {
       ...comp.Card,
       borderColor: c.border,
       color: c.bgCard,
       colorModal: c.bgCard,
-      colorEmbedded: c.bgHover,
+      colorEmbedded: c.bgHover
     },
     Drawer: {
       color: c.bg,
       colorModal: c.bg,
       headerBorderColor: c.border,
       footerBorderColor: c.border,
-      textColor: c.text,
+      textColor: c.text
     },
     Button: { ...comp.Button },
     Input: {
@@ -59,9 +59,7 @@ export function buildOverrides(theme, isDark) {
       colorFocus: c.bgCard,
       borderHover: c.primary,
       borderFocus: c.primary,
-      boxShadowFocus: isDark
-        ? `0 0 0 2px ${c.primarySuppl}`
-        : `0 0 0 2px ${c.primarySuppl}`,
+      boxShadowFocus: isDark ? `0 0 0 2px ${c.primarySuppl}` : `0 0 0 2px ${c.primarySuppl}`
     },
     InputNumber: {
       ...comp.InputNumber,
@@ -69,13 +67,13 @@ export function buildOverrides(theme, isDark) {
       colorFocus: c.bgCard,
       borderHover: c.primary,
       borderFocus: c.primary,
-      boxShadowFocus: `0 0 0 2px ${c.primarySuppl}`,
+      boxShadowFocus: `0 0 0 2px ${c.primarySuppl}`
     },
     FormItem: {
       labelTextColor: c.textSecondary,
       labelFontWeight: '600',
       feedbackTextColor: c.danger,
-      asteriskColor: c.danger,
+      asteriskColor: c.danger
     },
     Tag: { ...comp.Tag },
     Select: {
@@ -88,7 +86,7 @@ export function buildOverrides(theme, isDark) {
           boxShadowFocus: `0 0 0 2px ${c.primarySuppl}`,
           clearColor: c.textMuted,
           clearColorHover: c.primary,
-          clearColorPressed: c.primaryPressed,
+          clearColorPressed: c.primaryPressed
         },
         InternalSelectMenu: {
           color: c.bgCard,
@@ -96,15 +94,15 @@ export function buildOverrides(theme, isDark) {
           optionColorHover: c.primaryLight,
           optionTextColor: c.text,
           optionTextColorActive: c.primary,
-          optionCheckColor: c.primary,
-        },
-      },
+          optionCheckColor: c.primary
+        }
+      }
     },
     Checkbox: {
       colorChecked: c.primary,
       borderChecked: c.primary,
       checkMarkColor: '#fff',
-      boxShadowFocus: `0 0 0 2px ${c.primarySuppl}`,
+      boxShadowFocus: `0 0 0 2px ${c.primarySuppl}`
     },
     DataTable: {
       borderColor: c.border,
@@ -115,13 +113,13 @@ export function buildOverrides(theme, isDark) {
       tdColorStriped: c.bgHover,
       tdTextColor: c.text,
       thFontWeight: '600',
-      borderRadius: '8px',
+      borderRadius: '8px'
     },
     Collapse: {
       borderColor: c.border,
       textColor: c.text,
       titleTextColor: c.text,
-      arrowColor: c.textMuted,
+      arrowColor: c.textMuted
     },
     List: { borderColor: c.border, color: c.bgCard },
     Divider: { borderColor: c.border },
@@ -134,19 +132,19 @@ export function buildOverrides(theme, isDark) {
       colorSuccess: isDark ? '#1a3b2a' : '#f0fdf4',
       titleTextColor: c.text,
       contentTextColor: c.textSecondary,
-      border: `1px solid ${c.border}`,
+      border: `1px solid ${c.border}`
     },
     Statistic: { ...comp.Statistic },
     Descriptions: {
       ...comp.Descriptions,
       borderColor: c.border,
       labelColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
-      thColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+      thColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)'
     },
     Code: {
       ...comp.Code,
       textColor: c.text,
-      color: c.bgHover,
+      color: c.bgHover
     },
     Tabs: {
       tabTextColorActive: c.primary,
@@ -157,7 +155,7 @@ export function buildOverrides(theme, isDark) {
       colorSegment: c.primaryLight,
       tabColorSegment: c.primary,
       tabTextColorActiveSegment: '#fff',
-      tabTextColorHoverSegment: c.primaryHover,
+      tabTextColorHoverSegment: c.primaryHover
     },
     Radio: {
       buttonColorActive: c.primary,
@@ -166,12 +164,12 @@ export function buildOverrides(theme, isDark) {
       buttonColor: c.bgCard,
       buttonTextColor: c.textSecondary,
       buttonBorderColor: c.border,
-      buttonBoxShadowFocus: `0 0 0 2px ${c.primarySuppl}`,
+      buttonBoxShadowFocus: `0 0 0 2px ${c.primarySuppl}`
     },
     Heatmap: {
       textColor: c.textSecondary,
       borderColor: c.border,
-      mininumColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-    },
-  }
+      mininumColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'
+    }
+  };
 }

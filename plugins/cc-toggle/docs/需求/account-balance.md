@@ -26,15 +26,15 @@
 
 ## 核心概念
 
-| 概念 | 说明 |
-|------|------|
-| 余额查询配置 | 每个供应商独立配置：请求路径 + 余额取值路径 + 货币 + 阈值 + 自动查询/间隔/超时，未配置则不查询 |
-| 请求路径 | `{baseUrl}` 之后的路径，如 `/user/balance`、`/v1/dashboard/billing/credit_grants` |
-| 取值路径 | 从响应 JSON 中取余额的路径，如 `balance_infos[0].total_balance` |
-| 厂商模板 | 内置常见厂商的「请求路径 + 取值路径」预设，配置时一键填入，仍可手动改 |
-| 余额缓存 | 查询结果落本地缓存（含时间戳），启动自动查询时先读缓存再刷新 |
-| 低余额阈值 | 余额低于该值时卡片标红 + ZTools 系统通知（默认 5，按供应商配置） |
-| 查询策略 | 进入插件自动查询（仅当前激活 appType）+ 定时刷新 + 卡片手动刷新；同一供应商自动查询有最小间隔（防抖） |
+| 概念         | 说明                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
+| 余额查询配置 | 每个供应商独立配置：请求路径 + 余额取值路径 + 货币 + 阈值 + 自动查询/间隔/超时，未配置则不查询        |
+| 请求路径     | `{baseUrl}` 之后的路径，如 `/user/balance`、`/v1/dashboard/billing/credit_grants`                     |
+| 取值路径     | 从响应 JSON 中取余额的路径，如 `balance_infos[0].total_balance`                                       |
+| 厂商模板     | 内置常见厂商的「请求路径 + 取值路径」预设，配置时一键填入，仍可手动改                                 |
+| 余额缓存     | 查询结果落本地缓存（含时间戳），启动自动查询时先读缓存再刷新                                          |
+| 低余额阈值   | 余额低于该值时卡片标红 + ZTools 系统通知（默认 5，按供应商配置）                                      |
+| 查询策略     | 进入插件自动查询（仅当前激活 appType）+ 定时刷新 + 卡片手动刷新；同一供应商自动查询有最小间隔（防抖） |
 
 **声明**：余额来自供应商接口实时数据，非估算；查询失败/未配置时明确展示失败态或隐藏，不伪装数据。
 
@@ -47,11 +47,11 @@
 ```ts
 interface BalanceResult {
   success: boolean
-  balance?: number        // 余额（按配置的取值路径解析出的数值）
-  used?: number           // 已用额度（可选的第二取值路径，模板可带）
-  currency?: string       // 货币：USD / CNY（配置指定，或解析出的 currency 字段）
-  queriedAt: number       // 查询时间戳
-  error?: string          // 失败原因（成功时省略）
+  balance?: number // 余额（按配置的取值路径解析出的数值）
+  used?: number // 已用额度（可选的第二取值路径，模板可带）
+  currency?: string // 货币：USD / CNY（配置指定，或解析出的 currency 字段）
+  queriedAt: number // 查询时间戳
+  error?: string // 失败原因（成功时省略）
 }
 ```
 
@@ -71,16 +71,16 @@ interface BalanceCacheEntry {
 ```ts
 // 挂在 Provider 上，随供应商一起保存/导入导出
 interface ProviderBalanceConfig {
-  enabled: boolean         // 该供应商是否查询余额，默认 false
-  path: string             // 请求路径，如 '/user/balance'、'/v1/dashboard/billing/credit_grants'
-  balancePath: string      // 余额取值路径，如 'balance_infos[0].total_balance'
-  usedPath?: string        // 已用取值路径（可选）
-  balanceTransform?: string// 余额转换（模板带）：'divide:N' 除以 N、'subtract:path' 减去另一取值
-  currency?: string        // 'AUTO' | 'USD' | 'CNY'，默认 'AUTO'
-  lowThreshold?: number    // 低余额阈值，默认 5
-  autoRefresh?: boolean    // 是否参与自动查询/定时刷新，默认 true
+  enabled: boolean // 该供应商是否查询余额，默认 false
+  path: string // 请求路径，如 '/user/balance'、'/v1/dashboard/billing/credit_grants'
+  balancePath: string // 余额取值路径，如 'balance_infos[0].total_balance'
+  usedPath?: string // 已用取值路径（可选）
+  balanceTransform?: string // 余额转换（模板带）：'divide:N' 除以 N、'subtract:path' 减去另一取值
+  currency?: string // 'AUTO' | 'USD' | 'CNY'，默认 'AUTO'
+  lowThreshold?: number // 低余额阈值，默认 5
+  autoRefresh?: boolean // 是否参与自动查询/定时刷新，默认 true
   refreshIntervalSec?: number // 自动刷新间隔（秒），默认 600，0=不定时；页面定时节奏以当前激活供应商为准
-  timeoutMs?: number       // 请求超时，默认 8000
+  timeoutMs?: number // 请求超时，默认 8000
 }
 ```
 
@@ -88,10 +88,10 @@ interface ProviderBalanceConfig {
 
 ### 存储 Key
 
-| Key | 存储 | 内容 |
-|-----|------|------|
-| Provider 的 `balance` 字段 | ztools.db | ProviderBalanceConfig（随供应商导入导出） |
-| `cctoggle_balance_cache` | ztools.dbStorage | `Record<providerId, BalanceCacheEntry>` |
+| Key                        | 存储             | 内容                                      |
+| -------------------------- | ---------------- | ----------------------------------------- |
+| Provider 的 `balance` 字段 | ztools.db        | ProviderBalanceConfig（随供应商导入导出） |
+| `cctoggle_balance_cache`   | ztools.dbStorage | `Record<providerId, BalanceCacheEntry>`   |
 
 ---
 
@@ -110,14 +110,14 @@ interface ProviderBalanceConfig {
 
 供应商编辑表单的「余额查询」区提供**模板下拉**，选中即自动填入 `path` + `balancePath`（可继续手动修改）。内置模板：
 
-| 厂商 | 请求路径 | 余额取值路径 | 货币 |
-|------|----------|--------------|------|
-| DeepSeek | `/user/balance` | `balance_infos[0].total_balance` | AUTO |
-| OpenAI 兼容中转（credit_grants） | `/v1/dashboard/billing/credit_grants` | `total_available` | USD |
-| OpenAI 兼容中转（/v1/balance） | `/v1/balance` | `balance` | AUTO |
-| OneAPI / NewAPI | `/api/user/self` | `quota`（除以 500000） | USD |
-| 硅基流动 SiliconFlow | `/user/info` | `data.userInfo.balanceUsd` | USD |
-| OpenRouter | `/api/v1/auth/key` | `data.limit` − `data.usage` | USD |
+| 厂商                             | 请求路径                              | 余额取值路径                     | 货币 |
+| -------------------------------- | ------------------------------------- | -------------------------------- | ---- |
+| DeepSeek                         | `/user/balance`                       | `balance_infos[0].total_balance` | AUTO |
+| OpenAI 兼容中转（credit_grants） | `/v1/dashboard/billing/credit_grants` | `total_available`                | USD  |
+| OpenAI 兼容中转（/v1/balance）   | `/v1/balance`                         | `balance`                        | AUTO |
+| OneAPI / NewAPI                  | `/api/user/self`                      | `quota`（除以 500000）           | USD  |
+| 硅基流动 SiliconFlow             | `/user/info`                          | `data.userInfo.balanceUsd`       | USD  |
+| OpenRouter                       | `/api/v1/auth/key`                    | `data.limit` − `data.usage`      | USD  |
 
 > 模板只是「填好的默认值」，不做任何自动识别/匹配。用户套用后可自由修改；接口变了也只是改配置，不依赖插件升级。
 
@@ -136,13 +136,13 @@ ProviderCard 底部新增**独立余额区块**：置于卡片主体内容下方
 
 余额区块展示状态：
 
-| 状态 | 展示 |
-|------|------|
-| 查询成功 | `$2.35`（跟随 currency，双币时可 `¥16.9`），颜色跟随阈值；余额下方小字可显示「已用 $1.2」（配置了 usedPath 时） |
-| 低于阈值 | 余额文字红色 + 警示标记（⚠），区块边框红色 |
-| 查询中 | 小号 loading（n-spin）占位 |
-| 查询失败 | `—` 灰显，tooltip 显示失败原因，可点重试 |
-| 未配置余额查询 | 不渲染该区块（避免误导） |
+| 状态           | 展示                                                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| 查询成功       | `$2.35`（跟随 currency，双币时可 `¥16.9`），颜色跟随阈值；余额下方小字可显示「已用 $1.2」（配置了 usedPath 时） |
+| 低于阈值       | 余额文字红色 + 警示标记（⚠），区块边框红色                                                                      |
+| 查询中         | 小号 loading（n-spin）占位                                                                                      |
+| 查询失败       | `—` 灰显，tooltip 显示失败原因，可点重试                                                                        |
+| 未配置余额查询 | 不渲染该区块（避免误导）                                                                                        |
 
 区块内容布局：左侧「余额」标签 + 金额（+ 可选「已用」小字），右侧手动刷新图标按钮（tiny）。
 
@@ -150,11 +150,11 @@ ProviderCard 底部新增**独立余额区块**：置于卡片主体内容下方
 
 余额区块加进来后，Compact（2 列网格，半屏宽）卡片会拥挤。为腾出空间，**Compact 布局按钮收敛**：
 
-| 布局 | 按钮 | 处理 |
-|------|------|------|
-| Full（hero） | 切换 / 编辑 / 复制 / 删除 | 保持不变 |
-| Compact | 切换 / 编辑 | 直接展示 |
-| Compact | 复制 / 删除 | 收进「···」下拉菜单（n-dropdown），点击项执行对应操作 |
+| 布局         | 按钮                      | 处理                                                  |
+| ------------ | ------------------------- | ----------------------------------------------------- |
+| Full（hero） | 切换 / 编辑 / 复制 / 删除 | 保持不变                                              |
+| Compact      | 切换 / 编辑               | 直接展示                                              |
+| Compact      | 复制 / 删除               | 收进「···」下拉菜单（n-dropdown），点击项执行对应操作 |
 
 #### UI 示意（Compact）
 
@@ -185,13 +185,13 @@ ProviderCard 底部新增**独立余额区块**：置于卡片主体内容下方
 
 ### 3. 查询时机与缓存
 
-| 时机 | 行为 |
-|------|------|
-| 进入插件（启动） | 对当前 appType 中「已配置余额查询」且 `autoRefresh` 未关闭的供应商，先渲染缓存值，再逐个静默刷新；并按当前激活供应商的 `refreshIntervalSec` 启动定时刷新 |
-| 定时刷新 | 每 `refreshIntervalSec` 秒（以当前激活供应商为准，0=不定时）**仅对当前激活供应商**静默刷新一次（沿用防抖）；未激活卡片不参与定时 |
-| 卡片手动刷新 | 点击刷新图标立即查询该供应商，并更新缓存（不受 autoRefresh 与防抖限制） |
-| 切换当前供应商（同 appType 内） | 若目标供应商已配置余额查询且无缓存或缓存超过 10 分钟，自动补查一次 |
-| 缓存写入 | 每次查询成功后更新 `cctoggle_balance_cache` |
+| 时机                            | 行为                                                                                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 进入插件（启动）                | 对当前 appType 中「已配置余额查询」且 `autoRefresh` 未关闭的供应商，先渲染缓存值，再逐个静默刷新；并按当前激活供应商的 `refreshIntervalSec` 启动定时刷新 |
+| 定时刷新                        | 每 `refreshIntervalSec` 秒（以当前激活供应商为准，0=不定时）**仅对当前激活供应商**静默刷新一次（沿用防抖）；未激活卡片不参与定时                         |
+| 卡片手动刷新                    | 点击刷新图标立即查询该供应商，并更新缓存（不受 autoRefresh 与防抖限制）                                                                                  |
+| 切换当前供应商（同 appType 内） | 若目标供应商已配置余额查询且无缓存或缓存超过 10 分钟，自动补查一次                                                                                       |
+| 缓存写入                        | 每次查询成功后更新 `cctoggle_balance_cache`                                                                                                              |
 
 **防抖规则**：同一供应商两次自动查询间隔 ≥ 30s；手动刷新采用首触发防抖（首次点击立即请求，2s 窗口内重复点击忽略），防止连点刷请求。
 
@@ -309,25 +309,25 @@ src/data/balance-templates.ts # 厂商模板常量（path + balancePath）
 
 ## 边界情况
 
-| 场景 | 处理 |
-|------|------|
-| 未启用余额查询 | 卡片不显示余额位，不发请求 |
-| 配置了 path 但 balancePath 解析不到 | 查询失败态，提示「取值路径解析失败」 |
-| 接口返回 401/403 | 查询失败态，提示「认证失败，请检查 API Key」 |
-| 余额为 0 | 显示 `¥0`，红色告警 + 通知 |
-| 负数余额（欠费） | 按低余额处理，显示 `-¥1.2` |
-| 厂商接口改版导致解析失败 | 查询失败态，用户改配置即可，无需升级插件 |
-| 删除供应商 | 同时清理其缓存条目 |
-| 复制供应商 | 余额配置随字段复制，缓存不继承（新 id 重新查询） |
-| 网络超时 | 按查询失败处理，显示超时原因 |
-| 供应商无 apiKey | 不发起查询 |
-| currency 为 CNY 但接口返回 USD | 按配置展示，不做汇率换算（避免引入汇率源） |
-| 缓存中有旧值但刷新失败 | 保留旧值显示 + 灰显「更新失败」tooltip |
-| 模板选错厂商 | 模板可覆盖手动改；改错导致查询失败，界面上有失败原因可排查 |
-| 切换 Tab/appType | 重置定时器 + 立即补查目标 appType，旧定时器 clearInterval |
-| 切换当前供应商（同 appType） | 无缓存或超 10 分钟则补查一次，定时器不受影响 |
-| 插件退出/卸载 | 清理全部定时器与进行中的查询，无残留 |
-| 连续快速手动刷新 | 竞态控制，仅最后一次请求结果写缓存/UI，过期结果丢弃 |
+| 场景                                | 处理                                                       |
+| ----------------------------------- | ---------------------------------------------------------- |
+| 未启用余额查询                      | 卡片不显示余额位，不发请求                                 |
+| 配置了 path 但 balancePath 解析不到 | 查询失败态，提示「取值路径解析失败」                       |
+| 接口返回 401/403                    | 查询失败态，提示「认证失败，请检查 API Key」               |
+| 余额为 0                            | 显示 `¥0`，红色告警 + 通知                                 |
+| 负数余额（欠费）                    | 按低余额处理，显示 `-¥1.2`                                 |
+| 厂商接口改版导致解析失败            | 查询失败态，用户改配置即可，无需升级插件                   |
+| 删除供应商                          | 同时清理其缓存条目                                         |
+| 复制供应商                          | 余额配置随字段复制，缓存不继承（新 id 重新查询）           |
+| 网络超时                            | 按查询失败处理，显示超时原因                               |
+| 供应商无 apiKey                     | 不发起查询                                                 |
+| currency 为 CNY 但接口返回 USD      | 按配置展示，不做汇率换算（避免引入汇率源）                 |
+| 缓存中有旧值但刷新失败              | 保留旧值显示 + 灰显「更新失败」tooltip                     |
+| 模板选错厂商                        | 模板可覆盖手动改；改错导致查询失败，界面上有失败原因可排查 |
+| 切换 Tab/appType                    | 重置定时器 + 立即补查目标 appType，旧定时器 clearInterval  |
+| 切换当前供应商（同 appType）        | 无缓存或超 10 分钟则补查一次，定时器不受影响               |
+| 插件退出/卸载                       | 清理全部定时器与进行中的查询，无残留                       |
+| 连续快速手动刷新                    | 竞态控制，仅最后一次请求结果写缓存/UI，过期结果丢弃        |
 
 ---
 

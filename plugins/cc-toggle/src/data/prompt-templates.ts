@@ -1,9 +1,9 @@
 // Predefined prompt templates
 export const promptTemplates = [
   {
-    id: "template_general_assistant",
-    name: "通用助手",
-    description: "基础对话模板，适用于日常问答和通用任务",
+    id: 'template_general_assistant',
+    name: '通用助手',
+    description: '基础对话模板，适用于日常问答和通用任务',
     content: `你是一个 helpful, harmless, and honest 的 AI 助手。
 
 ## 行为准则
@@ -17,15 +17,15 @@ export const promptTemplates = [
 - 结构化回答，使用标题和列表
 - 适当使用示例来说明概念
 - 关注用户的具体需求`,
-    agents: ["codex", "claude", "gemini", "openclaw"],
+    agents: ['codex', 'claude', 'gemini', 'openclaw'],
     variables: [],
-    tags: ["通用", "基础"],
-    isTemplate: true,
+    tags: ['通用', '基础'],
+    isTemplate: true
   },
   {
-    id: "template_code_expert",
-    name: "代码专家",
-    description: "编程辅助模板，适用于代码审查、调试和优化",
+    id: 'template_code_expert',
+    name: '代码专家',
+    description: '编程辅助模板，适用于代码审查、调试和优化',
     content: `你是一位经验丰富的编程专家，精通多种编程语言和最佳实践。
 
 ## 专业领域
@@ -50,15 +50,15 @@ export const promptTemplates = [
 - 保持代码可读性
 - 考虑边界情况
 - 编写清晰的注释`,
-    agents: ["codex", "claude", "gemini", "openclaw"],
-    variables: ["current_file", "language", "user_input"],
-    tags: ["编程", "代码审查"],
-    isTemplate: true,
+    agents: ['codex', 'claude', 'gemini', 'openclaw'],
+    variables: ['current_file', 'language', 'user_input'],
+    tags: ['编程', '代码审查'],
+    isTemplate: true
   },
   {
-    id: "template_writing_assistant",
-    name: "写作助手",
-    description: "文案创作模板，适用于文章撰写、内容优化",
+    id: 'template_writing_assistant',
+    name: '写作助手',
+    description: '文案创作模板，适用于文章撰写、内容优化',
     content: `你是一位专业的写作助手，擅长各种类型的文案创作。
 
 ## 服务能力
@@ -83,15 +83,15 @@ export const promptTemplates = [
 - 合理分段
 - 突出重点内容
 - 保持逻辑连贯`,
-    agents: ["claude", "gemini", "openclaw"],
-    variables: ["content_type", "target_audience", "style_requirements"],
-    tags: ["写作", "内容创作"],
-    isTemplate: true,
+    agents: ['claude', 'gemini', 'openclaw'],
+    variables: ['content_type', 'target_audience', 'style_requirements'],
+    tags: ['写作', '内容创作'],
+    isTemplate: true
   },
   {
-    id: "template_translator",
-    name: "翻译专家",
-    description: "多语言翻译模板，支持高质量翻译和本地化",
+    id: 'template_translator',
+    name: '翻译专家',
+    description: '多语言翻译模板，支持高质量翻译和本地化',
     content: `你是一位专业的翻译专家，精通多种语言的互译。
 
 ## 翻译能力
@@ -116,15 +116,15 @@ export const promptTemplates = [
 - 标注不确定的翻译
 - 必要时提供多种译法
 - 解释文化相关的内容`,
-    agents: ["claude", "gemini", "openclaw"],
-    variables: ["source_language", "target_language", "text_type", "user_input"],
-    tags: ["翻译", "多语言"],
-    isTemplate: true,
+    agents: ['claude', 'gemini', 'openclaw'],
+    variables: ['source_language', 'target_language', 'text_type', 'user_input'],
+    tags: ['翻译', '多语言'],
+    isTemplate: true
   },
   {
-    id: "template_data_analyst",
-    name: "数据分析师",
-    description: "数据分析模板，适用于数据处理、统计分析和可视化",
+    id: 'template_data_analyst',
+    name: '数据分析师',
+    description: '数据分析模板，适用于数据处理、统计分析和可视化',
     content: `你是一位专业的数据分析师，擅长数据处理和洞察发现。
 
 ## 专业技能
@@ -149,78 +149,78 @@ export const promptTemplates = [
 - 关键发现
 - 可视化建议
 - 行动建议`,
-    agents: ["claude", "gemini", "openclaw"],
-    variables: ["data_type", "analysis_goal", "context"],
-    tags: ["数据分析", "统计"],
-    isTemplate: true,
-  },
+    agents: ['claude', 'gemini', 'openclaw'],
+    variables: ['data_type', 'analysis_goal', 'context'],
+    tags: ['数据分析', '统计'],
+    isTemplate: true
+  }
 ];
 
 // Variable descriptions for the variable picker
 export const variableDescriptions = {
   current_file: {
-    name: "当前文件",
-    description: "当前打开的文件路径",
-    example: "/src/components/Example.vue",
+    name: '当前文件',
+    description: '当前打开的文件路径',
+    example: '/src/components/Example.vue'
   },
   language: {
-    name: "编程语言",
-    description: "当前文件的编程语言",
-    example: "javascript",
+    name: '编程语言',
+    description: '当前文件的编程语言',
+    example: 'javascript'
   },
   user_input: {
-    name: "用户输入",
-    description: "用户的原始输入内容",
-    example: "请帮我优化这个函数",
+    name: '用户输入',
+    description: '用户的原始输入内容',
+    example: '请帮我优化这个函数'
   },
   context: {
-    name: "上下文信息",
-    description: "当前会话或代码的上下文",
-    example: "Vue 3 组件开发",
+    name: '上下文信息',
+    description: '当前会话或代码的上下文',
+    example: 'Vue 3 组件开发'
   },
   timestamp: {
-    name: "时间戳",
-    description: "当前时间戳",
-    example: "2026-07-31T12:00:00Z",
+    name: '时间戳',
+    description: '当前时间戳',
+    example: '2026-07-31T12:00:00Z'
   },
   content_type: {
-    name: "内容类型",
-    description: "需要创作的内容类型",
-    example: "技术博客文章",
+    name: '内容类型',
+    description: '需要创作的内容类型',
+    example: '技术博客文章'
   },
   target_audience: {
-    name: "目标受众",
-    description: "内容的目标读者群体",
-    example: "前端开发者",
+    name: '目标受众',
+    description: '内容的目标读者群体',
+    example: '前端开发者'
   },
   style_requirements: {
-    name: "风格要求",
-    description: "写作风格的具体要求",
-    example: "专业但易懂",
+    name: '风格要求',
+    description: '写作风格的具体要求',
+    example: '专业但易懂'
   },
   source_language: {
-    name: "源语言",
-    description: "翻译的源语言",
-    example: "English",
+    name: '源语言',
+    description: '翻译的源语言',
+    example: 'English'
   },
   target_language: {
-    name: "目标语言",
-    description: "翻译的目标语言",
-    example: "中文",
+    name: '目标语言',
+    description: '翻译的目标语言',
+    example: '中文'
   },
   text_type: {
-    name: "文本类型",
-    description: "需要翻译的文本类型",
-    example: "技术文档",
+    name: '文本类型',
+    description: '需要翻译的文本类型',
+    example: '技术文档'
   },
   data_type: {
-    name: "数据类型",
-    description: "待分析的数据类型",
-    example: "CSV 表格数据",
+    name: '数据类型',
+    description: '待分析的数据类型',
+    example: 'CSV 表格数据'
   },
   analysis_goal: {
-    name: "分析目标",
-    description: "数据分析的具体目标",
-    example: "用户行为趋势分析",
-  },
+    name: '分析目标',
+    description: '数据分析的具体目标',
+    example: '用户行为趋势分析'
+  }
 };

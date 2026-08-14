@@ -3,8 +3,8 @@
 
 import * as utils from '../utils';
 
-const PROFILE_PREFIX = "cctoggle_profile_";
-const ACTIVE_PROFILE_KEY = "cctoggle_active_profile";
+const PROFILE_PREFIX = 'cctoggle_profile_';
+const ACTIVE_PROFILE_KEY = 'cctoggle_active_profile';
 
 export interface ProjectProfile {
   _id?: string;
@@ -13,9 +13,9 @@ export interface ProjectProfile {
   name: string;
   createdAt: string;
   updatedAt: string;
-  providers: Record<string, Record<string, any>>;  // appType → providerId → Provider
-  lastActiveApp?: string;  // 最后激活的 appType tab
-  balanceNotify?: Record<string, { balance: number; at: number }>;  // `${appType}_${providerId}` → 低余额告警标记
+  providers: Record<string, Record<string, any>>; // appType → providerId → Provider
+  lastActiveApp?: string; // 最后激活的 appType tab
+  balanceNotify?: Record<string, { balance: number; at: number }>; // `${appType}_${providerId}` → 低余额告警标记
 }
 
 export class ProfileStore {
@@ -30,18 +30,18 @@ export class ProfileStore {
       const docs = ztools.db.allDocs(PROFILE_PREFIX) || [];
       return docs
         .filter(function (doc: any) {
-          const id = doc.id || doc._id.replace(PROFILE_PREFIX, "");
-          return id !== "default";
+          const id = doc.id || doc._id.replace(PROFILE_PREFIX, '');
+          return id !== 'default';
         })
         .map(function (doc: any) {
           return {
-            id: doc.id || doc._id.replace(PROFILE_PREFIX, ""),
-            name: doc.name || "",
-            createdAt: doc.createdAt || "",
-            updatedAt: doc.updatedAt || "",
+            id: doc.id || doc._id.replace(PROFILE_PREFIX, ''),
+            name: doc.name || '',
+            createdAt: doc.createdAt || '',
+            updatedAt: doc.updatedAt || '',
             providers: doc.providers || {},
-            lastActiveApp: doc.lastActiveApp || "",
-            balanceNotify: doc.balanceNotify || {},
+            lastActiveApp: doc.lastActiveApp || '',
+            balanceNotify: doc.balanceNotify || {}
           };
         });
     } catch (e) {
@@ -55,13 +55,13 @@ export class ProfileStore {
       const docs = ztools.db.allDocs(PROFILE_PREFIX) || [];
       return docs.map(function (doc: any) {
         return {
-          id: doc.id || doc._id.replace(PROFILE_PREFIX, ""),
-          name: doc.name || "",
-          createdAt: doc.createdAt || "",
-          updatedAt: doc.updatedAt || "",
+          id: doc.id || doc._id.replace(PROFILE_PREFIX, ''),
+          name: doc.name || '',
+          createdAt: doc.createdAt || '',
+          updatedAt: doc.updatedAt || '',
           providers: doc.providers || {},
-          lastActiveApp: doc.lastActiveApp || "",
-          balanceNotify: doc.balanceNotify || {},
+          lastActiveApp: doc.lastActiveApp || '',
+          balanceNotify: doc.balanceNotify || {}
         };
       });
     } catch (e) {
@@ -76,12 +76,12 @@ export class ProfileStore {
       if (!doc) return null;
       return {
         id: id,
-        name: doc.name || "",
-        createdAt: doc.createdAt || "",
-        updatedAt: doc.updatedAt || "",
+        name: doc.name || '',
+        createdAt: doc.createdAt || '',
+        updatedAt: doc.updatedAt || '',
         providers: doc.providers || {},
-        lastActiveApp: doc.lastActiveApp || "",
-        balanceNotify: doc.balanceNotify || {},
+        lastActiveApp: doc.lastActiveApp || '',
+        balanceNotify: doc.balanceNotify || {}
       };
     } catch (e) {
       return null;
@@ -99,12 +99,22 @@ export class ProfileStore {
       _id: key,
       _rev: existing ? existing._rev : undefined,
       id: id,
-      name: data.name !== undefined ? data.name : (existing ? existing.name : "Unnamed"),
+      name: data.name !== undefined ? data.name : existing ? existing.name : 'Unnamed',
       createdAt: data.createdAt || (existing ? existing.createdAt : now),
       updatedAt: now,
-      providers: data.providers !== undefined ? data.providers : (existing ? existing.providers : {}),
-      lastActiveApp: data.lastActiveApp !== undefined ? data.lastActiveApp : (existing ? existing.lastActiveApp : ""),
-      balanceNotify: data.balanceNotify !== undefined ? data.balanceNotify : (existing ? existing.balanceNotify : {}),
+      providers: data.providers !== undefined ? data.providers : existing ? existing.providers : {},
+      lastActiveApp:
+        data.lastActiveApp !== undefined
+          ? data.lastActiveApp
+          : existing
+            ? existing.lastActiveApp
+            : '',
+      balanceNotify:
+        data.balanceNotify !== undefined
+          ? data.balanceNotify
+          : existing
+            ? existing.balanceNotify
+            : {}
     };
 
     ztools.db.put(doc);
@@ -124,7 +134,7 @@ export class ProfileStore {
   static activateProfile(id: string): { success: boolean; error?: string } {
     const profile = ProfileStore.getProfile(id);
     if (!profile) {
-      return { success: false, error: "profile not found" };
+      return { success: false, error: 'profile not found' };
     }
 
     try {
@@ -133,7 +143,7 @@ export class ProfileStore {
       const proxy = require('../proxy/proxy');
 
       // 先关闭所有运行中的代理
-      const appTypes = ["codex", "claude", "claude-desktop", "openclaw", "gemini"];
+      const appTypes = ['codex', 'claude', 'claude-desktop', 'openclaw', 'gemini'];
       appTypes.forEach(function (appType) {
         try {
           const status = proxy.ProxyManager.getProxyStatus(appType);
@@ -177,7 +187,7 @@ export class ProfileStore {
   static getActiveProfileId(): string | null {
     try {
       const raw = ztools.dbStorage.getItem(ACTIVE_PROFILE_KEY);
-      const val = (raw && typeof raw === "object") ? (raw.value || "") : (raw || "");
+      const val = raw && typeof raw === 'object' ? raw.value || '' : raw || '';
       return val || null;
     } catch (e) {
       return null;
@@ -188,9 +198,9 @@ export class ProfileStore {
   static getLastActiveApp(): string {
     try {
       const profile = ProfileStore.getActiveProfile();
-      return profile.lastActiveApp || "";
+      return profile.lastActiveApp || '';
     } catch (e) {
-      return "";
+      return '';
     }
   }
 
@@ -210,16 +220,16 @@ export class ProfileStore {
       if (profile) return profile;
     }
     // fallback 到 default
-    const defaultProfile = ProfileStore.getProfile("default");
+    const defaultProfile = ProfileStore.getProfile('default');
     if (defaultProfile) return defaultProfile;
     // 若 default 也不存在，返回空结构
     return {
-      id: "default",
-      name: "全局默认",
+      id: 'default',
+      name: '全局默认',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       providers: {},
-      balanceNotify: {},
+      balanceNotify: {}
     };
   }
 }

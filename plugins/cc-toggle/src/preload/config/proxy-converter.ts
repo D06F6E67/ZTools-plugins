@@ -1,5 +1,5 @@
 // @ts-nocheck TODO: 逐步添加类型注解后移除
-﻿// proxy-converter.js
+// proxy-converter.js
 // 协议转换：Codex Responses API ↔ OpenAI Chat Completions / Anthropic Messages
 // 用于路由接管时，让只支持 Chat/Anthropic 的供应商也能在 Codex 中使用
 
@@ -8,11 +8,13 @@ function extractContent(item) {
   if (!item || !item.content) return '';
   if (typeof item.content === 'string') return item.content;
   if (Array.isArray(item.content)) {
-    return item.content.map(function (c) {
-      if (c.type === 'input_text' || c.type === 'text') return c.text || '';
-      if (c.type === 'input_image' || c.type === 'image') return '[image]';
-      return '';
-    }).join('\n');
+    return item.content
+      .map(function (c) {
+        if (c.type === 'input_text' || c.type === 'text') return c.text || '';
+        if (c.type === 'input_image' || c.type === 'image') return '[image]';
+        return '';
+      })
+      .join('\n');
   }
   return '';
 }
@@ -21,9 +23,17 @@ function extractContentFromChat(choice) {
   var msg = choice.message || choice.delta || {};
   // 保留 null/undefined 以区分"没有 content"和"content 为空字符串"
   var text = msg.content !== undefined && msg.content !== null ? msg.content : undefined;
-  var reasoningContent = msg.reasoning_content !== undefined && msg.reasoning_content !== null ? msg.reasoning_content : undefined;
+  var reasoningContent =
+    msg.reasoning_content !== undefined && msg.reasoning_content !== null
+      ? msg.reasoning_content
+      : undefined;
   var toolCalls = msg.tool_calls;
-  return { text: text, reasoningContent: reasoningContent, toolCalls: toolCalls, finishReason: choice.finish_reason };
+  return {
+    text: text,
+    reasoningContent: reasoningContent,
+    toolCalls: toolCalls,
+    finishReason: choice.finish_reason
+  };
 }
 
 // 角色映射：Codex Responses 可能出现 developer 角色，OpenAI Chat / Anthropic 不支持
@@ -57,16 +67,24 @@ function responsesToChat(body, model) {
         messages.push({
           role: 'assistant',
           content: null,
-          tool_calls: [{
-            id: item.call_id || item.id || '',
-            type: 'function',
-            function: { name: item.name || '', arguments: item.arguments || '' },
-          }],
+          tool_calls: [
+            {
+              id: item.call_id || item.id || '',
+              type: 'function',
+              function: { name: item.name || '', arguments: item.arguments || '' }
+            }
+          ]
         });
       } else if (item.type === 'function_call_output') {
         // 工具执行结果 → Chat 的 tool 消息，缺失会导致多轮工具对话断裂
         var out = item.output;
-        if (typeof out !== 'string') { try { out = JSON.stringify(out); } catch (e) { out = String(out); } }
+        if (typeof out !== 'string') {
+          try {
+            out = JSON.stringify(out);
+          } catch (e) {
+            out = String(out);
+          }
+        }
         messages.push({ role: 'tool', tool_call_id: item.call_id || item.id || '', content: out });
       }
     });
@@ -74,18 +92,27 @@ function responsesToChat(body, model) {
   var chatReq = {
     model: model || body.model || 'gpt-4o',
     messages: messages,
-    stream: true,
+    stream: true
   };
-  if (body.tools) chatReq.tools = body.tools.map(function (t) {
-    // Codex Responses 工具是扁平结构；Chat Completions 需要 function 包裹
-    if (t.type === 'function' && t.function) return t;
-    if (t.type === 'function' || t.name) {
-      return { type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || t.input_schema || {} } };
-    }
-    return t;
-  });
+  if (body.tools)
+    chatReq.tools = body.tools.map(function (t) {
+      // Codex Responses 工具是扁平结构；Chat Completions 需要 function 包裹
+      if (t.type === 'function' && t.function) return t;
+      if (t.type === 'function' || t.name) {
+        return {
+          type: 'function',
+          function: {
+            name: t.name,
+            description: t.description || '',
+            parameters: t.parameters || t.input_schema || {}
+          }
+        };
+      }
+      return t;
+    });
   if (body.tool_choice) chatReq.tool_choice = body.tool_choice;
-  if (body.parallel_tool_calls !== undefined) chatReq.parallel_tool_calls = body.parallel_tool_calls;
+  if (body.parallel_tool_calls !== undefined)
+    chatReq.parallel_tool_calls = body.parallel_tool_calls;
   if (body.reasoning && body.reasoning.effort) chatReq.reasoning_effort = body.reasoning.effort;
   if (body.max_output_tokens) chatReq.max_tokens = body.max_output_tokens;
   if (body.temperature !== undefined) chatReq.temperature = body.temperature;
@@ -117,35 +144,44 @@ function sseChatToResponses(raw, respId, state) {
 
     // reasoning_summary_text.done
     lines.push('event: response.reasoning_summary_text.done');
-    lines.push('data: ' + JSON.stringify({
-      type: 'response.reasoning_summary_text.done',
-      item_id: itemId,
-      output_index: outputIndex,
-      summary_index: 0,
-      text: text
-    }));
+    lines.push(
+      'data: ' +
+        JSON.stringify({
+          type: 'response.reasoning_summary_text.done',
+          item_id: itemId,
+          output_index: outputIndex,
+          summary_index: 0,
+          text: text
+        })
+    );
 
     // reasoning_summary_part.done
     lines.push('event: response.reasoning_summary_part.done');
-    lines.push('data: ' + JSON.stringify({
-      type: 'response.reasoning_summary_part.done',
-      item_id: itemId,
-      output_index: outputIndex,
-      summary_index: 0,
-      part: { type: 'summary_text', text: text }
-    }));
+    lines.push(
+      'data: ' +
+        JSON.stringify({
+          type: 'response.reasoning_summary_part.done',
+          item_id: itemId,
+          output_index: outputIndex,
+          summary_index: 0,
+          part: { type: 'summary_text', text: text }
+        })
+    );
 
     // output_item.done (reasoning)
     lines.push('event: response.output_item.done');
-    lines.push('data: ' + JSON.stringify({
-      type: 'response.output_item.done',
-      output_index: outputIndex,
-      item: {
-        id: itemId,
-        type: 'reasoning',
-        summary: [{ type: 'summary_text', text: text }]
-      }
-    }));
+    lines.push(
+      'data: ' +
+        JSON.stringify({
+          type: 'response.output_item.done',
+          output_index: outputIndex,
+          item: {
+            id: itemId,
+            type: 'reasoning',
+            summary: [{ type: 'summary_text', text: text }]
+          }
+        })
+    );
 
     state.reasoningDone = true;
     // 添加到 output 列表
@@ -167,56 +203,94 @@ function sseChatToResponses(raw, respId, state) {
       // 发送 final output_text.done + output_item.done + response.completed
       if (state.text) {
         lines.push('event: response.output_text.done');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.output_text.done',
-          output_index: state.msgOutputIndex || 0,
-          content_index: 0,
-          text: state.text
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.output_text.done',
+              output_index: state.msgOutputIndex || 0,
+              content_index: 0,
+              text: state.text
+            })
+        );
         lines.push('event: response.content_part.done');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.content_part.done',
-          output_index: state.msgOutputIndex || 0,
-          content_index: 0,
-          part: { type: 'output_text', text: state.text, annotations: [] }
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.content_part.done',
+              output_index: state.msgOutputIndex || 0,
+              content_index: 0,
+              part: { type: 'output_text', text: state.text, annotations: [] }
+            })
+        );
       }
       if (state.msgId) {
         var content = [];
         if (state.text) content.push({ type: 'output_text', text: state.text, annotations: [] });
         // state.toolCalls 是以 index 为键的对象；按 index 顺序输出
         Object.keys(state.toolCalls || {})
-          .sort(function (a, b) { return Number(a) - Number(b); })
+          .sort(function (a, b) {
+            return Number(a) - Number(b);
+          })
           .forEach(function (k) {
             var tc = state.toolCalls[k];
             if (!tc) return;
             lines.push('event: response.function_call_arguments.done');
-            lines.push('data: ' + JSON.stringify({
-              type: 'response.function_call_arguments.done',
-              output_index: tc._outputIndex || 0,
-              item_id: tc.id,
-              arguments: tc.arguments || ''
-            }));
-            var doneEvt = { type: 'function_call', id: tc.id, call_id: tc.id, name: tc.name || '', arguments: tc.arguments || '', status: 'completed' };
+            lines.push(
+              'data: ' +
+                JSON.stringify({
+                  type: 'response.function_call_arguments.done',
+                  output_index: tc._outputIndex || 0,
+                  item_id: tc.id,
+                  arguments: tc.arguments || ''
+                })
+            );
+            var doneEvt = {
+              type: 'function_call',
+              id: tc.id,
+              call_id: tc.id,
+              name: tc.name || '',
+              arguments: tc.arguments || '',
+              status: 'completed'
+            };
             lines.push('event: response.output_item.done');
-            lines.push('data: ' + JSON.stringify({
-              type: 'response.output_item.done',
-              output_index: tc._outputIndex || 0,
-              item: doneEvt
-            }));
+            lines.push(
+              'data: ' +
+                JSON.stringify({
+                  type: 'response.output_item.done',
+                  output_index: tc._outputIndex || 0,
+                  item: doneEvt
+                })
+            );
             content.push(doneEvt);
           });
         lines.push('event: response.output_item.done');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.output_item.done',
-          output_index: state.msgOutputIndex || 0,
-          item: { type: 'message', id: state.msgId, status: 'completed', role: 'assistant', content: content }
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.output_item.done',
+              output_index: state.msgOutputIndex || 0,
+              item: {
+                type: 'message',
+                id: state.msgId,
+                status: 'completed',
+                role: 'assistant',
+                content: content
+              }
+            })
+        );
         // response.completed
         state.responseJson.output = state.responseJson.output || [];
-        state.responseJson.output.push({ type: 'message', id: state.msgId, status: 'completed', role: 'assistant', content: content });
+        state.responseJson.output.push({
+          type: 'message',
+          id: state.msgId,
+          status: 'completed',
+          role: 'assistant',
+          content: content
+        });
         lines.push('event: response.completed');
-        lines.push('data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson }));
+        lines.push(
+          'data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson })
+        );
         state.doneSent = true;
       }
       return;
@@ -253,33 +327,42 @@ function sseChatToResponses(raw, respId, state) {
 
           // output_item.added (reasoning)
           lines.push('event: response.output_item.added');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_item.added',
-            output_index: outputIndex,
-            item: { id: itemId, type: 'reasoning', status: 'in_progress', summary: [] }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_item.added',
+                output_index: outputIndex,
+                item: { id: itemId, type: 'reasoning', status: 'in_progress', summary: [] }
+              })
+          );
 
           // reasoning_summary_part.added
           lines.push('event: response.reasoning_summary_part.added');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.reasoning_summary_part.added',
-            item_id: itemId,
-            output_index: outputIndex,
-            summary_index: 0,
-            part: { type: 'summary_text', text: '' }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.reasoning_summary_part.added',
+                item_id: itemId,
+                output_index: outputIndex,
+                summary_index: 0,
+                part: { type: 'summary_text', text: '' }
+              })
+          );
         }
 
         state.reasoningText += info.reasoningContent;
         // reasoning_summary_text.delta
         lines.push('event: response.reasoning_summary_text.delta');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.reasoning_summary_text.delta',
-          item_id: state.reasoningItemId,
-          output_index: state.reasoningOutputIndex,
-          summary_index: 0,
-          delta: info.reasoningContent
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.reasoning_summary_text.delta',
+              item_id: state.reasoningItemId,
+              output_index: state.reasoningOutputIndex,
+              summary_index: 0,
+              delta: info.reasoningContent
+            })
+        );
       }
 
       // content 处理（如果收到 content，先 finalize reasoning）
@@ -294,30 +377,45 @@ function sseChatToResponses(raw, respId, state) {
 
           // output_item.added (message)
           lines.push('event: response.output_item.added');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_item.added',
-            output_index: state.msgOutputIndex,
-            item: { type: 'message', id: state.msgId, status: 'in_progress', role: 'assistant', content: [] }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_item.added',
+                output_index: state.msgOutputIndex,
+                item: {
+                  type: 'message',
+                  id: state.msgId,
+                  status: 'in_progress',
+                  role: 'assistant',
+                  content: []
+                }
+              })
+          );
 
           // content_part.added
           lines.push('event: response.content_part.added');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.content_part.added',
-            output_index: state.msgOutputIndex,
-            content_index: 0,
-            part: { type: 'output_text', text: '' }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.content_part.added',
+                output_index: state.msgOutputIndex,
+                content_index: 0,
+                part: { type: 'output_text', text: '' }
+              })
+          );
         }
 
         // output_text.delta
         lines.push('event: response.output_text.delta');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.output_text.delta',
-          output_index: state.msgOutputIndex,
-          content_index: 0,
-          delta: info.text
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.output_text.delta',
+              output_index: state.msgOutputIndex,
+              content_index: 0,
+              delta: info.text
+            })
+        );
         state.text = (state.text || '') + info.text;
       }
 
@@ -330,9 +428,9 @@ function sseChatToResponses(raw, respId, state) {
           if (!state.toolCalls) state.toolCalls = {};
           // 标准 OpenAI Chat 流式仅首帧带 id/name，后续帧只有 index + 参数增量，
           // 因此必须用 index 作为累积键，否则同一调用会被拆散或丢失。
-          var key = (tc.index !== undefined && tc.index !== null) ? tc.index : (tc.id || 0);
+          var key = tc.index !== undefined && tc.index !== null ? tc.index : tc.id || 0;
           if (!state.toolCalls[key]) {
-            state.toolCalls[key] = { id: tc.id || ('call_' + key), name: '', arguments: '' };
+            state.toolCalls[key] = { id: tc.id || 'call_' + key, name: '', arguments: '' };
             state.toolCalls[key]._added = false;
           }
           var slot = state.toolCalls[key];
@@ -342,22 +440,35 @@ function sseChatToResponses(raw, respId, state) {
             slot._added = true;
             slot._outputIndex = state.nextOutputIndex++;
             lines.push('event: response.output_item.added');
-            lines.push('data: ' + JSON.stringify({
-              type: 'response.output_item.added',
-              output_index: slot._outputIndex,
-              item: { type: 'function_call', id: slot.id, call_id: slot.id, name: slot.name, arguments: '', status: 'in_progress' }
-            }));
+            lines.push(
+              'data: ' +
+                JSON.stringify({
+                  type: 'response.output_item.added',
+                  output_index: slot._outputIndex,
+                  item: {
+                    type: 'function_call',
+                    id: slot.id,
+                    call_id: slot.id,
+                    name: slot.name,
+                    arguments: '',
+                    status: 'in_progress'
+                  }
+                })
+            );
           }
-          var delta = tc.function && tc.function.arguments || '';
+          var delta = (tc.function && tc.function.arguments) || '';
           if (delta) {
             slot.arguments += delta;
             lines.push('event: response.function_call_arguments.delta');
-            lines.push('data: ' + JSON.stringify({
-              type: 'response.function_call_arguments.delta',
-              output_index: slot._outputIndex || 0,
-              item_id: slot.id,
-              delta: delta
-            }));
+            lines.push(
+              'data: ' +
+                JSON.stringify({
+                  type: 'response.function_call_arguments.delta',
+                  output_index: slot._outputIndex || 0,
+                  item_id: slot.id,
+                  delta: delta
+                })
+            );
           }
         });
       }
@@ -365,7 +476,9 @@ function sseChatToResponses(raw, respId, state) {
       if (d.usage) {
         state.responseJson.usage = d.usage;
       }
-    } catch (e) { /* ignore parse errors */ }
+    } catch (e) {
+      /* ignore parse errors */
+    }
   });
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
@@ -379,7 +492,7 @@ function chatToResponses(chatResp, model) {
     status: 'completed',
     model: model || chatResp.model || '',
     usage: chatResp.usage || {},
-    output: [],
+    output: []
   };
   if (chatResp.choices && chatResp.choices.length) {
     chatResp.choices.forEach(function (choice) {
@@ -392,9 +505,9 @@ function chatToResponses(chatResp, model) {
             type: 'function_call',
             id: tc.id,
             call_id: tc.id,
-            name: tc.function && tc.function.name || '',
-            arguments: tc.function && tc.function.arguments || '',
-            status: 'completed',
+            name: (tc.function && tc.function.name) || '',
+            arguments: (tc.function && tc.function.arguments) || '',
+            status: 'completed'
           });
         });
       }
@@ -403,11 +516,16 @@ function chatToResponses(chatResp, model) {
         id: 'msg_' + (chatResp.id || 'chat') + '_' + choice.index,
         role: 'assistant',
         content: content,
-        status: 'completed',
+        status: 'completed'
       });
     });
   }
-  resp.output_text = chatResp.choices && chatResp.choices[0] && chatResp.choices[0].message && chatResp.choices[0].message.content || '';
+  resp.output_text =
+    (chatResp.choices &&
+      chatResp.choices[0] &&
+      chatResp.choices[0].message &&
+      chatResp.choices[0].message.content) ||
+    '';
   return resp;
 }
 
@@ -423,25 +541,44 @@ function responsesToAnthropic(body, model) {
         var c = extractContent(item);
         if (!c) return;
         if (item.role === 'system' || item.role === 'developer') {
-          system = system ? (system + '\n\n' + c) : c;
+          system = system ? system + '\n\n' + c : c;
         } else {
           messages.push({ role: mapRoleForAnthropic(item.role), content: c });
         }
       } else if (item.type === 'function_call') {
-// 助手工具调用 → Anthropic assistant.tool_use 块
+        // 助手工具调用 → Anthropic assistant.tool_use 块
         var input = {};
-        try { input = item.arguments ? JSON.parse(item.arguments) : {}; } catch (e) { input = {}; }
+        try {
+          input = item.arguments ? JSON.parse(item.arguments) : {};
+        } catch (e) {
+          input = {};
+        }
         messages.push({
           role: 'assistant',
-          content: [{ type: 'tool_use', id: item.call_id || item.id || '', name: item.name || '', input: input }],
+          content: [
+            {
+              type: 'tool_use',
+              id: item.call_id || item.id || '',
+              name: item.name || '',
+              input: input
+            }
+          ]
         });
       } else if (item.type === 'function_call_output') {
-// 工具结果 → Anthropic user.tool_result 块
+        // 工具结果 → Anthropic user.tool_result 块
         var out = item.output;
-        if (typeof out !== 'string') { try { out = JSON.stringify(out); } catch (e) { out = String(out); } }
+        if (typeof out !== 'string') {
+          try {
+            out = JSON.stringify(out);
+          } catch (e) {
+            out = String(out);
+          }
+        }
         messages.push({
           role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: item.call_id || item.id || '', content: out }],
+          content: [
+            { type: 'tool_result', tool_use_id: item.call_id || item.id || '', content: out }
+          ]
         });
       }
     });
@@ -450,13 +587,18 @@ function responsesToAnthropic(body, model) {
     model: model || body.model || 'claude-sonnet-4-20250514',
     messages: messages,
     max_tokens: Number(body.max_output_tokens) || 8192,
-    stream: true,
+    stream: true
   };
   if (system) anthReq.system = system;
-  if (body.tools) anthReq.tools = body.tools.map(function (t) {
-    // Responses tool format → Anthropic tool format
-    return { name: t.name || t.function && t.function.name || '', description: t.description || t.function && t.function.description || '', input_schema: t.input_schema || t.parameters || t.function && t.function.parameters || {} };
-  });
+  if (body.tools)
+    anthReq.tools = body.tools.map(function (t) {
+      // Responses tool format → Anthropic tool format
+      return {
+        name: t.name || (t.function && t.function.name) || '',
+        description: t.description || (t.function && t.function.description) || '',
+        input_schema: t.input_schema || t.parameters || (t.function && t.function.parameters) || {}
+      };
+    });
   if (body.temperature !== undefined) anthReq.temperature = body.temperature;
   return anthReq;
 }
@@ -470,51 +612,81 @@ function sseAnthropicToResponses(raw, respId, state) {
     try {
       var d = JSON.parse(line.slice(6));
       if (d.type === 'message_start') {
-        state.msgId = d.message && d.message.id || 'msg_anth';
+        state.msgId = (d.message && d.message.id) || 'msg_anth';
         state.responseJson = state.responseJson || {};
-        state.responseJson.id = 'resp_anth_' + (d.message && d.message.id || '');
+        state.responseJson.id = 'resp_anth_' + ((d.message && d.message.id) || '');
         state.responseJson.object = 'response';
         state.responseJson.created = Math.floor(Date.now() / 1000);
-        state.responseJson.model = d.message && d.message.model || '';
+        state.responseJson.model = (d.message && d.message.model) || '';
         state.responseJson.output = [];
         state.text = '';
         state.toolCalls = {};
         state.nextOutputIndex = 0;
         state.msgOutputIndex = state.nextOutputIndex++;
         lines.push('event: response.output_item.added');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.output_item.added',
-          output_index: state.msgOutputIndex,
-          item: { type: 'message', id: state.msgId, status: 'in_progress', role: 'assistant', content: [] }
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.output_item.added',
+              output_index: state.msgOutputIndex,
+              item: {
+                type: 'message',
+                id: state.msgId,
+                status: 'in_progress',
+                role: 'assistant',
+                content: []
+              }
+            })
+        );
         lines.push('event: response.content_part.added');
-        lines.push('data: ' + JSON.stringify({
-          type: 'response.content_part.added',
-          output_index: state.msgOutputIndex,
-          content_index: 0,
-          part: { type: 'output_text', text: '' }
-        }));
+        lines.push(
+          'data: ' +
+            JSON.stringify({
+              type: 'response.content_part.added',
+              output_index: state.msgOutputIndex,
+              content_index: 0,
+              part: { type: 'output_text', text: '' }
+            })
+        );
       } else if (d.type === 'content_block_start') {
         if (d.content_block && d.content_block.type === 'tool_use') {
           var tc = d.content_block;
-// 用 Anthropic 的内容块序号 d.index 作累积键；后续 input_json_delta 只带 in
-          state.toolCalls[d.index] = { id: tc.id, name: tc.name, arguments: '', _outputIndex: state.nextOutputIndex++ };
+          // 用 Anthropic 的内容块序号 d.index 作累积键；后续 input_json_delta 只带 in
+          state.toolCalls[d.index] = {
+            id: tc.id,
+            name: tc.name,
+            arguments: '',
+            _outputIndex: state.nextOutputIndex++
+          };
           lines.push('event: response.output_item.added');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_item.added',
-            output_index: state.toolCalls[d.index]._outputIndex,
-            item: { type: 'function_call', id: tc.id, call_id: tc.id, name: tc.name, arguments: '', status: 'in_progress' }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_item.added',
+                output_index: state.toolCalls[d.index]._outputIndex,
+                item: {
+                  type: 'function_call',
+                  id: tc.id,
+                  call_id: tc.id,
+                  name: tc.name,
+                  arguments: '',
+                  status: 'in_progress'
+                }
+              })
+          );
         }
       } else if (d.type === 'content_block_delta') {
         if (d.delta && d.delta.type === 'text_delta') {
           lines.push('event: response.output_text.delta');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_text.delta',
-            output_index: state.msgOutputIndex,
-            content_index: 0,
-            delta: d.delta.text
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_text.delta',
+                output_index: state.msgOutputIndex,
+                content_index: 0,
+                delta: d.delta.text
+              })
+          );
           state.text = (state.text || '') + d.delta.text;
         } else if (d.delta && d.delta.type === 'input_json_delta') {
           var slot = d.index !== undefined && state.toolCalls[d.index];
@@ -523,12 +695,15 @@ function sseAnthropicToResponses(raw, respId, state) {
             slot.arguments += pj;
             if (pj) {
               lines.push('event: response.function_call_arguments.delta');
-              lines.push('data: ' + JSON.stringify({
-                type: 'response.function_call_arguments.delta',
-                output_index: slot._outputIndex || 0,
-                item_id: slot.id,
-                delta: pj
-              }));
+              lines.push(
+                'data: ' +
+                  JSON.stringify({
+                    type: 'response.function_call_arguments.delta',
+                    output_index: slot._outputIndex || 0,
+                    item_id: slot.id,
+                    delta: pj
+                  })
+              );
             }
           }
         }
@@ -537,46 +712,81 @@ function sseAnthropicToResponses(raw, respId, state) {
       } else if (d.type === 'message_stop') {
         if (state.text) {
           lines.push('event: response.output_text.done');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_text.done',
-            output_index: state.msgOutputIndex || 0,
-            content_index: 0,
-            text: state.text
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_text.done',
+                output_index: state.msgOutputIndex || 0,
+                content_index: 0,
+                text: state.text
+              })
+          );
           lines.push('event: response.content_part.done');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.content_part.done',
-            output_index: state.msgOutputIndex || 0,
-            content_index: 0,
-            part: { type: 'output_text', text: state.text, annotations: [] }
-          }));
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.content_part.done',
+                output_index: state.msgOutputIndex || 0,
+                content_index: 0,
+                part: { type: 'output_text', text: state.text, annotations: [] }
+              })
+          );
         }
         if (state.msgId) {
           var content = [];
           if (state.text) content.push({ type: 'output_text', text: state.text, annotations: [] });
           Object.keys(state.toolCalls || {}).forEach(function (id) {
             var tc = state.toolCalls[id];
-            var doneEvt = { type: 'function_call', id: tc.id, call_id: tc.id, name: tc.name, arguments: tc.arguments, status: 'completed' };
+            var doneEvt = {
+              type: 'function_call',
+              id: tc.id,
+              call_id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+              status: 'completed'
+            };
             lines.push('event: response.output_item.done');
-            lines.push('data: ' + JSON.stringify({
-              type: 'response.output_item.done',
-              output_index: tc._outputIndex || 0,
-              item: doneEvt
-            }));
+            lines.push(
+              'data: ' +
+                JSON.stringify({
+                  type: 'response.output_item.done',
+                  output_index: tc._outputIndex || 0,
+                  item: doneEvt
+                })
+            );
             content.push(doneEvt);
           });
           lines.push('event: response.output_item.done');
-          lines.push('data: ' + JSON.stringify({
-            type: 'response.output_item.done',
-            output_index: state.msgOutputIndex || 0,
-            item: { type: 'message', id: state.msgId, status: 'completed', role: 'assistant', content: content }
-          }));
-          state.responseJson.output.push({ type: 'message', id: state.msgId, status: 'completed', role: 'assistant', content: content });
+          lines.push(
+            'data: ' +
+              JSON.stringify({
+                type: 'response.output_item.done',
+                output_index: state.msgOutputIndex || 0,
+                item: {
+                  type: 'message',
+                  id: state.msgId,
+                  status: 'completed',
+                  role: 'assistant',
+                  content: content
+                }
+              })
+          );
+          state.responseJson.output.push({
+            type: 'message',
+            id: state.msgId,
+            status: 'completed',
+            role: 'assistant',
+            content: content
+          });
           lines.push('event: response.completed');
-          lines.push('data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson }));
+          lines.push(
+            'data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson })
+          );
         }
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   });
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
@@ -589,27 +799,29 @@ function anthropicToResponses(anthResp, model) {
     created: Math.floor(Date.now() / 1000),
     model: model || anthResp.model || '',
     usage: anthResp.usage || {},
-    output: [],
+    output: []
   };
   if (anthResp.content) {
     var content = [];
     anthResp.content.forEach(function (block) {
-      if (block.type === 'text') content.push({ type: 'output_text', text: block.text, annotations: [] });
-      if (block.type === 'tool_use') content.push({
-        type: 'function_call',
-        id: block.id,
-        call_id: block.id,
-        name: block.name,
-        arguments: JSON.stringify(block.input || {}),
-        status: 'completed',
-      });
+      if (block.type === 'text')
+        content.push({ type: 'output_text', text: block.text, annotations: [] });
+      if (block.type === 'tool_use')
+        content.push({
+          type: 'function_call',
+          id: block.id,
+          call_id: block.id,
+          name: block.name,
+          arguments: JSON.stringify(block.input || {}),
+          status: 'completed'
+        });
     });
     resp.output.push({
       type: 'message',
       id: 'msg_anth_' + (anthResp.id || ''),
       role: 'assistant',
       content: content,
-      status: 'completed',
+      status: 'completed'
     });
   }
   return resp;
@@ -643,7 +855,9 @@ function convertResponse(member, bodyStr, isStream) {
       if (!body || !Array.isArray(body.content) || !body.content.length) return bodyStr;
       return JSON.stringify(anthropicToResponses(body, member.model));
     }
-  } catch (e) { /* pass through */ }
+  } catch (e) {
+    /* pass through */
+  }
   return bodyStr;
 }
 
@@ -658,5 +872,5 @@ function convertSse(member, chunk, state) {
 module.exports = {
   convertRequest: convertRequest,
   convertResponse: convertResponse,
-  convertSse: convertSse,
+  convertSse: convertSse
 };

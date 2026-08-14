@@ -29,11 +29,11 @@
 
 ### 配置范围
 
-| 配置 | 是否跟项目 |
-|------|-----------|
-| 供应商 | ✓ 跟项目 |
-| 路由 | ✗ 全局共享 |
-| 设置 | ✗ 全局共享 |
+| 配置   | 是否跟项目 |
+| ------ | ---------- |
+| 供应商 | ✓ 跟项目   |
+| 路由   | ✗ 全局共享 |
+| 设置   | ✗ 全局共享 |
 
 ### 配置映射
 
@@ -55,7 +55,7 @@ interface ProjectProfile {
   name: string
   createdAt: string
   updatedAt: string
-  providers: Record<string, Record<string, Provider>>  // appType → providerId → Provider
+  providers: Record<string, Record<string, Provider>> // appType → providerId → Provider
 }
 ```
 
@@ -230,10 +230,10 @@ interface ProjectProfile {
 
 #### 核心 Key
 
-| Key | 说明 |
-|-----|------|
-| `cctoggle_profile_{profileId}` | 项目/配置方案（完整配置根） |
-| `cctoggle_active_profile` | 当前激活的项目 ID |
+| Key                             | 说明                          |
+| ------------------------------- | ----------------------------- |
+| `cctoggle_profile_{profileId}`  | 项目/配置方案（完整配置根）   |
+| `cctoggle_active_profile`       | 当前激活的项目 ID             |
 | `apikey_{appType}_{providerId}` | API Key（加密存储，保持独立） |
 
 #### 项目文档结构
@@ -270,9 +270,9 @@ cctoggle_profile_{profileId} = {
 
 ```ts
 cctoggle_profile_default = {
-  _id: "cctoggle_profile_default",
-  id: "default",
-  name: "全局默认",
+  _id: 'cctoggle_profile_default',
+  id: 'default',
+  name: '全局默认'
   // ...现有供应商配置迁入
 }
 ```
@@ -316,11 +316,11 @@ cctoggle_profile_default = {
 
 ### 优点
 
-| 优点 | 说明 |
-|------|------|
-| 隔离性 | 项目间配置完全独立 |
-| 便携性 | 单个文档可导出/导入 |
-| 清晰性 | 一个项目 = 一个文档 |
+| 优点   | 说明                      |
+| ------ | ------------------------- |
+| 隔离性 | 项目间配置完全独立        |
+| 便携性 | 单个文档可导出/导入       |
+| 清晰性 | 一个项目 = 一个文档       |
 | 兼容性 | 全局配置就是 default 项目 |
 
 ---
@@ -372,11 +372,11 @@ applyProject(id: string): Record<string, SuccessResult>  // 应用项目配置
 激活项目配置 > 全局默认配置
 ```
 
-| 状态 | Claude 配置来源 | Codex 配置来源 |
-|------|----------------|----------------|
-| 无项目激活 | 全局 | 全局 |
-| 项目A激活（配置了Claude） | 项目A | 全局 |
-| 项目A激活（配置了Claude+Codex） | 项目A | 项目A |
+| 状态                            | Claude 配置来源 | Codex 配置来源 |
+| ------------------------------- | --------------- | -------------- |
+| 无项目激活                      | 全局            | 全局           |
+| 项目A激活（配置了Claude）       | 项目A           | 全局           |
+| 项目A激活（配置了Claude+Codex） | 项目A           | 项目A          |
 
 ### 迁移策略
 
@@ -396,16 +396,16 @@ preload 初始化时检测并执行迁移，用户无感。
 ```ts
 function migrateToProfileStructure() {
   // 1. 检查是否已迁移
-  if (ztools.db.get("cctoggle_profile_default")) return
+  if (ztools.db.get('cctoggle_profile_default')) return
 
   // 2. 收集现有供应商数据
-  const providers = collectProviders()      // cctoggle_provider_*
+  const providers = collectProviders() // cctoggle_provider_*
 
   // 3. 创建 default 项目
   ztools.db.put({
-    _id: "cctoggle_profile_default",
-    id: "default",
-    name: "全局默认",
+    _id: 'cctoggle_profile_default',
+    id: 'default',
+    name: '全局默认',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     providers
@@ -430,26 +430,26 @@ function migrateToProfileStructure() {
 
 ### 供应商管理
 
-| 功能 | 兼容方案 |
-|------|----------|
-| 列表查询 | 从当前激活项目（或 default）读取 |
-| 新增供应商 | 写入当前项目 |
-| 编辑供应商 | 更新当前项目内的数据 |
-| 删除供应商 | 从当前项目删除 |
+| 功能       | 兼容方案                              |
+| ---------- | ------------------------------------- |
+| 列表查询   | 从当前激活项目（或 default）读取      |
+| 新增供应商 | 写入当前项目                          |
+| 编辑供应商 | 更新当前项目内的数据                  |
+| 删除供应商 | 从当前项目删除                        |
 | 切换供应商 | 更新当前项目的 settings.lastActiveApp |
-| 标记当前 | 更新当前项目内供应商的 isCurrent |
+| 标记当前   | 更新当前项目内供应商的 isCurrent      |
 
 ### 路由管理（全局共享，不涉及项目）
 
 ### 其他功能
 
-| 功能 | 兼容方案 |
-|------|----------|
-| 技能管理 | 全局共享，不属于项目维度 |
-| Prompt 管理 | 全局共享，不属于项目维度 |
-| MCP 管理 | 全局共享，不属于项目维度 |
+| 功能         | 兼容方案                 |
+| ------------ | ------------------------ |
+| 技能管理     | 全局共享，不属于项目维度 |
+| Prompt 管理  | 全局共享，不属于项目维度 |
+| MCP 管理     | 全局共享，不属于项目维度 |
 | Session 管理 | 全局共享，不属于项目维度 |
-| 用量统计 | 全局共享，不属于项目维度 |
+| 用量统计     | 全局共享，不属于项目维度 |
 
 ---
 

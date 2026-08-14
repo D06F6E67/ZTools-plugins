@@ -2,27 +2,28 @@
 // MCP Server 配置管理：配置文件为源 + db 仅存 apps 映射
 // 纯编排：读写差异在各 agent 适配器（./adapters）中
 
-import { DataMigration } from "../../core/cleanup";
-import { ALL_APPS, getAdapter } from "./adapters";
+import { DataMigration } from '../../core/cleanup';
+import { ALL_APPS, getAdapter } from './adapters';
 import {
   AppMapping,
   ConfigEntry,
   ConfigsMap,
   McpServer,
   McpServerData,
-  TransportFields,
-} from "./types";
+  TransportFields
+} from './types';
 
-const APPS_KEY = "cctoggle_mcp_apps";
-const TEMPLATES_KEY = "cctoggle_mcp_templates";
+const APPS_KEY = 'cctoggle_mcp_apps';
+const TEMPLATES_KEY = 'cctoggle_mcp_templates';
 
 export class McpManager {
-
   // ─────────── db apps 映射读写 ───────────
 
   private static _emptyMapping(): AppMapping {
     const m: AppMapping = { disabled: [] };
-    ALL_APPS.forEach(function (a) { m[a] = []; });
+    ALL_APPS.forEach(function (a) {
+      m[a] = [];
+    });
     return m;
   }
 
@@ -42,9 +43,13 @@ export class McpManager {
 
   private static _putMapping(mapping: AppMapping): void {
     let existing: any = null;
-    try { existing = ztools.db.get(APPS_KEY); } catch (e) {}
+    try {
+      existing = ztools.db.get(APPS_KEY);
+    } catch (e) {}
     const doc: any = { _id: APPS_KEY, disabled: mapping.disabled || [] };
-    ALL_APPS.forEach(function (a) { doc[a] = mapping[a] || []; });
+    ALL_APPS.forEach(function (a) {
+      doc[a] = mapping[a] || [];
+    });
     if (existing && existing._rev) doc._rev = existing._rev;
     ztools.db.put(doc);
   }
@@ -54,14 +59,16 @@ export class McpManager {
   private static _readTemplates(): Record<string, ConfigEntry> {
     try {
       const doc = ztools.db.get(TEMPLATES_KEY);
-      if (doc && doc.servers && typeof doc.servers === "object") return doc.servers;
+      if (doc && doc.servers && typeof doc.servers === 'object') return doc.servers;
     } catch (e) {}
     return {};
   }
 
   private static _putTemplates(servers: Record<string, ConfigEntry>): void {
     let existing: any = null;
-    try { existing = ztools.db.get(TEMPLATES_KEY); } catch (e) {}
+    try {
+      existing = ztools.db.get(TEMPLATES_KEY);
+    } catch (e) {}
     const doc: any = { _id: TEMPLATES_KEY, servers: servers };
     if (existing && existing._rev) doc._rev = existing._rev;
     ztools.db.put(doc);
@@ -94,18 +101,24 @@ export class McpManager {
 
   private static _buildConfigEntry(server: McpServerData): ConfigEntry | null {
     if (server.stdio) {
-      const entry: ConfigEntry = { command: server.stdio.command || "", args: server.stdio.args || [] };
-      if (server.stdio.env && Object.keys(server.stdio.env).length > 0) entry.env = server.stdio.env;
+      const entry: ConfigEntry = {
+        command: server.stdio.command || '',
+        args: server.stdio.args || []
+      };
+      if (server.stdio.env && Object.keys(server.stdio.env).length > 0)
+        entry.env = server.stdio.env;
       return entry;
     }
     if (server.sse) {
-      const entry: ConfigEntry = { url: server.sse.url || "" };
-      if (server.sse.headers && Object.keys(server.sse.headers).length > 0) entry.headers = server.sse.headers;
+      const entry: ConfigEntry = { url: server.sse.url || '' };
+      if (server.sse.headers && Object.keys(server.sse.headers).length > 0)
+        entry.headers = server.sse.headers;
       return entry;
     }
     if (server.http) {
-      const entry: ConfigEntry = { url: server.http.url || "" };
-      if (server.http.headers && Object.keys(server.http.headers).length > 0) entry.headers = server.http.headers;
+      const entry: ConfigEntry = { url: server.http.url || '' };
+      if (server.http.headers && Object.keys(server.http.headers).length > 0)
+        entry.headers = server.http.headers;
       return entry;
     }
     return null;
@@ -113,27 +126,38 @@ export class McpManager {
 
   // 从配置条目推断类型
   private static _inferType(def: ConfigEntry | null): string {
-    return (def && def.url) ? "streamable-http" : "stdio";
+    return def && def.url ? 'streamable-http' : 'stdio';
   }
 
   // 从配置条目构建 server 传输字段
   private static _buildTransport(type: string, def: ConfigEntry | null): TransportFields {
     if (!def) return {};
-    if (type === "stdio") {
-      return { stdio: { command: def.command || "", args: def.args || [], env: def.env || {} } };
+    if (type === 'stdio') {
+      return { stdio: { command: def.command || '', args: def.args || [], env: def.env || {} } };
     }
-    const transport = { url: def.url || "", headers: def.headers || {}, authType: def.authType || "none", apiKey: def.apiKey || "" };
-    return type === "sse" ? { sse: transport } : { http: transport };
+    const transport = {
+      url: def.url || '',
+      headers: def.headers || {},
+      authType: def.authType || 'none',
+      apiKey: def.apiKey || ''
+    };
+    return type === 'sse' ? { sse: transport } : { http: transport };
   }
 
   // 收集所有配置文件 + 映射中出现的 server name
   private static _collectAllNames(configs: ConfigsMap, mapping: AppMapping): string[] {
     const nameSet: Record<string, boolean> = {};
     ALL_APPS.forEach(function (app) {
-      Object.keys(configs[app] || {}).forEach(function (n) { nameSet[n] = true; });
-      (mapping[app] || []).forEach(function (n) { nameSet[n] = true; });
+      Object.keys(configs[app] || {}).forEach(function (n) {
+        nameSet[n] = true;
+      });
+      (mapping[app] || []).forEach(function (n) {
+        nameSet[n] = true;
+      });
     });
-    Object.keys(McpManager._readTemplates()).forEach(function (n) { nameSet[n] = true; });
+    Object.keys(McpManager._readTemplates()).forEach(function (n) {
+      nameSet[n] = true;
+    });
     return Object.keys(nameSet);
   }
 
@@ -162,7 +186,12 @@ export class McpManager {
 
   // ─────────── CRUD ───────────
 
-  private static _buildServer(name: string, def: ConfigEntry | null, apps: string[], disabledSet: Record<string, boolean>): McpServer {
+  private static _buildServer(
+    name: string,
+    def: ConfigEntry | null,
+    apps: string[],
+    disabledSet: Record<string, boolean>
+  ): McpServer {
     const type = McpManager._inferType(def);
     const server: McpServer = {
       id: name,
@@ -172,7 +201,7 @@ export class McpManager {
       stdio: null,
       sse: null,
       http: null,
-      apps: apps,
+      apps: apps
     };
     const transport = McpManager._buildTransport(type, def);
     if (transport.stdio) server.stdio = transport.stdio;
@@ -186,7 +215,9 @@ export class McpManager {
     const mapping = McpManager._getMapping();
     if (DataMigration.cleanMcpMapping(mapping, configs, ALL_APPS)) McpManager._putMapping(mapping);
     const disabledSet: Record<string, boolean> = {};
-    (mapping.disabled || []).forEach(function (n) { disabledSet[n] = true; });
+    (mapping.disabled || []).forEach(function (n) {
+      disabledSet[n] = true;
+    });
 
     const names = McpManager._collectAllNames(configs, mapping);
     const result: McpServer[] = [];
@@ -206,13 +237,15 @@ export class McpManager {
     const apps = McpManager._resolveApps(name, mapping, configs);
     const def = McpManager._findDef(name, configs);
     const disabledSet: Record<string, boolean> = {};
-    (mapping.disabled || []).forEach(function (n) { disabledSet[n] = true; });
+    (mapping.disabled || []).forEach(function (n) {
+      disabledSet[n] = true;
+    });
     return McpManager._buildServer(name, def, apps, disabledSet);
   }
 
   static saveMcpServer(data: McpServerData & { name?: string; apps?: string[] }): string {
     const name = data.name;
-    if (!name) return "";
+    if (!name) return '';
 
     const mapping = McpManager._getMapping();
     const newApps = data.apps || [];
@@ -242,7 +275,9 @@ export class McpManager {
     // 写入新 apps
     const entry = McpManager._buildConfigEntry(data);
     if (entry) {
-      newApps.forEach(function (app) { McpManager._writeToApp(app, name, entry); });
+      newApps.forEach(function (app) {
+        McpManager._writeToApp(app, name, entry);
+      });
     }
 
     // 无 agent 关联时保存为模板，避免配置丢失；关联 agent 后移除模板
@@ -264,7 +299,9 @@ export class McpManager {
     ALL_APPS.forEach(function (app) {
       if (mapping[app].indexOf(name) !== -1) {
         McpManager._removeFromApp(app, name);
-        mapping[app] = mapping[app].filter(function (n) { return n !== name; });
+        mapping[app] = mapping[app].filter(function (n) {
+          return n !== name;
+        });
       }
     });
 
@@ -275,7 +312,9 @@ export class McpManager {
     });
 
     // 从 disabled 列表中移除
-    mapping.disabled = (mapping.disabled || []).filter(function (n) { return n !== name; });
+    mapping.disabled = (mapping.disabled || []).filter(function (n) {
+      return n !== name;
+    });
     McpManager._putMapping(mapping);
 
     // 从模板中移除
@@ -302,17 +341,24 @@ export class McpManager {
 
     if (isDisabled) {
       // 启用：从 disabled 移除 + 写入配置文件
-      mapping.disabled = mapping.disabled.filter(function (n) { return n !== name; });
+      mapping.disabled = mapping.disabled.filter(function (n) {
+        return n !== name;
+      });
       McpManager._putMapping(mapping);
       const configs = McpManager._readAllConfigs();
       const def = McpManager._findDef(name, configs);
-      if (def) apps.forEach(function (app) { McpManager._writeToApp(app, name, def); });
+      if (def)
+        apps.forEach(function (app) {
+          McpManager._writeToApp(app, name, def);
+        });
       return true;
     } else {
       // 禁用：加入 disabled + 从配置文件移除
       mapping.disabled.push(name);
       McpManager._putMapping(mapping);
-      apps.forEach(function (app) { McpManager._removeFromApp(app, name); });
+      apps.forEach(function (app) {
+        McpManager._removeFromApp(app, name);
+      });
       return false;
     }
   }

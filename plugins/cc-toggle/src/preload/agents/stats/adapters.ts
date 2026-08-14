@@ -1,9 +1,9 @@
 // ZTools ccToggle - stats/adapters.ts
 // 各 agent 的用量统计适配器：封装日志/数据源扫描差异
 
-import * as utils from "../../utils";
-import * as sqlite from "../../core/sqlite";
-import { DailyRecord, UsageAdapter, dayFromTs, emptyBucket } from "./types";
+import * as utils from '../../utils';
+import * as sqlite from '../../core/sqlite';
+import { DailyRecord, UsageAdapter, dayFromTs, emptyBucket } from './types';
 
 const fs = utils.fs;
 const path = utils.path;
@@ -14,7 +14,11 @@ const getHomeDir = utils.getHomeDir;
 async function listJsonl(dir: string, out?: string[]): Promise<string[]> {
   out = out || [];
   let entries;
-  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch (e) { return out; }
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (e) {
+    return out;
+  }
   for (let i = 0; i < entries.length; i++) {
     const ent = entries[i];
     const fullPath = path.join(dir, ent.name);
@@ -28,46 +32,85 @@ async function listJsonl(dir: string, out?: string[]): Promise<string[]> {
 }
 
 // 通用累加：往 acc 写入一条按天记录
-export function addUsage(acc: Record<string, DailyRecord>, appType: string, day: string, model: string,
-  input: number, output: number, cacheRead: number, cacheCreate: number): void {
-  const dayKey = appType + "_" + day;
-  const d = acc[dayKey] || (acc[dayKey] = { appType: appType, day: day,
-    requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0, models: {} });
+export function addUsage(
+  acc: Record<string, DailyRecord>,
+  appType: string,
+  day: string,
+  model: string,
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheCreate: number
+): void {
+  const dayKey = appType + '_' + day;
+  const d =
+    acc[dayKey] ||
+    (acc[dayKey] = {
+      appType: appType,
+      day: day,
+      requests: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreate: 0,
+      total: 0,
+      models: {}
+    });
   const b = d.models[model] || (d.models[model] = emptyBucket());
-  b.requests += 1; b.input += input; b.output += output;
-  b.cacheRead += cacheRead; b.cacheCreate += cacheCreate; b.total += input + output + cacheRead + cacheCreate;
-  d.requests += 1; d.input += input; d.output += output;
-  d.cacheRead += cacheRead; d.cacheCreate += cacheCreate; d.total += input + output + cacheRead + cacheCreate;
+  b.requests += 1;
+  b.input += input;
+  b.output += output;
+  b.cacheRead += cacheRead;
+  b.cacheCreate += cacheCreate;
+  b.total += input + output + cacheRead + cacheCreate;
+  d.requests += 1;
+  d.input += input;
+  d.output += output;
+  d.cacheRead += cacheRead;
+  d.cacheCreate += cacheCreate;
+  d.total += input + output + cacheRead + cacheCreate;
 }
 
 // ─────────── Claude（~/.claude/projects 的 assistant 消息）───────────
 
 export class ClaudeUsageAdapter implements UsageAdapter {
-  id = "claude";
-  label = "Claude";
+  id = 'claude';
+  label = 'Claude';
 
   async scan(clearedMs: number, acc: Record<string, DailyRecord>): Promise<void> {
     const home = getHomeDir();
-    const dir = utils.getAgentSessionPath("claude") || path.join(home, ".claude", "projects");
+    const dir = utils.getAgentSessionPath('claude') || path.join(home, '.claude', 'projects');
     const list = await listJsonl(dir);
     for (let i = 0; i < list.length; i++) {
       await this._parseFile(list[i], clearedMs, acc);
     }
   }
 
-  private async _parseFile(file: string, clearedMs: number, acc: Record<string, DailyRecord>): Promise<void> {
+  private async _parseFile(
+    file: string,
+    clearedMs: number,
+    acc: Record<string, DailyRecord>
+  ): Promise<void> {
     let text: string;
-    try { text = await fs.promises.readFile(file, "utf8"); } catch (e) { return; }
+    try {
+      text = await fs.promises.readFile(file, 'utf8');
+    } catch (e) {
+      return;
+    }
     const lines = text.split(/\r?\n/);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
       let d;
-      try { d = JSON.parse(line); } catch (e) { continue; }
-      if (!d || typeof d !== "object") continue;
+      try {
+        d = JSON.parse(line);
+      } catch (e) {
+        continue;
+      }
+      if (!d || typeof d !== 'object') continue;
 
-      if (d.type !== "assistant" || !d.message) continue;
+      if (d.type !== 'assistant' || !d.message) continue;
       const mu = d.message.usage;
       if (!mu) continue;
       if (clearedMs && d.timestamp && new Date(d.timestamp).getTime() <= clearedMs) continue;
@@ -78,7 +121,7 @@ export class ClaudeUsageAdapter implements UsageAdapter {
       const cRead = Number(mu.cache_read_input_tokens) || 0;
       const cCreate = Number(mu.cache_creation_input_tokens) || 0;
       if (!cIn && !cOut && !cRead && !cCreate) continue;
-      addUsage(acc, "claude", day, d.message.model || "unknown", cIn, cOut, cRead, cCreate);
+      addUsage(acc, 'claude', day, d.message.model || 'unknown', cIn, cOut, cRead, cCreate);
     }
   }
 }
@@ -86,36 +129,48 @@ export class ClaudeUsageAdapter implements UsageAdapter {
 // ─────────── Codex（~/.codex/sessions 的 event_msg token_count）───────────
 
 export class CodexUsageAdapter implements UsageAdapter {
-  id = "codex";
-  label = "Codex";
+  id = 'codex';
+  label = 'Codex';
 
   async scan(clearedMs: number, acc: Record<string, DailyRecord>): Promise<void> {
     const home = getHomeDir();
-    const dir = utils.getAgentSessionPath("codex") || path.join(home, ".codex", "sessions");
+    const dir = utils.getAgentSessionPath('codex') || path.join(home, '.codex', 'sessions');
     const list = await listJsonl(dir);
     for (let i = 0; i < list.length; i++) {
       await this._parseFile(list[i], clearedMs, acc);
     }
   }
 
-  private async _parseFile(file: string, clearedMs: number, acc: Record<string, DailyRecord>): Promise<void> {
+  private async _parseFile(
+    file: string,
+    clearedMs: number,
+    acc: Record<string, DailyRecord>
+  ): Promise<void> {
     let text: string;
-    try { text = await fs.promises.readFile(file, "utf8"); } catch (e) { return; }
+    try {
+      text = await fs.promises.readFile(file, 'utf8');
+    } catch (e) {
+      return;
+    }
     const lines = text.split(/\r?\n/);
-    let codexModel = "";
+    let codexModel = '';
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
       let d;
-      try { d = JSON.parse(line); } catch (e) { continue; }
-      if (!d || typeof d !== "object") continue;
+      try {
+        d = JSON.parse(line);
+      } catch (e) {
+        continue;
+      }
+      if (!d || typeof d !== 'object') continue;
 
-      if (d.type === "turn_context" && d.payload && d.payload.model) {
+      if (d.type === 'turn_context' && d.payload && d.payload.model) {
         codexModel = d.payload.model;
         continue;
       }
-      if (d.type !== "event_msg" || !d.payload || d.payload.type !== "token_count") continue;
+      if (d.type !== 'event_msg' || !d.payload || d.payload.type !== 'token_count') continue;
       const info = d.payload.info;
       const last = info && info.last_token_usage;
       if (!last) continue;
@@ -128,7 +183,7 @@ export class CodexUsageAdapter implements UsageAdapter {
       const out = Number(last.output_tokens) || 0;
       const cacheCreate = Number(last.cache_write_input_tokens) || 0;
       if (!totalIn && !out && !cacheCreate) continue;
-      addUsage(acc, "codex", day2, codexModel || "unknown", freshIn, out, cachedIn, cacheCreate);
+      addUsage(acc, 'codex', day2, codexModel || 'unknown', freshIn, out, cachedIn, cacheCreate);
     }
   }
 }
@@ -136,16 +191,43 @@ export class CodexUsageAdapter implements UsageAdapter {
 // ─────────── OpenCode（SQLite session 表）───────────
 
 export class OpenCodeUsageAdapter implements UsageAdapter {
-  id = "opencode";
-  label = "OpenCode";
+  id = 'opencode';
+  label = 'OpenCode';
 
   async scan(clearedMs: number, acc: Record<string, DailyRecord>): Promise<void> {
     const dbPath = utils.getOpenCodeDbPath();
     if (!dbPath || !fs.existsSync(dbPath)) return;
-    const schema = ['id','project_id','workspace_id','parent_id','slug','directory','path','title','version','share_url',
-      'summary_additions','summary_deletions','summary_files','summary_diffs','metadata','cost',
-      'tokens_input','tokens_output','tokens_reasoning','tokens_cache_read','tokens_cache_write',
-      'revert','permission','agent','model','time_created','time_updated','time_compacting','time_archived'];
+    const schema = [
+      'id',
+      'project_id',
+      'workspace_id',
+      'parent_id',
+      'slug',
+      'directory',
+      'path',
+      'title',
+      'version',
+      'share_url',
+      'summary_additions',
+      'summary_deletions',
+      'summary_files',
+      'summary_diffs',
+      'metadata',
+      'cost',
+      'tokens_input',
+      'tokens_output',
+      'tokens_reasoning',
+      'tokens_cache_read',
+      'tokens_cache_write',
+      'revert',
+      'permission',
+      'agent',
+      'model',
+      'time_created',
+      'time_updated',
+      'time_compacting',
+      'time_archived'
+    ];
     const sessions = await sqlite.readSqliteTableAsync(dbPath, 'session', schema);
     for (let i = 0; i < sessions.length; i++) {
       const s = sessions[i];
@@ -159,13 +241,15 @@ export class OpenCodeUsageAdapter implements UsageAdapter {
       if (!ts) continue;
       const day = dayFromTs(new Date(ts).toISOString());
       if (!day) continue;
-      let model = "unknown";
+      let model = 'unknown';
       try {
-        const m = JSON.parse(String(s.model || "{}"));
-        model = m.id || m.model || "unknown";
-      } catch (e) { model = "unknown"; }
+        const m = JSON.parse(String(s.model || '{}'));
+        model = m.id || m.model || 'unknown';
+      } catch (e) {
+        model = 'unknown';
+      }
       const freshIn = Math.max(0, totalIn - cRead);
-      addUsage(acc, "opencode", day, model, freshIn, totalOut, cRead, cCreate);
+      addUsage(acc, 'opencode', day, model, freshIn, totalOut, cRead, cCreate);
     }
   }
 }
@@ -175,7 +259,7 @@ export class OpenCodeUsageAdapter implements UsageAdapter {
 export const USAGE_ADAPTERS: Record<string, UsageAdapter> = {
   claude: new ClaudeUsageAdapter(),
   codex: new CodexUsageAdapter(),
-  opencode: new OpenCodeUsageAdapter(),
+  opencode: new OpenCodeUsageAdapter()
 };
 
 /** 有真实扫描实现的 agent（含无扫描的占位仅用于 clearedAt/clearStats） */

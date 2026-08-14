@@ -12,15 +12,15 @@
 
 OpenClaw 的提示词体系是**多文件结构**，各文件职责不同：
 
-| 文件 | 用途 |
-|------|------|
-| `AGENTS.md` | 总体行为准则（如"先自己想办法"、"私事保密"等红线） |
-| `SOUL.md` | 性格调性（如"有观点、不端着、别演"） |
-| `IDENTITY.md` | 身份人设（叫小夏，奶黄+浅棕配色，捧着热饮看书） |
-| `USER.md` | 用户笔记 |
-| `TOOLS.md` | 本地环境备注（设备名、SSH 别名） |
-| `HEARTBEAT.md` | 心跳检查清单（空则不触发定时任务） |
-| `MEMORY.md` | 长期记忆，仅一对一聊天时加载 |
+| 文件           | 用途                                               |
+| -------------- | -------------------------------------------------- |
+| `AGENTS.md`    | 总体行为准则（如"先自己想办法"、"私事保密"等红线） |
+| `SOUL.md`      | 性格调性（如"有观点、不端着、别演"）               |
+| `IDENTITY.md`  | 身份人设（叫小夏，奶黄+浅棕配色，捧着热饮看书）    |
+| `USER.md`      | 用户笔记                                           |
+| `TOOLS.md`     | 本地环境备注（设备名、SSH 别名）                   |
+| `HEARTBEAT.md` | 心跳检查清单（空则不触发定时任务）                 |
+| `MEMORY.md`    | 长期记忆，仅一对一聊天时加载                       |
 
 **现有问题**：
 
@@ -45,12 +45,12 @@ OpenClaw 提示词与其他 Agent 分开管理，绑定 openclaw 的 prompt 不�
 
 **采用方案 A**，理由：
 
-| 维度 | A 弱区分 | B 强隔离 |
-|------|---------|---------|
-| 冲突处理 | `fileName` 只作用于 openclaw，边界清晰 | 完全隔离，无冲突 |
-| 跨 Agent 复用 | 保留（通用内容可同时挂 Codex + OpenClaw） | 丢失 |
-| 改动量 | 加 1 个字段 + 编辑器下拉 | 拆两套体系，改列表/筛选/备份 |
-| 人设包兼容 | `files` 字典天然 openclaw 独占，无混绑 | 与 A 一致 |
+| 维度          | A 弱区分                                  | B 强隔离                     |
+| ------------- | ----------------------------------------- | ---------------------------- |
+| 冲突处理      | `fileName` 只作用于 openclaw，边界清晰    | 完全隔离，无冲突             |
+| 跨 Agent 复用 | 保留（通用内容可同时挂 Codex + OpenClaw） | 丢失                         |
+| 改动量        | 加 1 个字段 + 编辑器下拉                  | 拆两套体系，改列表/筛选/备份 |
+| 人设包兼容    | `files` 字典天然 openclaw 独占，无混绑    | 与 A 一致                    |
 
 ---
 
@@ -64,7 +64,7 @@ interface Prompt {
   name: string
   description: string
   content: string
-  fileName?: string | null          // 新增：目标文件名（仅 openclaw 可选）
+  fileName?: string | null // 新增：目标文件名（仅 openclaw 可选）
   agents: string[]
   variables: string[]
   tags: string[]
@@ -83,7 +83,7 @@ interface Prompt {
 ```ts
 interface Prompt {
   // ...上述字段
-  files?: Record<string, string>   // fileName → content，人设包模式使用
+  files?: Record<string, string> // fileName → content，人设包模式使用
 }
 ```
 
@@ -120,12 +120,12 @@ function getOpenClawPromptFiles(): string[] { ... }  // 返回文件名清单
 
 ### 4.2 `MEMORY.md` 特殊处理
 
-| 操作 | 行为 |
-|------|------|
-| 应用/切换 prompt | **跳过**，不覆盖、不写入 |
-| 备份 | **排除**，不在备份范围 |
-| 恢复 | **排除**，不参与恢复 |
-| 展示 | 只读查看，UI 标注「记忆文件不参与切换」 |
+| 操作             | 行为                                    |
+| ---------------- | --------------------------------------- |
+| 应用/切换 prompt | **跳过**，不覆盖、不写入                |
+| 备份             | **排除**，不在备份范围                  |
+| 恢复             | **排除**，不参与恢复                    |
+| 展示             | 只读查看，UI 标注「记忆文件不参与切换」 |
 
 理由：`MEMORY.md` 是对话积累的长期记忆，不属于"提示词配置"，一旦被切换覆盖会丢失全部学习成果。
 
@@ -155,16 +155,16 @@ private static _getAgentPromptPath(agent: string, fileName?: string): string | n
 ```ts
 interface BackupsMap {
   [agent: string]: {
-    [fileName: string]: BackupEntry   // { content, backedUpAt }
+    [fileName: string]: BackupEntry // { content, backedUpAt }
   }
 }
 ```
 
-| Agent | 备份结构 |
-|-------|---------|
-| codex | `{ AGENTS.md: {...} }` |
-| claude | `{ CLAUDE.md: {...} }` |
-| gemini | `{ GEMINI.md: {...} }` |
+| Agent    | 备份结构                                                                                                         |
+| -------- | ---------------------------------------------------------------------------------------------------------------- |
+| codex    | `{ AGENTS.md: {...} }`                                                                                           |
+| claude   | `{ CLAUDE.md: {...} }`                                                                                           |
+| gemini   | `{ GEMINI.md: {...} }`                                                                                           |
 | openclaw | `{ AGENTS.md: {...}, SOUL.md: {...}, IDENTITY.md: {...}, USER.md: {...}, TOOLS.md: {...}, HEARTBEAT.md: {...} }` |
 
 ### 5.2 备份
@@ -262,14 +262,14 @@ getOpenClawPromptFiles(): string[]                          // 预定义文件�
 
 ## 9. 实施顺序
 
-| 阶段 | 内容 | 涉及文件 |
-|------|------|---------|
-| 1 | 后端：`fileName` 字段、文件清单、按文件读写 | `utils.ts`、`prompts.ts`、`cleanup.ts` |
-| 2 | 后端：备份/恢复按文件粒度 + 数据迁移 | `prompts.ts`、`cleanup.ts` |
-| 3 | API 同步（3 文件规则 + dev-api-server） | `preload.ts`、`ztools-cctoggle.d.ts`、`browser-adapter.ts`、`dev-api-server.cjs` |
-| 4 | 前端：Editor 文件选择器 + 人设包开关 | `PromptEditor.vue` |
-| 5 | 前端：卡片下拉 + badge | `PromptCard.vue`、`PromptPreview.vue` |
-| 6 | 前端：备份/恢复按文件展开 | `PromptsPage.vue` |
+| 阶段 | 内容                                        | 涉及文件                                                                         |
+| ---- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1    | 后端：`fileName` 字段、文件清单、按文件读写 | `utils.ts`、`prompts.ts`、`cleanup.ts`                                           |
+| 2    | 后端：备份/恢复按文件粒度 + 数据迁移        | `prompts.ts`、`cleanup.ts`                                                       |
+| 3    | API 同步（3 文件规则 + dev-api-server）     | `preload.ts`、`ztools-cctoggle.d.ts`、`browser-adapter.ts`、`dev-api-server.cjs` |
+| 4    | 前端：Editor 文件选择器 + 人设包开关        | `PromptEditor.vue`                                                               |
+| 5    | 前端：卡片下拉 + badge                      | `PromptCard.vue`、`PromptPreview.vue`                                            |
+| 6    | 前端：备份/恢复按文件展开                   | `PromptsPage.vue`                                                                |
 
 ## 10. 验证方式
 

@@ -2,17 +2,10 @@
 // 会话管理：读取各 AI 应用的本地会话数据
 // 纯编排：枚举/解析差异在各 agent 适配器（./adapters）
 
-import utils = require("../../utils");
-import { SESSION_ADAPTERS, getSessionAdapter } from "./adapters";
-import { _enumCache, mergeMessages } from "./shared";
-import {
-  ClearAllResult,
-  DeleteResult,
-  Message,
-  ScanOptions,
-  ScanResult,
-  Session,
-} from "./types";
+import utils = require('../../utils');
+import { SESSION_ADAPTERS, getSessionAdapter } from './adapters';
+import { _enumCache, mergeMessages } from './shared';
+import { ClearAllResult, DeleteResult, Message, ScanOptions, ScanResult, Session } from './types';
 
 const fs = utils.fs;
 const getHomeDir = utils.getHomeDir;
@@ -28,7 +21,10 @@ interface ScanCache {
 }
 
 interface ScanFunction {
-  (home: string, opts?: { offset?: number; limit?: number }): Promise<{ sessions: Session[]; totalFiles: number }>;
+  (
+    home: string,
+    opts?: { offset?: number; limit?: number }
+  ): Promise<{ sessions: Session[]; totalFiles: number }>;
 }
 
 interface CountFunction {
@@ -39,7 +35,7 @@ interface CountFunction {
 const _scanCache: ScanCache = {
   data: null,
   timestamp: 0,
-  TTL: 30000,
+  TTL: 30000
 };
 let _sessionCache: Record<string, Message[]> = {};
 
@@ -63,25 +59,25 @@ export class SessionManager {
   private static _sortSessions(sessions: Session[], sort: string): Session[] {
     let sorted = sessions.slice();
     switch (sort) {
-      case "today": {
+      case 'today': {
         const today = new Date().toISOString().substring(0, 10);
-        sorted = sorted.filter((s) => (s.updatedAt || "").substring(0, 10) === today);
-        sorted.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+        sorted = sorted.filter(s => (s.updatedAt || '').substring(0, 10) === today);
+        sorted.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
         break;
       }
-      case "time-asc":
-        sorted.sort((a, b) => (a.updatedAt || "").localeCompare(b.updatedAt || ""));
+      case 'time-asc':
+        sorted.sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''));
         break;
-      case "name-asc":
-        sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      case 'name-asc':
+        sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
         break;
-      case "name-desc":
-        sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
+      case 'name-desc':
+        sorted.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
         break;
-      case "time-desc":
-      case "all":
+      case 'time-desc':
+      case 'all':
       default:
-        sorted.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+        sorted.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
         break;
     }
     return sorted;
@@ -92,17 +88,17 @@ export class SessionManager {
     opts = opts || {};
     const offset = opts.offset || 0;
     const limit = opts.limit != null ? opts.limit : 20;
-    const search = (opts.search || "").toLowerCase();
-    const sort = opts.sort || "time-desc";
+    const search = (opts.search || '').toLowerCase();
+    const sort = opts.sort || 'time-desc';
 
     try {
       const home = getHomeDir();
       const now = Date.now();
-      const cacheKey = app || "all";
+      const cacheKey = app || 'all';
 
       // 无搜索时可用缓存
       const cached = _scanCache.data && _scanCache.data[cacheKey];
-      const useCache = !search && cached && (now - _scanCache.timestamp < _scanCache.TTL);
+      const useCache = !search && cached && now - _scanCache.timestamp < _scanCache.TTL;
 
       if (useCache) {
         const sorted = SessionManager._sortSessions(cached!.sessions, sort);
@@ -119,9 +115,7 @@ export class SessionManager {
         if (adapter) {
           total = await adapter.count(home);
         } else {
-          const counts = await Promise.all(
-            SCAN_APPS.map((k) => SessionManager._countFn(k)(home))
-          );
+          const counts = await Promise.all(SCAN_APPS.map(k => SessionManager._countFn(k)(home)));
           total = counts.reduce((a, b) => a + b, 0);
         }
         return { sessions: [], total };
@@ -129,7 +123,7 @@ export class SessionManager {
 
       // 快路径：单 app + 无搜索 + 时间倒序
       // 文件枚举天然按 mtime/日期目录倒序，只需解析当前页
-      if (!search && (sort === "time-desc" || sort === "all") && adapter) {
+      if (!search && (sort === 'time-desc' || sort === 'all') && adapter) {
         const r = await adapter.scan(home, { offset, limit });
         return { sessions: SessionManager._sortSessions(r.sessions, sort), total: r.totalFiles };
       }
@@ -141,7 +135,7 @@ export class SessionManager {
         all = r.sessions;
       } else {
         const results = await Promise.all(
-          SCAN_APPS.map((k) => SessionManager._scanFn(k)(home, { offset: 0, limit: Infinity }))
+          SCAN_APPS.map(k => SessionManager._scanFn(k)(home, { offset: 0, limit: Infinity }))
         );
         for (let i = 0; i < results.length; i++) {
           all = all.concat(results[i].sessions);
@@ -157,10 +151,11 @@ export class SessionManager {
 
       // 搜索过滤
       if (search) {
-        all = all.filter((s) =>
-          (s.title || "").toLowerCase().indexOf(search) >= 0
-          || (s.projectPath || "").toLowerCase().indexOf(search) >= 0
-          || (s.model || "").toLowerCase().indexOf(search) >= 0
+        all = all.filter(
+          s =>
+            (s.title || '').toLowerCase().indexOf(search) >= 0 ||
+            (s.projectPath || '').toLowerCase().indexOf(search) >= 0 ||
+            (s.model || '').toLowerCase().indexOf(search) >= 0
         );
       }
 
@@ -196,11 +191,11 @@ export class SessionManager {
 
   // 从文件路径推断应用类型
   private static _detectApp(filePath: string): string {
-    if (filePath.indexOf("opencode://") >= 0) return "opencode";
-    if (filePath.indexOf(".codex") >= 0) return "codex";
-    if (filePath.indexOf(".openclaw") >= 0 || filePath.indexOf("openclaw") >= 0) return "openclaw";
-    if (filePath.indexOf("claude-desktop") >= 0) return "claude-desktop";
-    return "claude";
+    if (filePath.indexOf('opencode://') >= 0) return 'opencode';
+    if (filePath.indexOf('.codex') >= 0) return 'codex';
+    if (filePath.indexOf('.openclaw') >= 0 || filePath.indexOf('openclaw') >= 0) return 'openclaw';
+    if (filePath.indexOf('claude-desktop') >= 0) return 'claude-desktop';
+    return 'claude';
   }
 
   static async loadSessionDetail(filePath: string): Promise<Message[] | null> {
@@ -208,30 +203,41 @@ export class SessionManager {
     if (_sessionCache[filePath]) return _sessionCache[filePath];
 
     // OpenCode 会话：filePath 为 opencode://sessionId
-    if (filePath.indexOf("opencode://") === 0) {
-      const sessionId = filePath.slice("opencode://".length);
-      const adapter = getSessionAdapter("opencode");
+    if (filePath.indexOf('opencode://') === 0) {
+      const sessionId = filePath.slice('opencode://'.length);
+      const adapter = getSessionAdapter('opencode');
       const messages = adapter ? await adapter.loadDetail(sessionId) : [];
       _sessionCache[filePath] = messages || [];
       return _sessionCache[filePath];
     }
 
     let text: string;
-    try { text = await fs.promises.readFile(filePath, "utf8"); } catch (e) { return null; }
+    try {
+      text = await fs.promises.readFile(filePath, 'utf8');
+    } catch (e) {
+      return null;
+    }
 
     const lines = text.split(/\r?\n/);
 
     let app = SessionManager._detectApp(filePath);
     // Claude 路径可能是 OpenClaw 格式
-    if (app === "claude") {
-      const firstLine = lines[0] || "";
-      if (firstLine.indexOf('"type":"session"') >= 0 && firstLine.indexOf('"version":3') >= 0) app = "openclaw";
+    if (app === 'claude') {
+      const firstLine = lines[0] || '';
+      if (firstLine.indexOf('"type":"session"') >= 0 && firstLine.indexOf('"version":3') >= 0)
+        app = 'openclaw';
     }
 
     const adapter = getSessionAdapter(app);
-    const claude = getSessionAdapter("claude");
+    const claude = getSessionAdapter('claude');
     const parser = adapter ? adapter.parseMessages.bind(adapter) : null;
-    const parse = parser || (claude ? claude.parseMessages.bind(claude) : function () { return []; });
+    const parse =
+      parser ||
+      (claude
+        ? claude.parseMessages.bind(claude)
+        : function () {
+            return [];
+          });
     const messages = mergeMessages(parse(lines));
 
     _sessionCache[filePath] = messages;
@@ -240,8 +246,8 @@ export class SessionManager {
 
   static deleteSession(filePath: string): DeleteResult {
     try {
-      if (filePath.indexOf("opencode://") === 0) {
-        return { success: false, error: "OpenCode 会话存储于数据库，暂不支持删除" };
+      if (filePath.indexOf('opencode://') === 0) {
+        return { success: false, error: 'OpenCode 会话存储于数据库，暂不支持删除' };
       }
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -249,20 +255,20 @@ export class SessionManager {
         SessionManager._clearScanCache();
         return { success: true };
       }
-      return { success: false, error: "file not found" };
+      return { success: false, error: 'file not found' };
     } catch (e: any) {
       return { success: false, error: String(e && e.message ? e.message : e) };
     }
   }
 
   static clearAllSessions(filePaths: string[]): ClearAllResult {
-    if (!Array.isArray(filePaths)) return { success: false, count: 0, errors: ["invalid input"] };
+    if (!Array.isArray(filePaths)) return { success: false, count: 0, errors: ['invalid input'] };
     let successCount = 0;
     const errors: string[] = [];
     for (let i = 0; i < filePaths.length; i++) {
       try {
-        if (filePaths[i].indexOf("opencode://") === 0) {
-          errors.push("OpenCode 会话存储于数据库，暂不支持删除");
+        if (filePaths[i].indexOf('opencode://') === 0) {
+          errors.push('OpenCode 会话存储于数据库，暂不支持删除');
           continue;
         }
         if (fs.existsSync(filePaths[i])) {

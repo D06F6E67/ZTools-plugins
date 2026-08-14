@@ -130,10 +130,10 @@ interface BackupEntry {
 
 // ============ 模块级常量与变量 ============
 
-const ROUTE_PREFIX = "cctoggle_route_";
-const BACKUP_KEY = "cctoggle_route_backup";
+const ROUTE_PREFIX = 'cctoggle_route_';
+const BACKUP_KEY = 'cctoggle_route_backup';
 const DEFAULT_PROXY_PORT = 8788;
-const PORT_KEY = "cctoggle_route_port";
+const PORT_KEY = 'cctoggle_route_port';
 
 const daemonWins: Record<string, any> = {};
 const proxyRuntime: Record<string, any> = {};
@@ -141,7 +141,6 @@ const proxyRuntime: Record<string, any> = {};
 // ============ ProxyManager 类 ============
 
 export class ProxyManager {
-
   // —— 访问器：暴露模块级变量 ——
 
   static get proxyRuntimeRef(): Record<string, any> {
@@ -155,11 +154,11 @@ export class ProxyManager {
   // —— 私有辅助方法 ——
 
   static _routeKey(appType: string, id: string): string {
-    return ROUTE_PREFIX + appType + "_" + id;
+    return ROUTE_PREFIX + appType + '_' + id;
   }
 
   static _genProxyToken(): string {
-    return "utct-" + generateId() + generateId() + Math.random().toString(36).slice(2, 10);
+    return 'utct-' + generateId() + generateId() + Math.random().toString(36).slice(2, 10);
   }
 
   static _ensureRouteToken(appType: string, group: RouteGroup): string {
@@ -171,39 +170,42 @@ export class ProxyManager {
   }
 
   static _resolveMembers(appType: string, group: RouteGroup): ResolvedMember[] {
-    return (group.members || []).map(function (m) {
-      const p: ProviderInfo | null = ProviderStore.getProvider(appType, m.providerId);
-      if (!p) return null;
-      // Claude Desktop 模型名映射：claude-sonnet-5 → 实际模型名
-      let desktopModelMap: Record<string, string> | null = null;
-      if (appType === "claude-desktop") {
-        const env = (p.settingsConfig && p.settingsConfig.env) || {};
-        desktopModelMap = {
-          "claude-sonnet-5": env.ANTHROPIC_DEFAULT_SONNET_MODEL || p.model || "",
-          "claude-opus-4-8": env.ANTHROPIC_DEFAULT_OPUS_MODEL || p.model || "",
-          "claude-haiku-4-5": env.ANTHROPIC_DEFAULT_HAIKU_MODEL || p.model || "",
-          "claude-fable-5": env.ANTHROPIC_DEFAULT_FABLE_MODEL || env.ANTHROPIC_DEFAULT_OPUS_MODEL || p.model || "",
+    return (group.members || [])
+      .map(function (m) {
+        const p: ProviderInfo | null = ProviderStore.getProvider(appType, m.providerId);
+        if (!p) return null;
+        // Claude Desktop 模型名映射：claude-sonnet-5 → 实际模型名
+        let desktopModelMap: Record<string, string> | null = null;
+        if (appType === 'claude-desktop') {
+          const env = (p.settingsConfig && p.settingsConfig.env) || {};
+          desktopModelMap = {
+            'claude-sonnet-5': env.ANTHROPIC_DEFAULT_SONNET_MODEL || p.model || '',
+            'claude-opus-4-8': env.ANTHROPIC_DEFAULT_OPUS_MODEL || p.model || '',
+            'claude-haiku-4-5': env.ANTHROPIC_DEFAULT_HAIKU_MODEL || p.model || '',
+            'claude-fable-5':
+              env.ANTHROPIC_DEFAULT_FABLE_MODEL || env.ANTHROPIC_DEFAULT_OPUS_MODEL || p.model || ''
+          };
+        }
+        return {
+          providerId: p.id,
+          name: p.name,
+          baseUrl: p.baseUrl || '',
+          apiKey: p.apiKey || '',
+          priority: m.priority || 1,
+          weight: m.weight || 1,
+          appType: appType,
+          apiFormat: p.apiFormat || '',
+          model: p.model || '',
+          maxOutputTokens: p.maxTokens || '',
+          customUserAgent: p.customUserAgent || '',
+          headersOverride: p.headersOverride || '',
+          bodyOverride: p.bodyOverride || '',
+          authField: p.authField || 'ANTHROPIC_AUTH_TOKEN',
+          impersonateClaudeCode: p.impersonateClaudeCode || false,
+          desktopModelMap: desktopModelMap
         };
-      }
-      return {
-        providerId: p.id,
-        name: p.name,
-        baseUrl: p.baseUrl || "",
-        apiKey: p.apiKey || "",
-        priority: m.priority || 1,
-        weight: m.weight || 1,
-        appType: appType,
-        apiFormat: p.apiFormat || "",
-        model: p.model || "",
-        maxOutputTokens: p.maxTokens || "",
-        customUserAgent: p.customUserAgent || "",
-        headersOverride: p.headersOverride || "",
-        bodyOverride: p.bodyOverride || "",
-        authField: p.authField || "ANTHROPIC_AUTH_TOKEN",
-        impersonateClaudeCode: p.impersonateClaudeCode || false,
-        desktopModelMap: desktopModelMap,
-      };
-    }).filter(Boolean) as ResolvedMember[];
+      })
+      .filter(Boolean) as ResolvedMember[];
   }
 
   static _fallbackMembers(appType: string, groupId: string): RuntimeMember[] {
@@ -212,9 +214,19 @@ export class ProxyManager {
       const g = ProxyManager.getRouteGroup(appType, groupId);
       if (!g) return [];
       return ProxyManager._resolveMembers(appType, g).map(function (m) {
-        return { id: m.providerId, name: m.name, state: "unknown", fails: 0, openUntil: 0, latency: 0, up: true };
+        return {
+          id: m.providerId,
+          name: m.name,
+          state: 'unknown',
+          fails: 0,
+          openUntil: 0,
+          latency: 0,
+          up: true
+        };
       });
-    } catch (e) { return []; }
+    } catch (e) {
+      return [];
+    }
   }
 
   static _backupCurrent(appType: string): void {
@@ -233,11 +245,13 @@ export class ProxyManager {
 
   static listRouteGroups(appType: string): RouteGroup[] {
     try {
-      const docs = ztools.db.allDocs(ROUTE_PREFIX + appType + "_") || [];
+      const docs = ztools.db.allDocs(ROUTE_PREFIX + appType + '_') || [];
       return docs.map(function (d: any) {
-        return Object.assign({}, d, { id: d._id.replace(ROUTE_PREFIX + appType + "_", "") });
+        return Object.assign({}, d, { id: d._id.replace(ROUTE_PREFIX + appType + '_', '') });
       });
-    } catch (e) { return []; }
+    } catch (e) {
+      return [];
+    }
   }
 
   static getRouteGroup(appType: string, id: string): RouteGroup | null {
@@ -245,7 +259,9 @@ export class ProxyManager {
       const doc = ztools.db.get(ProxyManager._routeKey(appType, id));
       if (!doc) return null;
       return Object.assign({}, doc, { id: id });
-    } catch (e) { return null; }
+    } catch (e) {
+      return null;
+    }
   }
 
   static saveRouteGroup(group: RouteGroup): string {
@@ -256,18 +272,24 @@ export class ProxyManager {
     const doc = {
       _id: key,
       _rev: existing ? existing._rev : undefined,
-      name: group.name || "未命名路由组",
+      name: group.name || '未命名路由组',
       listenPort: group.listenPort || 8788,
-      strategy: group.strategy || "failover",
+      strategy: group.strategy || 'failover',
       members: (group.members || []).map(function (m) {
         return { providerId: m.providerId, weight: m.weight || 1, priority: m.priority || 1 };
       }),
-      health: Object.assign({ intervalMs: 30000, timeoutMs: 5000, path: "/models" }, group.health || {}),
-      breaker: Object.assign({ failThreshold: 3, cooldownMs: 60000, halfOpenProbe: 1 }, group.breaker || {}),
+      health: Object.assign(
+        { intervalMs: 30000, timeoutMs: 5000, path: '/models' },
+        group.health || {}
+      ),
+      breaker: Object.assign(
+        { failThreshold: 3, cooldownMs: 60000, halfOpenProbe: 1 },
+        group.breaker || {}
+      ),
       timeoutMs: group.timeoutMs || 30000,
-      authToken: group.authToken || (existing && existing.authToken) || "",
+      authToken: group.authToken || (existing && existing.authToken) || '',
       updatedAt: new Date().toISOString(),
-      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      createdAt: existing ? existing.createdAt : new Date().toISOString()
     };
     ztools.db.put(doc);
     return id;
@@ -278,36 +300,51 @@ export class ProxyManager {
       ProxyManager.stopProxy(appType); // 若在跑先停
       ztools.db.remove(ProxyManager._routeKey(appType, id));
       return true;
-    } catch (e) { return false; }
+    } catch (e) {
+      return false;
+    }
   }
 
   // —— 代理启停 ——
 
   static startProxy(appType: string, groupId: string): ProxyResult {
     const group = ProxyManager.getRouteGroup(appType, groupId);
-    if (!group) return { success: false, error: "group not found" };
+    if (!group) return { success: false, error: 'group not found' };
     const members = ProxyManager._resolveMembers(appType, group);
-    if (members.length === 0) return { success: false, error: "no members" };
+    if (members.length === 0) return { success: false, error: 'no members' };
     const token = ProxyManager._ensureRouteToken(appType, group);
     // codex 代理模式下禁用 auth 验证（codex 使用 experimental_bearer_token 不会发送标准 auth header）
-    const authToken = appType === "codex" ? "" : token;
+    const authToken = appType === 'codex' ? '' : token;
     try {
       const win = ztools.createBrowserWindow(
-        "preload/proxy/proxy-daemon.html",
-        { show: false, webPreferences: { preload: "preload/proxy/proxy-daemon.js", zoomFactor: 1 } },
+        'preload/proxy/proxy-daemon.html',
+        {
+          show: false,
+          webPreferences: { preload: 'preload/proxy/proxy-daemon.js', zoomFactor: 1 }
+        },
         function () {
           try {
-            win.webContents.send("cfg", { group: group, members: members, authToken: authToken });
+            win.webContents.send('cfg', { group: group, members: members, authToken: authToken });
           } catch (e) {}
         }
       );
       daemonWins[appType] = win;
       proxyRuntime[appType] = {
-        running: true, port: group.listenPort, groupId: groupId,
+        running: true,
+        port: group.listenPort,
+        groupId: groupId,
         // 先用配置成员占位，不依赖首次 proxy-stat 事件，面板随开随显
         members: members.map(function (m) {
-          return { id: m.providerId, name: m.name, state: "closed", fails: 0, openUntil: 0, latency: 0, up: true };
-        }),
+          return {
+            id: m.providerId,
+            name: m.name,
+            state: 'closed',
+            fails: 0,
+            openUntil: 0,
+            latency: 0,
+            up: true
+          };
+        })
       };
       return { success: true };
     } catch (e: any) {
@@ -318,8 +355,12 @@ export class ProxyManager {
   static stopProxy(appType: string): ProxyResult {
     const win = daemonWins[appType];
     if (win) {
-      try { win.webContents.send("stop"); } catch (e) {}
-      try { win.destroy(); } catch (e) {}
+      try {
+        win.webContents.send('stop');
+      } catch (e) {}
+      try {
+        win.destroy();
+      } catch (e) {}
       delete daemonWins[appType];
     }
     if (proxyRuntime[appType]) proxyRuntime[appType].running = false;
@@ -344,20 +385,20 @@ export class ProxyManager {
       reqSuccess: rt.reqSuccess || 0,
       reqFail: rt.reqFail || 0,
       lastMemberId: rt.lastMemberId || null,
-      members: members,
+      members: members
     };
   }
 
   // 主窗调用一次即可注册全局回调；daemon → 主窗事件透传到 window
   static onProxyEvent(cb: (channel: string, data: any) => void): void {
-    if (typeof cb !== "function") return;
+    if (typeof cb !== 'function') return;
     try {
-      const { ipcRenderer } = require("electron");
+      const { ipcRenderer } = require('electron');
 
       // 处理事件的通用函数
       function handleEvent(channel: string, data: any) {
         try {
-          if (channel === "proxy-stat" && data) {
+          if (channel === 'proxy-stat' && data) {
             Object.keys(proxyRuntime).forEach(function (app) {
               const rt = proxyRuntime[app];
               if (rt && rt.port === data.port) {
@@ -371,24 +412,26 @@ export class ProxyManager {
                 rt.lastMemberId = data.lastMemberId || null;
               }
             });
-          } else if (channel === "proxy-usage" && data) {
+          } else if (channel === 'proxy-usage' && data) {
             // 统计改为扫描本地 CLI 日志（见 scanUsageLogs），代理事件不再写库，避免双写与关面板丢数据
           }
         } catch (e) {}
-        try { cb(channel, data); } catch (e) {}
+        try {
+          cb(channel, data);
+        } catch (e) {}
       }
 
       // 监听 parent-message 事件（ztools.sendToParent）
-      ipcRenderer.removeAllListeners("parent-message");
-      ipcRenderer.on("parent-message", function (_event: any, ...args: any[]) {
+      ipcRenderer.removeAllListeners('parent-message');
+      ipcRenderer.on('parent-message', function (_event: any, ...args: any[]) {
         const [channel, data] = args;
         handleEvent(channel, data);
       });
 
       // 监听 ipcRenderer.send 发送的事件
-      ipcRenderer.removeAllListeners("proxy-stat");
-      ipcRenderer.on("proxy-stat", function (_event: any, data: any) {
-        handleEvent("proxy-stat", data);
+      ipcRenderer.removeAllListeners('proxy-stat');
+      ipcRenderer.on('proxy-stat', function (_event: any, data: any) {
+        handleEvent('proxy-stat', data);
       });
     } catch (e) {}
   }
@@ -398,55 +441,78 @@ export class ProxyManager {
   static takeoverApp(appType: string, listenPort?: number): ProxyResult {
     try {
       ProxyManager._backupCurrent(appType);
-      const baseUrl = "http://127.0.0.1:" + (listenPort || 8788);
+      const baseUrl = 'http://127.0.0.1:' + (listenPort || 8788);
       // 客户端配置里写入代理令牌作为 key；daemon 校验后再换成真实上游 key 转发
-      let proxyToken = "sk-ztoolscctoggle-proxy";
+      let proxyToken = 'sk-ztoolscctoggle-proxy';
       try {
         const rt0 = proxyRuntime[appType];
-        const g0 = rt0 && rt0.groupId ? ProxyManager.getRouteGroup(appType, rt0.groupId) : ProxyManager.ensureDefaultGroup(appType);
+        const g0 =
+          rt0 && rt0.groupId
+            ? ProxyManager.getRouteGroup(appType, rt0.groupId)
+            : ProxyManager.ensureDefaultGroup(appType);
         if (g0) proxyToken = ProxyManager._ensureRouteToken(appType, g0);
-      } catch (e) { /* 回退到占位符 */ }
-      let proxyModel = "";
+      } catch (e) {
+        /* 回退到占位符 */
+      }
+      let proxyModel = '';
+      let proxyProviderName = '';
       const proxyCatalog: any[] = [];
       const proxyCatalogSeen: Record<string, boolean> = {};
       try {
         const rt = proxyRuntime[appType];
-        const g = rt && rt.groupId ? ProxyManager.getRouteGroup(appType, rt.groupId) : ProxyManager.ensureDefaultGroup(appType);
+        const g =
+          rt && rt.groupId
+            ? ProxyManager.getRouteGroup(appType, rt.groupId)
+            : ProxyManager.ensureDefaultGroup(appType);
         (g && g.members ? g.members : []).forEach(function (mem) {
           const prov: ProviderInfo | null = ProviderStore.getProvider(appType, mem.providerId);
           if (!prov) return;
+          if (!proxyProviderName && prov.name) proxyProviderName = prov.name;
           if (!proxyModel && prov.model) proxyModel = prov.model;
           (Array.isArray(prov.modelCatalog) ? prov.modelCatalog : []).forEach(function (m: any) {
-            const slug = m.slug || m.model || "";
+            const slug = m.slug || m.model || '';
             if (!slug || proxyCatalogSeen[slug]) return;
             proxyCatalogSeen[slug] = true;
             proxyCatalog.push(m);
           });
-          if (prov.model && !proxyCatalogSeen[prov.model] && (!prov.modelCatalog || prov.modelCatalog.length === 0)) {
+          if (
+            prov.model &&
+            !proxyCatalogSeen[prov.model] &&
+            (!prov.modelCatalog || prov.modelCatalog.length === 0)
+          ) {
             proxyCatalogSeen[prov.model] = true;
             proxyCatalog.push({ model: prov.model, displayName: prov.name || prov.model });
           }
         });
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
       // 用一个虚拟 provider 走原版 switch 逻辑写入配置
-      // 使用模型名称作为provider名称，便于在codex中识别
-      const providerName = proxyModel || "ztoolscctoggle-proxy";
+      // 用供应商名作为 provider 名称（中文等非 ASCII 字符只作展示，键名由后端清洗）
+      const providerName = proxyProviderName || proxyModel || 'ztoolscctoggle-proxy';
       const fake = {
-        id: "__proxy__",
+        id: '__proxy__',
         appType: appType,
         name: providerName,
-        baseUrl: appType === "codex" ? baseUrl + "/v1" : baseUrl,
+        baseUrl: appType === 'codex' ? baseUrl + '/v1' : baseUrl,
         apiKey: proxyToken, // 代理令牌；daemon 校验后再用真实成员 key 转发
-        model: proxyModel || "gpt-4o",
+        model: proxyModel || 'gpt-4o',
         modelCatalog: proxyCatalog, // 用户可自行 override
-        configType: appType === "claude" ? "anthropic" : (appType === "gemini" ? "gemini" : (appType === "openclaw" ? "openclaw" : "openai")),
-        extraConfig: "",
+        configType:
+          appType === 'claude'
+            ? 'anthropic'
+            : appType === 'gemini'
+              ? 'gemini'
+              : appType === 'openclaw'
+                ? 'openclaw'
+                : 'openai',
+        extraConfig: ''
       };
-      if (appType === "codex") configRw.switchProviderCodex(fake);
-      else if (appType === "claude") configRw.switchProviderClaude(fake);
-      else if (appType === "claude-desktop") configRw.switchProviderClaudeDesktop(fake);
-      else if (appType === "openclaw") configRw.switchProviderOpenclaw(fake);
-      else if (appType === "gemini") configRw.switchProviderGemini(fake);
+      if (appType === 'codex') configRw.switchProviderCodex(fake);
+      else if (appType === 'claude') configRw.switchProviderClaude(fake);
+      else if (appType === 'claude-desktop') configRw.switchProviderClaudeDesktop(fake);
+      else if (appType === 'openclaw') configRw.switchProviderOpenclaw(fake);
+      else if (appType === 'gemini') configRw.switchProviderGemini(fake);
       return { success: true, baseUrl: baseUrl };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -455,7 +521,7 @@ export class ProxyManager {
 
   static restoreApp(appType: string): ProxyResult {
     const bk = ProxyManager._readBackup(appType);
-    if (!bk || !bk.previousProviderId) return { success: false, error: "no backup" };
+    if (!bk || !bk.previousProviderId) return { success: false, error: 'no backup' };
     const r = ProviderStore.switchProvider(appType, bk.previousProviderId);
     return r;
   }
@@ -467,15 +533,17 @@ export class ProxyManager {
       const doc = ztools.db.get(PORT_KEY);
       const p = doc && doc[appType];
       return Number(p) || DEFAULT_PROXY_PORT;
-    } catch (e) { return DEFAULT_PROXY_PORT; }
+    } catch (e) {
+      return DEFAULT_PROXY_PORT;
+    }
   }
 
   static setProxyPort(appType: string, port: number): ProxyResult {
     const p = Number(port);
-    if (!p || p < 1024 || p > 65535) return { success: false, error: "port must be 1024-65535" };
+    if (!p || p < 1024 || p > 65535) return { success: false, error: 'port must be 1024-65535' };
     // 运行中不允许改
     if (proxyRuntime._active === appType) {
-      return { success: false, error: "proxy is running" };
+      return { success: false, error: 'proxy is running' };
     }
     const doc = ztools.db.get(PORT_KEY) || { _id: PORT_KEY };
     doc[appType] = p;
@@ -483,7 +551,10 @@ export class ProxyManager {
     const groups = ProxyManager.listRouteGroups(appType);
     if (groups[0]) {
       const g = ProxyManager.getRouteGroup(appType, groups[0].id!);
-      if (g) { g.listenPort = p; ProxyManager.saveRouteGroup(g); }
+      if (g) {
+        g.listenPort = p;
+        ProxyManager.saveRouteGroup(g);
+      }
     }
     return { success: true, port: p };
   }
@@ -500,14 +571,24 @@ export class ProxyManager {
         return null;
       }
       const wantPort = ProxyManager.getProxyPort(appType);
-      if (g.listenPort !== wantPort) { g.listenPort = wantPort; }
+      if (g.listenPort !== wantPort) {
+        g.listenPort = wantPort;
+      }
       const allIds: Record<string, boolean> = {};
-      all.forEach(function (p: any) { allIds[p.id] = true; });
-      g.members = (g.members || []).filter(function (m) { return allIds[m.providerId]; });
-      const have: Record<string, boolean> = {};
-      g.members.forEach(function (m) { have[m.providerId] = true; });
       all.forEach(function (p: any) {
-        if (!have[p.id]) { g.members!.push({ providerId: p.id, priority: (g.members!.length + 1), weight: 1 }); }
+        allIds[p.id] = true;
+      });
+      g.members = (g.members || []).filter(function (m) {
+        return allIds[m.providerId];
+      });
+      const have: Record<string, boolean> = {};
+      g.members.forEach(function (m) {
+        have[m.providerId] = true;
+      });
+      all.forEach(function (p: any) {
+        if (!have[p.id]) {
+          g.members!.push({ providerId: p.id, priority: g.members!.length + 1, weight: 1 });
+        }
       });
       ProxyManager.saveRouteGroup(g);
       return ProxyManager.getRouteGroup(appType, g.id!);
@@ -515,12 +596,18 @@ export class ProxyManager {
     if (!all.length) return null;
     const id = ProxyManager.saveRouteGroup({
       appType: appType,
-      name: "默认路由（自动）",
-      strategy: "failover",
-      members: all.map(function (p: any, i: number) { return { providerId: p.id, priority: i + 1, weight: 1 }; }),
-      health: { intervalMs: 30000, timeoutMs: 5000, path: (appType === "claude" || appType === "codex") ? "/v1/models" : "/models" },
+      name: '默认路由（自动）',
+      strategy: 'failover',
+      members: all.map(function (p: any, i: number) {
+        return { providerId: p.id, priority: i + 1, weight: 1 };
+      }),
+      health: {
+        intervalMs: 30000,
+        timeoutMs: 5000,
+        path: appType === 'claude' || appType === 'codex' ? '/v1/models' : '/models'
+      },
       breaker: { failThreshold: 3, cooldownMs: 60000 },
-      timeoutMs: 30000,
+      timeoutMs: 30000
     });
     return ProxyManager.getRouteGroup(appType, id);
   }
@@ -539,7 +626,7 @@ export class ProxyManager {
       ProxyManager.restoreApp(proxyRuntime._active);
     }
     const g = ProxyManager.ensureDefaultGroup(appType);
-    if (!g) return { success: false, error: "no providers" };
+    if (!g) return { success: false, error: 'no providers' };
     const s = ProxyManager.startProxy(appType, g.id!);
     if (!s.success) return s;
     const port = g.listenPort || ProxyManager.getProxyPort(appType);

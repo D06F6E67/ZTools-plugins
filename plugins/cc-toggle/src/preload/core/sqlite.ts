@@ -3,8 +3,8 @@
 // 用于读取 opencode 等将数据存在 SQLite 的 Agent 的会话/用量数据。
 // 支持主数据库文件 + WAL（write-ahead log）叠加读取。
 
-const fs = require("fs");
-const path = require("path");
+const fs = require('fs');
+const path = require('path');
 
 // ─────────── varint / 记录解析 ───────────
 
@@ -41,18 +41,40 @@ function _parseRecord(payload: Buffer): any[] {
   for (let i = 0; i < types.length; i++) {
     const t = types[i];
     if (t === 0) values.push(null);
-    else if (t === 1) { values.push(payload.readInt8(body)); body += 1; }
-    else if (t === 2) { values.push(payload.readInt16BE(body)); body += 2; }
-    else if (t === 3) { values.push(payload.readIntBE(body, 3)); body += 3; }
-    else if (t === 4) { values.push(payload.readInt32BE(body)); body += 4; }
-    else if (t === 5) { values.push(payload.readIntBE(body, 6)); body += 6; }
-    else if (t === 6) { values.push(Number(payload.readBigInt64BE(body))); body += 8; }
-    else if (t === 7) { values.push(payload.readDoubleBE(body)); body += 8; }
-    else if (t === 8) { values.push(0); }
-    else if (t === 9) { values.push(1); }
-    else if (t >= 12 && t % 2 === 0) { const n = (t - 12) / 2; values.push(payload.slice(body, body + n)); body += n; }
-    else if (t >= 13 && t % 2 === 1) { const n = (t - 13) / 2; values.push(payload.toString("utf8", body, body + n)); body += n; }
-    else values.push(null);
+    else if (t === 1) {
+      values.push(payload.readInt8(body));
+      body += 1;
+    } else if (t === 2) {
+      values.push(payload.readInt16BE(body));
+      body += 2;
+    } else if (t === 3) {
+      values.push(payload.readIntBE(body, 3));
+      body += 3;
+    } else if (t === 4) {
+      values.push(payload.readInt32BE(body));
+      body += 4;
+    } else if (t === 5) {
+      values.push(payload.readIntBE(body, 6));
+      body += 6;
+    } else if (t === 6) {
+      values.push(Number(payload.readBigInt64BE(body)));
+      body += 8;
+    } else if (t === 7) {
+      values.push(payload.readDoubleBE(body));
+      body += 8;
+    } else if (t === 8) {
+      values.push(0);
+    } else if (t === 9) {
+      values.push(1);
+    } else if (t >= 12 && t % 2 === 0) {
+      const n = (t - 12) / 2;
+      values.push(payload.slice(body, body + n));
+      body += n;
+    } else if (t >= 13 && t % 2 === 1) {
+      const n = (t - 13) / 2;
+      values.push(payload.toString('utf8', body, body + n));
+      body += n;
+    } else values.push(null);
   }
   return values;
 }
@@ -69,8 +91,12 @@ class _SqliteDB {
   constructor(dbPath: string) {
     this.dbPath = dbPath;
     const header = Buffer.alloc(100);
-    const fd = fs.openSync(dbPath, "r");
-    try { fs.readSync(fd, header, 0, 100, 0); } finally { fs.closeSync(fd); }
+    const fd = fs.openSync(dbPath, 'r');
+    try {
+      fs.readSync(fd, header, 0, 100, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
     const ps = header.readUInt16BE(16);
     this.pageSize = ps === 1 ? 65536 : ps;
     this.reserved = header[20];
@@ -82,8 +108,12 @@ class _SqliteDB {
   _readPageRaw(n: number): Buffer {
     const off = (n - 1) * this.pageSize;
     const buf = Buffer.alloc(this.pageSize);
-    const fd = fs.openSync(this.dbPath, "r");
-    try { fs.readSync(fd, buf, 0, this.pageSize, off); } finally { fs.closeSync(fd); }
+    const fd = fs.openSync(this.dbPath, 'r');
+    try {
+      fs.readSync(fd, buf, 0, this.pageSize, off);
+    } finally {
+      fs.closeSync(fd);
+    }
     return buf;
   }
 
@@ -150,7 +180,10 @@ class _SqliteDB {
           // local 区域结束于下一个 cell 的起始地址（最后一个 cell 到页面末尾）
           let regionEnd = page.length;
           for (let j = 0; j < cellPtrs.length; j++) {
-            if (cellPtrs[j] > cp) { regionEnd = cellPtrs[j]; break; }
+            if (cellPtrs[j] > cp) {
+              regionEnd = cellPtrs[j];
+              break;
+            }
           }
           const payload = this.readPayload(page, rv.next, pl.value, regionEnd);
           cb(_parseRecord(payload), rv.value);
@@ -162,8 +195,8 @@ class _SqliteDB {
   // 读取 sqlite_master，返回 {name, rootpage} 列表
   readMaster(): Array<{ name: string; rootpage: number }> {
     const tables: Array<{ name: string; rootpage: number }> = [];
-    this.walkTable(1, (values) => {
-      const name = Buffer.isBuffer(values[1]) ? values[1].toString("utf8") : values[1];
+    this.walkTable(1, values => {
+      const name = Buffer.isBuffer(values[1]) ? values[1].toString('utf8') : values[1];
       const rootpage = Number(values[3]);
       if (name && rootpage) tables.push({ name, rootpage });
     });
@@ -175,11 +208,14 @@ class _SqliteDB {
     const master = this.readMaster();
     let root = 0;
     for (const t of master) {
-      if (t.name === tableName) { root = t.rootpage; break; }
+      if (t.name === tableName) {
+        root = t.rootpage;
+        break;
+      }
     }
     if (!root) return [];
     const rows: any[][] = [];
-    this.walkTable(root, (values) => rows.push(values));
+    this.walkTable(root, values => rows.push(values));
     return rows;
   }
 
@@ -195,8 +231,12 @@ class _SqliteDB {
     const walSize = fs.statSync(walPath).size;
     if (walSize < 32) return;
     const header = Buffer.alloc(32);
-    const fd = fs.openSync(walPath, "r");
-    try { fs.readSync(fd, header, 0, 32, 0); } catch (e) { return; }
+    const fd = fs.openSync(walPath, 'r');
+    try {
+      fs.readSync(fd, header, 0, 32, 0);
+    } catch (e) {
+      return;
+    }
     try {
       const magic = header.readUInt32BE(0);
       if (magic !== 0x377f0682 && magic !== 0x377f0683) return;
@@ -215,7 +255,9 @@ class _SqliteDB {
         if (fSalt1 !== salt1 || fSalt2 !== salt2) continue;
         this._pages[pgno] = Buffer.from(frameBuf.slice(16, 16 + pageSize));
       }
-    } finally { fs.closeSync(fd); }
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 }
 
@@ -230,7 +272,7 @@ class _SqliteDBAsync {
   maxLocal: number;
   overflowUsable: number;
   _pages: Record<number, Buffer> = {};
-  _fh: import("fs").promises.FileHandle | null = null;
+  _fh: import('fs').promises.FileHandle | null = null;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
@@ -239,8 +281,13 @@ class _SqliteDBAsync {
   static async open(dbPath: string): Promise<_SqliteDBAsync> {
     const db = new _SqliteDBAsync(dbPath);
     const header = Buffer.alloc(100);
-    const fh = await fs.promises.open(dbPath, "r");
-    try { await fh.read(header, 0, 100, 0); } catch (e) { await fh.close(); throw e; }
+    const fh = await fs.promises.open(dbPath, 'r');
+    try {
+      await fh.read(header, 0, 100, 0);
+    } catch (e) {
+      await fh.close();
+      throw e;
+    }
     db._fh = fh;
     const ps = header.readUInt16BE(16);
     db.pageSize = ps === 1 ? 65536 : ps;
@@ -252,14 +299,25 @@ class _SqliteDBAsync {
   }
 
   async close(): Promise<void> {
-    if (this._fh) { try { await this._fh.close(); } catch (e) { /* ignore */ } this._fh = null; }
+    if (this._fh) {
+      try {
+        await this._fh.close();
+      } catch (e) {
+        /* ignore */
+      }
+      this._fh = null;
+    }
   }
 
   async _readPageRaw(n: number): Promise<Buffer> {
     const off = (n - 1) * this.pageSize;
     const buf = Buffer.alloc(this.pageSize);
     if (!this._fh) return buf;
-    try { await this._fh.read(buf, 0, this.pageSize, off); } catch (e) { /* ignore */ }
+    try {
+      await this._fh.read(buf, 0, this.pageSize, off);
+    } catch (e) {
+      /* ignore */
+    }
     return buf;
   }
 
@@ -268,7 +326,12 @@ class _SqliteDBAsync {
     return overlay || this._readPageRaw(n);
   }
 
-  async readPayload(page: Buffer, localStart: number, totalLen: number, regionEnd?: number): Promise<Buffer> {
+  async readPayload(
+    page: Buffer,
+    localStart: number,
+    totalLen: number,
+    regionEnd?: number
+  ): Promise<Buffer> {
     const maxLocal = this.maxLocal;
     const end = regionEnd != null ? regionEnd : page.length;
     let localLen = Math.min(totalLen, maxLocal);
@@ -319,7 +382,10 @@ class _SqliteDBAsync {
           const rv = _readVarint(page, pl.next);
           let regionEnd = page.length;
           for (let j = 0; j < cellPtrs.length; j++) {
-            if (cellPtrs[j] > cp) { regionEnd = cellPtrs[j]; break; }
+            if (cellPtrs[j] > cp) {
+              regionEnd = cellPtrs[j];
+              break;
+            }
           }
           const payload = await this.readPayload(page, rv.next, pl.value, regionEnd);
           cb(_parseRecord(payload), rv.value);
@@ -330,8 +396,8 @@ class _SqliteDBAsync {
 
   async readMaster(): Promise<Array<{ name: string; rootpage: number }>> {
     const tables: Array<{ name: string; rootpage: number }> = [];
-    await this.walkTable(1, (values) => {
-      const name = Buffer.isBuffer(values[1]) ? values[1].toString("utf8") : values[1];
+    await this.walkTable(1, values => {
+      const name = Buffer.isBuffer(values[1]) ? values[1].toString('utf8') : values[1];
       const rootpage = Number(values[3]);
       if (name && rootpage) tables.push({ name, rootpage });
     });
@@ -342,25 +408,35 @@ class _SqliteDBAsync {
     const master = await this.readMaster();
     let root = 0;
     for (const t of master) {
-      if (t.name === tableName) { root = t.rootpage; break; }
+      if (t.name === tableName) {
+        root = t.rootpage;
+        break;
+      }
     }
     if (!root) return [];
     const rows: any[][] = [];
-    await this.walkTable(root, (values) => rows.push(values));
+    await this.walkTable(root, values => rows.push(values));
     return rows;
   }
 
   async loadWal(walPath: string): Promise<void> {
     let stat;
-    try { stat = await fs.promises.stat(walPath); } catch (e) { return; }
+    try {
+      stat = await fs.promises.stat(walPath);
+    } catch (e) {
+      return;
+    }
     const walSize = stat.size;
     if (walSize < 32) return;
     const header = Buffer.alloc(32);
-    let fd: import("fs").promises.FileHandle | null = null;
+    let fd: import('fs').promises.FileHandle | null = null;
     try {
-      fd = await fs.promises.open(walPath, "r");
+      fd = await fs.promises.open(walPath, 'r');
       await fd.read(header, 0, 32, 0);
-    } catch (e) { if (fd) await fd.close(); return; }
+    } catch (e) {
+      if (fd) await fd.close();
+      return;
+    }
     try {
       const magic = header.readUInt32BE(0);
       if (magic !== 0x377f0682 && magic !== 0x377f0683) return;
@@ -379,7 +455,9 @@ class _SqliteDBAsync {
         if (fSalt1 !== salt1 || fSalt2 !== salt2) continue;
         this._pages[pgno] = Buffer.from(frameBuf.slice(16, 16 + pageSize));
       }
-    } finally { if (fd) await fd.close(); }
+    } finally {
+      if (fd) await fd.close();
+    }
   }
 }
 
@@ -387,19 +465,27 @@ class _SqliteDBAsync {
 
 // 读取 SQLite 数据库某张表的全部行，返回对象数组
 // columns 为该表的列名数组（与建表语句列序一致）
-export function readSqliteTable(dbPath: string, table: string, columns: string[]): Array<Record<string, any>> {
+export function readSqliteTable(
+  dbPath: string,
+  table: string,
+  columns: string[]
+): Array<Record<string, any>> {
   try {
     if (!fs.existsSync(dbPath)) return [];
     const db = new _SqliteDB(dbPath);
-    const walPath = dbPath + "-wal";
-    try { db.loadWal(walPath); } catch (e) { /* ignore */ }
+    const walPath = dbPath + '-wal';
+    try {
+      db.loadWal(walPath);
+    } catch (e) {
+      /* ignore */
+    }
     const rows = db.readTable(table);
     const result: Array<Record<string, any>> = [];
     for (const values of rows) {
       const rec: Record<string, any> = {};
       for (let i = 0; i < columns.length; i++) {
         let v = values[i];
-        if (Buffer.isBuffer(v)) v = v.toString("utf8");
+        if (Buffer.isBuffer(v)) v = v.toString('utf8');
         rec[columns[i]] = v;
       }
       result.push(rec);
@@ -411,20 +497,28 @@ export function readSqliteTable(dbPath: string, table: string, columns: string[]
 }
 
 // 异步读取 SQLite 表（不阻塞主线程）
-export async function readSqliteTableAsync(dbPath: string, table: string, columns: string[]): Promise<Array<Record<string, any>>> {
+export async function readSqliteTableAsync(
+  dbPath: string,
+  table: string,
+  columns: string[]
+): Promise<Array<Record<string, any>>> {
   try {
     if (!fs.existsSync(dbPath)) return [];
     const db = await _SqliteDBAsync.open(dbPath);
     try {
-      const walPath = dbPath + "-wal";
-      try { await db.loadWal(walPath); } catch (e) { /* ignore */ }
+      const walPath = dbPath + '-wal';
+      try {
+        await db.loadWal(walPath);
+      } catch (e) {
+        /* ignore */
+      }
       const rows = await db.readTable(table);
       const result: Array<Record<string, any>> = [];
       for (const values of rows) {
         const rec: Record<string, any> = {};
         for (let i = 0; i < columns.length; i++) {
           let v = values[i];
-          if (Buffer.isBuffer(v)) v = v.toString("utf8");
+          if (Buffer.isBuffer(v)) v = v.toString('utf8');
           rec[columns[i]] = v;
         }
         result.push(rec);
