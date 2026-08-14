@@ -92,6 +92,16 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     assert page.get_by_text("834921", exact=False).count() >= 1
     page.screenshot(path=str(ARTIFACTS / "desktop-pairing.png"), full_page=True)
+    page.set_viewport_size({"width": 800, "height": 542})
+    compact_dialog = page.locator(".pairing-dialog")
+    compact_box = compact_dialog.bounding_box()
+    assert compact_box
+    assert compact_box["y"] >= 0
+    assert compact_box["y"] + compact_box["height"] <= 542
+    assert page.get_by_role("button", name="刷新配对信息").is_visible()
+    assert page.get_by_role("button", name="完成").is_visible()
+    page.screenshot(path=str(ARTIFACTS / "desktop-pairing-compact.png"), full_page=True)
+    page.set_viewport_size({"width": 1280, "height": 820})
     page.get_by_role("button", name="关闭").click()
 
     page.get_by_role("button", name="设置与同步").click()
