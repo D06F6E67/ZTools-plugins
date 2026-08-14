@@ -148,7 +148,7 @@ async function serverStatus() {
   }
   const pairing = server.pairing
   const base = server.status
-  const pairingUrl = `${base.accessUrl}/#pair=${encodeURIComponent(pairing.secret)}`
+  const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}`
   return {
     ...base,
     pairingUrl,
@@ -169,6 +169,9 @@ async function startServer() {
     pairingCode: await currentPairingCode(settings),
     maxIncomingFileBytes: settings.maxIncomingFileBytes,
     onEvent: emit,
+    onPairingChanged() {
+      void serverStatus().then((status) => emit('server:changed', status)).catch(() => {})
+    },
   })
   const status = await serverStatus()
   emit('server:changed', status)

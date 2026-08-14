@@ -82,6 +82,7 @@ test('pairing establishes an encrypted session and supports text plus chunked fi
   const repository = memoryRepository(root)
   const port = await freePort()
   const events = []
+  let pairingChangeCount = 0
   const server = await createDeviceLinkServer({
     repository,
     deviceId: 'desktop-device',
@@ -91,6 +92,7 @@ test('pairing establishes an encrypted session and supports text plus chunked fi
     maxIncomingFileBytes: 10 * 1024 * 1024,
     transferTtlMs: 50,
     onEvent(type, data) { events.push({ type, data }) },
+    onPairingChanged() { pairingChangeCount += 1 },
   })
   context.after(async () => {
     await server.close()
@@ -119,6 +121,8 @@ test('pairing establishes an encrypted session and supports text plus chunked fi
   const session = decryptJson(pairKey, pairBody.package, `pair:${state.sessionId}`)
   const sessionKey = Buffer.from(session.sessionKey, 'base64url')
   assert.equal(repository.devices[0].name, 'Test Phone')
+  assert.equal(pairingChangeCount, 1)
+  assert.notEqual(server.pairing.sessionId, state.sessionId)
 
   const historyResponse = await fetch(`${base}/api/messages`, { headers: { Authorization: `Bearer ${session.token}` } })
   const history = await historyResponse.json()

@@ -140,6 +140,7 @@ async function createDeviceLinkServer(options) {
     pairingCode,
     maxIncomingFileBytes,
     onEvent,
+    onPairingChanged = () => {},
     transferTtlMs = TRANSFER_TTL_MS,
   } = options
   const sessions = new Map()
@@ -331,6 +332,7 @@ async function createDeviceLinkServer(options) {
       sessions.set(token, session)
       await registerDevice(session)
       pairing = createPairingState(pairing.code)
+      try { onPairingChanged() } catch {}
       sendJson(response, 200, {
         package: encryptJson(pairKey, {
           token,
