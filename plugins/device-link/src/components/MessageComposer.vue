@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { Paperclip, SendHorizontal } from 'lucide-vue-next'
 
-defineProps<{ busy: boolean; connectedCount: number }>()
+defineProps<{ busy: boolean; targetCount: number; targetLabel: string }>()
 const emit = defineEmits<{ send: [text: string]; attach: [] }>()
 const draft = ref('')
 
@@ -28,6 +28,6 @@ function onKeydown(event: KeyboardEvent) {
       <textarea v-model="draft" rows="1" maxlength="200000" placeholder="发送文字、链接或粘贴内容…" @keydown="onKeydown" />
       <button class="composer__send" type="button" :disabled="busy || !draft.trim()" title="发送" @click="send"><SendHorizontal :size="18" /></button>
     </div>
-    <div class="composer__hint"><span>Enter 发送 · Shift + Enter 换行</span><span>{{ connectedCount ? `将实时推送到 ${connectedCount} 台设备` : '消息会保留，设备上线后可通过 WebDAV 同步' }}</span></div>
+    <div class="composer__hint"><span>Enter 发送 · Shift + Enter 换行</span><span>{{ targetCount ? `将实时推送到${targetLabel === '全部设备' ? ` ${targetCount} 台设备` : ` ${targetLabel}`}` : `${targetLabel}当前离线，消息会安全保留` }}</span></div>
   </footer>
 </template>

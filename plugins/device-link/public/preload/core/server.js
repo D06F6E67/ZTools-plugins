@@ -28,6 +28,7 @@ const MAX_ACTIVE_TRANSFERS = 16
 const MAX_ACTIVE_TRANSFERS_PER_SESSION = 4
 const JSON_BODY_LIMIT = 256 * 1024
 const CHUNK_SIZE = 4 * 1024 * 1024
+const SHARED_CONVERSATION_ID = 'shared'
 
 class HttpError extends Error {
   constructor(status, message, extra = {}) {
@@ -52,21 +53,35 @@ function bearerToken(request) {
   return header.startsWith('Bearer ') ? header.slice(7) : ''
 }
 
-function messageView(message) {
+function messageView(message, desktopDeviceId = '') {
   return {
     ...message,
+    ...(desktopDeviceId ? { conversationId: messageConversationId(message, desktopDeviceId) } : {}),
     attachments: (message.attachments || []).map(({ path: _path, ...attachment }) => attachment),
   }
 }
 
-function createPairingState(pairingCode) {
+function privateConversationId(deviceId) {
+  return `device:${deviceId}`
+}
+
+function messageConversationId(message, desktopDeviceId) {
+  if (message?.conversationId === SHARED_CONVERSATION_ID || String(message?.conversationId || '').startsWith('device:')) {
+    return message.conversationId
+  }
+  // Messages created before multi-conversation support were broadcast when sent
+  // by the desktop, while incoming messages only belong to their sender.
+  return message?.senderId === desktopDeviceId ? SHARED_CONVERSATION_ID : privateConversationId(message?.senderId || '')
+}
+
+function createPairingState(pairingCode, ttlMs = PAIRING_TTL_MS) {
   return {
     secret: randomId(32),
     code: pairingCode,
     sessionId: randomId(16),
     salt: randomId(16),
     challenge: randomId(24),
-    expiresAt: Date.now() + PAIRING_TTL_MS,
+    expiresAt: Date.now() + ttlMs,
   }
 }
 
@@ -114,21 +129,17 @@ function sendJson(response, status, value) {
 }
 
 function mobileSecurityHeaders(html) {
-  const hashes = (tag) => [...html.matchAll(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi'))]
+  const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
     .map((match) => `'sha256-${crypto.createHash('sha256').update(match[1]).digest('base64')}'`)
-  const scripts = mobileSecurityHeadersFor(hashes('script'))
+    .join(' ')
   return {
-    'Content-Security-Policy': `default-src 'none'; script-src 'self' ${scripts}; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    'Content-Security-Policy': `default-src 'none'; script-src 'self'${scripts ? ` ${scripts}` : ''}; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'Cache-Control': 'no-store',
   }
-}
-
-function mobileSecurityHeadersFor(hashes) {
-  return hashes.length ? hashes.join(' ') : "'none'"
 }
 
 async function createDeviceLinkServer(options) {
@@ -140,19 +151,64 @@ async function createDeviceLinkServer(options) {
     pairingCode,
     maxIncomingFileBytes,
     onEvent,
+    onPairingChanged = () => {},
+    onPairingExpired = async (currentCode) => currentCode,
+    pairingTtlMs = PAIRING_TTL_MS,
     transferTtlMs = TRANSFER_TTL_MS,
   } = options
   const sessions = new Map()
   const attempts = new Map()
   const transfers = new Map()
-  let pairing = createPairingState(pairingCode)
+  let pairing = createPairingState(pairingCode, pairingTtlMs)
   let status = null
   let closing = false
+  let pairingExpiryTimer = null
+  let pairingRefreshPromise = null
 
   const webRoot = path.join(__dirname, '..', '..', 'web')
   const mobileHtml = await fs.promises.readFile(path.join(webRoot, 'index.html'))
   const fallbackCryptoScript = await fs.promises.readFile(path.join(webRoot, 'crypto-fallback.js'))
+  const mobileAppScript = await fs.promises.readFile(path.join(webRoot, 'app.js'))
   const securityHeaders = mobileSecurityHeaders(mobileHtml.toString('utf8'))
+
+  function schedulePairingExpiry() {
+    if (pairingExpiryTimer !== null) clearTimeout(pairingExpiryTimer)
+    pairingExpiryTimer = null
+    if (closing) return
+    pairingExpiryTimer = setTimeout(() => {
+      pairingExpiryTimer = null
+      void refreshExpiredPairing()
+        .then((rotated) => { if (!rotated && !closing) schedulePairingExpiry() })
+        .catch(() => { if (!closing) schedulePairingExpiry() })
+    }, Math.max(0, pairing.expiresAt - Date.now()))
+    // ZTools' renderer preload may expose browser-style numeric timer handles.
+    if (typeof pairingExpiryTimer?.unref === 'function') pairingExpiryTimer.unref()
+  }
+
+  function replacePairing(nextCode = pairing.code, notify = false) {
+    pairing = createPairingState(nextCode, pairingTtlMs)
+    schedulePairingExpiry()
+    if (notify) {
+      try { onPairingChanged() } catch {}
+    }
+    return { ...pairing }
+  }
+
+  async function refreshExpiredPairing() {
+    if (closing || pairing.expiresAt > Date.now()) return false
+    if (!pairingRefreshPromise) {
+      pairingRefreshPromise = (async () => {
+        if (closing || pairing.expiresAt > Date.now()) return false
+        const expiredSessionId = pairing.sessionId
+        let nextCode = pairing.code
+        try { nextCode = await onPairingExpired(pairing.code) || pairing.code } catch {}
+        if (closing || pairing.sessionId !== expiredSessionId || pairing.expiresAt > Date.now()) return false
+        replacePairing(nextCode, true)
+        return true
+      })().finally(() => { pairingRefreshPromise = null })
+    }
+    return pairingRefreshPromise
+  }
 
   function currentSession(request) {
     const token = bearerToken(request)
@@ -196,17 +252,39 @@ async function createDeviceLinkServer(options) {
     }
   }
 
-  function broadcast(type, data, exceptDeviceId = '') {
+  function normalizeSessionConversation(conversationId, session) {
+    const value = String(conversationId || '')
+    if (value === SHARED_CONVERSATION_ID || value === privateConversationId(session.deviceId)) return value
+    throw new HttpError(403, '该设备无权访问此会话')
+  }
+
+  function sessionCanAccessMessage(session, message) {
+    const conversationId = messageConversationId(message, deviceId)
+    return conversationId === SHARED_CONVERSATION_ID || conversationId === privateConversationId(session.deviceId)
+  }
+
+  function listSessionMessages(session, limit = 1000) {
+    return repository.listMessages(limit, {
+      filter: (message) => sessionCanAccessMessage(session, message),
+      groupBy: (message) => messageConversationId(message, deviceId),
+    })
+  }
+
+  function sendToConversation(conversationId, type, data) {
     for (const session of sessions.values()) {
-      if (session.deviceId !== exceptDeviceId) sendToSession(session, type, data)
+      if (conversationId === SHARED_CONVERSATION_ID || conversationId === privateConversationId(session.deviceId)) {
+        sendToSession(session, type, data)
+      }
     }
   }
 
-  async function publishMessage(message, exceptDeviceId = '') {
-    await repository.putMessage(message)
-    broadcast('message:new', messageView(message), exceptDeviceId)
-    try { onEvent('message:new', message) } catch {}
-    return message
+  async function publishMessage(message, requestedConversationId = message?.conversationId) {
+    const conversationId = requestedConversationId || messageConversationId(message, deviceId)
+    const stored = { ...message, conversationId }
+    await repository.putMessage(stored)
+    sendToConversation(conversationId, 'message:new', messageView(stored, deviceId))
+    try { onEvent('message:new', stored) } catch {}
+    return stored
   }
 
   async function removeTransfer(transfer) {
@@ -242,9 +320,10 @@ async function createDeviceLinkServer(options) {
     }
   }
 
-  async function findAttachment(id) {
-    const messages = await repository.listMessages()
+  async function findAttachment(id, session = null) {
+    const messages = await listSessionMessages(session, Number.MAX_SAFE_INTEGER)
     for (const message of messages) {
+      if (session && !sessionCanAccessMessage(session, message)) continue
       const attachment = (message.attachments || []).find((item) => item.id === id)
       if (attachment) return attachment
     }
@@ -275,7 +354,19 @@ async function createDeviceLinkServer(options) {
       return
     }
 
+    if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/app.js') {
+      response.writeHead(200, {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Content-Length': mobileAppScript.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      response.end(request.method === 'HEAD' ? undefined : mobileAppScript)
+      return
+    }
+
     if (request.method === 'GET' && pathname === '/api/pairing') {
+      await refreshExpiredPairing()
       sendJson(response, 200, {
         version: 1,
         sessionId: pairing.sessionId,
@@ -289,6 +380,7 @@ async function createDeviceLinkServer(options) {
     }
 
     if (request.method === 'POST' && pathname === '/api/pair') {
+      await refreshExpiredPairing()
       const body = await readJson(request)
       const attempt = attempts.get(address) || { count: 0, lockedUntil: 0, lastAttemptAt: Date.now() }
       if (attempt.lockedUntil > Date.now()) throw new HttpError(429, '匹配码错误次数过多，请稍后再试')
@@ -330,7 +422,7 @@ async function createDeviceLinkServer(options) {
       }
       sessions.set(token, session)
       await registerDevice(session)
-      pairing = createPairingState(pairing.code)
+      replacePairing(pairing.code, true)
       sendJson(response, 200, {
         package: encryptJson(pairKey, {
           token,
@@ -345,7 +437,7 @@ async function createDeviceLinkServer(options) {
 
     if (request.method === 'GET' && pathname === '/api/messages') {
       const auth = requireSession(request)
-      const messages = (await repository.listMessages()).map(messageView)
+      const messages = (await listSessionMessages(auth.session)).map((message) => messageView(message, deviceId))
       sendJson(response, 200, { data: encryptJson(auth.session.key, messages, `messages:${auth.session.deviceId}`) })
       return
     }
@@ -376,6 +468,7 @@ async function createDeviceLinkServer(options) {
         expectedIndex: 0,
         path: repository.newTransferPath(id),
         text: typeof metadata.text === 'string' ? metadata.text.slice(0, 2000) : '',
+        conversationId: normalizeSessionConversation(metadata.conversationId || privateConversationId(auth.session.deviceId), auth.session),
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
         busy: false,
@@ -454,6 +547,7 @@ async function createDeviceLinkServer(options) {
           id: randomId(18),
           senderId: auth.session.deviceId,
           senderName: auth.session.deviceName,
+          conversationId: transfer.conversationId,
           direction: 'incoming',
           kind: transfer.mime.startsWith('image/') ? 'image' : 'file',
           text: transfer.text,
@@ -462,12 +556,11 @@ async function createDeviceLinkServer(options) {
           updatedAt: now,
           status: 'received',
         }
-        await publishMessage(message, auth.session.deviceId)
+        const storedMessage = await publishMessage(message, transfer.conversationId)
         committed = true
         transfers.delete(transfer.id)
         auth.session.activeTransfers.delete(transfer.id)
-        sendToSession(auth.session, 'message:new', messageView(message))
-        sendJson(response, 200, { data: encryptJson(auth.session.key, messageView(message), `transfer:complete:${auth.session.deviceId}`) })
+        sendJson(response, 200, { data: encryptJson(auth.session.key, messageView(storedMessage, deviceId), `transfer:complete:${auth.session.deviceId}`) })
       } catch (error) {
         if (!committed) {
           try { await fs.promises.rename(destination, transfer.path) } catch {}
@@ -482,7 +575,7 @@ async function createDeviceLinkServer(options) {
     match = /^\/api\/attachments\/([A-Za-z0-9_-]+)\/meta$/.exec(pathname)
     if (request.method === 'GET' && match) {
       const auth = requireSession(request)
-      const attachment = await findAttachment(match[1])
+      const attachment = await findAttachment(match[1], auth.session)
       if (!attachment?.path) throw new HttpError(404, '附件不存在或尚未同步到本机')
       try { await fs.promises.access(attachment.path, fs.constants.R_OK) } catch { throw new HttpError(404, '附件不存在或尚未同步到本机') }
       const { path: _path, ...metadata } = attachment
@@ -495,7 +588,7 @@ async function createDeviceLinkServer(options) {
     match = /^\/api\/attachments\/([A-Za-z0-9_-]+)\/chunks\/(\d+)$/.exec(pathname)
     if (request.method === 'GET' && match) {
       const auth = requireSession(request)
-      const attachment = await findAttachment(match[1])
+      const attachment = await findAttachment(match[1], auth.session)
       const index = Number(match[2])
       if (!attachment?.path || !Number.isSafeInteger(index) || index < 0) throw new HttpError(404, '附件分块不存在')
       const descriptor = await fs.promises.open(attachment.path, 'r').catch(() => null)
@@ -559,7 +652,7 @@ async function createDeviceLinkServer(options) {
     try {
       await registerDevice(session)
       sendToSession(session, 'session:ready', { deviceId, deviceName, expiresAt: new Date(session.expiresAt).toISOString() })
-      sendToSession(session, 'messages:sync', (await repository.listMessages()).map(messageView))
+      sendToSession(session, 'messages:sync', (await listSessionMessages(session)).map((message) => messageView(message, deviceId)))
     } catch {
       socket.close(1011, 'Unable to initialize session')
     }
@@ -570,11 +663,13 @@ async function createDeviceLinkServer(options) {
         const message = decryptJson(session.key, outer.data, `ws:${session.deviceId}`)
         if (message.type === 'send:text' && session.permissions.text) {
           const text = cleanText(message.data?.text)
+          const conversationId = normalizeSessionConversation(message.data?.conversationId || privateConversationId(session.deviceId), session)
           const now = new Date().toISOString()
           const record = {
             id: randomId(18),
             senderId: session.deviceId,
             senderName: session.deviceName,
+            conversationId,
             direction: 'incoming',
             kind: detectKind(text),
             text,
@@ -583,8 +678,7 @@ async function createDeviceLinkServer(options) {
             updatedAt: now,
             status: 'received',
           }
-          await publishMessage(record, session.deviceId)
-          sendToSession(session, 'message:new', messageView(record))
+          await publishMessage(record, conversationId)
         }
       } catch {
         socket.close(4003, 'Invalid encrypted message')
@@ -629,6 +723,7 @@ async function createDeviceLinkServer(options) {
   const selectedIP = lanIPs[0] || '127.0.0.1'
   const accessUrl = `http://${selectedIP}:${port}`
   status = { running: true, port, lanIPs, selectedIP, accessUrl }
+  schedulePairingExpiry()
 
   return {
     get status() {
@@ -638,11 +733,10 @@ async function createDeviceLinkServer(options) {
       return { ...pairing }
     },
     regeneratePairing(nextCode = pairing.code) {
-      pairing = createPairingState(nextCode)
-      return { ...pairing }
+      return replacePairing(nextCode)
     },
     updatePairingCode(nextCode) {
-      pairing = createPairingState(nextCode)
+      replacePairing(nextCode)
     },
     publishMessage,
     connectedDevices() {
@@ -657,6 +751,8 @@ async function createDeviceLinkServer(options) {
       if (closing) return
       closing = true
       clearInterval(cleanupTimer)
+      if (pairingExpiryTimer !== null) clearTimeout(pairingExpiryTimer)
+      pairingExpiryTimer = null
       await Promise.all([...transfers.values()].map(removeTransfer))
       for (const session of sessions.values()) session.socket?.close(1001, 'Server stopped')
       sessions.clear()

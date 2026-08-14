@@ -12,6 +12,7 @@ export interface Attachment {
 
 export interface DeviceLinkMessage {
   id: string
+  conversationId: string
   senderId: string
   senderName: string
   direction: 'incoming' | 'outgoing'
@@ -104,10 +105,10 @@ export interface DeviceLinkApi {
   saveSettings(input: SaveSettingsInput): Promise<DeviceLinkSettings>
   saveWebDavSettings(input: SaveWebDavInput): Promise<WebDavSettings>
   syncWebDav(): Promise<{ status: string; uploaded: number; downloaded: number; skippedAttachments: number }>
-  sendText(text: string): Promise<DeviceLinkMessage>
-  sendFiles(paths: string[]): Promise<DeviceLinkMessage>
-  sendDroppedFiles(files: File[]): Promise<DeviceLinkMessage>
-  sendImage(dataUrl: string): Promise<DeviceLinkMessage>
+  sendText(text: string, conversationId: string): Promise<DeviceLinkMessage>
+  sendFiles(paths: string[], conversationId: string): Promise<DeviceLinkMessage>
+  sendDroppedFiles(files: File[], conversationId: string): Promise<DeviceLinkMessage>
+  sendImage(dataUrl: string, conversationId: string): Promise<DeviceLinkMessage>
   selectFiles(): Promise<string[]>
   copyMessage(messageId: string): Promise<boolean>
   openAttachment(attachmentId: string): Promise<boolean>

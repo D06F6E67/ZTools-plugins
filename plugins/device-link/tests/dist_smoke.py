@@ -42,6 +42,7 @@ STATE = {
     "devices": [],
     "messages": [{
         "id": "production-message",
+        "conversationId": "shared",
         "senderId": "desktop",
         "senderName": "测试电脑",
         "direction": "outgoing",
@@ -75,7 +76,7 @@ with sync_playwright() as playwright:
         """
     )
     page.goto(URL, wait_until="networkidle")
-    page.get_by_role("heading", name="发送给我的设备").wait_for()
+    page.get_by_role("heading", name="全部设备").wait_for()
     assert page.locator("#app > .app-shell").count() == 1
     page.evaluate(
         """
@@ -109,7 +110,7 @@ with sync_playwright() as playwright:
     more_menu = page.get_by_label("会话操作")
     more_menu.wait_for()
     assert int(more_menu.evaluate("element => getComputedStyle(element).zIndex")) >= 200
-    page.get_by_role("button", name="清理历史消息 删除消息与本地附件").click()
+    page.get_by_role("button", name="清理全部历史 删除所有会话消息与本地附件").click()
     page.get_by_role("heading", name="清理历史消息？").wait_for()
     page.get_by_role("button", name="清理历史", exact=True).click()
     page.get_by_role("heading", name="把内容放进这段私人会话").wait_for()

@@ -74,6 +74,23 @@ function mergeMessages(left, right) {
   return [...map.values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
 }
 
+function messageConversationKey(message) {
+  return message.conversationId || `legacy:${message.senderId || 'unknown'}`
+}
+
+function limitMessagesPerConversation(messages, limit = 1000) {
+  const groups = new Map()
+  for (const message of [...messages].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
+    const key = messageConversationKey(message)
+    const group = groups.get(key) || []
+    group.push(message)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+    .flatMap((group) => group.slice(-limit))
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+}
+
 function mergeTombstones(left, right) {
   const map = new Map()
   for (const tombstone of [...left, ...right]) {
@@ -251,7 +268,9 @@ async function runWebDavSync(input) {
   const credentials = { username: input.username, password: input.password }
   const manifest = await initializeVault(baseUrl, credentials, input.salt)
   const key = deriveVaultKey(input.syncPassword, manifest.salt)
-  const local = await input.repository.listMessages()
+  const local = await input.repository.listMessages(1000, {
+    groupBy: messageConversationKey,
+  })
   const localTombstones = typeof input.repository.listTombstones === 'function' ? await input.repository.listTombstones() : []
   let uploaded = 0
   let downloaded = 0
@@ -286,8 +305,9 @@ async function runWebDavSync(input) {
   }
 
   const tombstones = mergeTombstones(localTombstones, remoteTombstones)
-  const merged = applyTombstones(mergeMessages(local.map(remoteMessage), remoteMessages), tombstones)
+  const merged = limitMessagesPerConversation(applyTombstones(mergeMessages(local.map(remoteMessage), remoteMessages), tombstones))
   const mergedIds = new Set(merged.map((message) => message.id))
+  const localMessagesById = new Map(local.map((message) => [message.id, message]))
   const localTombstoneMap = new Map(localTombstones.map((tombstone) => [tombstone.id, tombstone]))
   for (const tombstone of tombstones) {
     const current = localTombstoneMap.get(tombstone.id)
@@ -301,7 +321,7 @@ async function runWebDavSync(input) {
     if (!mergedIds.has(message.id)) await input.repository.removeMessage(message.id, { removeOwnedAttachments: true })
   }
   for (const message of merged) {
-    const localMessage = local.find((candidate) => candidate.id === message.id)
+    const localMessage = localMessagesById.get(message.id)
     if (!localMessage || String(message.updatedAt) > String(localMessage.updatedAt)) {
       for (const attachment of message.attachments || []) {
         if (await downloadBlob(baseUrl, credentials, key, input.repository, attachment)) downloaded += 1
@@ -334,6 +354,7 @@ async function runWebDavSync(input) {
 module.exports = {
   SYNC_CHUNK_SIZE,
   applyTombstones,
+  limitMessagesPerConversation,
   mergeMessages,
   mergeTombstones,
   runWebDavSync,
