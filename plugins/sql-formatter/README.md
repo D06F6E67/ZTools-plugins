@@ -2,6 +2,8 @@
 
 适配 ZTools 3.1.0 的离线 SQL 格式化插件。格式化在本地完成，不上传 SQL。
 
+![SQL 格式化插件界面](docs/sql-formatter-preview.png)
+
 ## 功能
 
 - 支持 Standard SQL、MySQL、PostgreSQL、SQL Server、Oracle、SQLite、BigQuery、Snowflake 等 19 种方言
