@@ -55,15 +55,20 @@ with sync_playwright() as playwright:
     page.route("**/*", route_request)
     page.goto("http://device.test/#pair=old-secret", wait_until="networkidle")
     page.get_by_text("测试电脑", exact=True).wait_for()
+    page.get_by_label("匹配码").fill("592748")
+    page.get_by_role("button", name="安全连接").click()
+    page.get_by_text("二维码缺少配对会话标识", exact=True).wait_for()
 
     active_pairing = new_pairing
-    page.evaluate("location.hash = '#pair=new-secret'")
-    page.wait_for_function("() => document.querySelector('#pairError').textContent === ''")
+    pair_requests.clear()
+    pairing_request_count = 0
+    page.goto(f"http://device.test/?pairing={new_pairing['sessionId']}#pair=new-secret", wait_until="networkidle")
+    page.get_by_text("测试电脑", exact=True).wait_for()
     page.get_by_label("匹配码").fill("592748")
     page.get_by_role("button", name="安全连接").click()
     page.get_by_text("已提交最新配对代次", exact=True).wait_for()
 
-    assert pairing_request_count >= 3
+    assert pairing_request_count >= 1
     assert len(pair_requests) == 1
     assert pair_requests[0]["sessionId"] == new_pairing["sessionId"]
     assert "配对信息已过期" not in page.locator("#pairError").inner_text()
