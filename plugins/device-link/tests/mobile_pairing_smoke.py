@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
@@ -31,7 +32,8 @@ pairing_request_count = 0
 def route_request(route):
     global pairing_request_count
     request = route.request
-    if request.url == "http://device.test/":
+    request_url = urlsplit(request.url)
+    if request_url.netloc == "device.test" and request_url.path == "/":
         route.fulfill(status=200, content_type="text/html", body=MOBILE_HTML)
     elif request.url == "http://device.test/crypto-fallback.js":
         route.fulfill(status=200, content_type="application/javascript", body=FALLBACK_CRYPTO)
@@ -55,15 +57,28 @@ with sync_playwright() as playwright:
     page.route("**/*", route_request)
     page.goto("http://device.test/#pair=old-secret", wait_until="networkidle")
     page.get_by_text("测试电脑", exact=True).wait_for()
+    page.get_by_label("匹配码").fill("592748")
+    page.get_by_role("button", name="安全连接").click()
+    page.get_by_text("二维码缺少配对会话标识，请重新扫描最新二维码", exact=True).wait_for()
 
     active_pairing = new_pairing
-    page.evaluate("location.hash = '#pair=new-secret'")
-    page.wait_for_function("() => document.querySelector('#pairError').textContent === ''")
+    pair_requests.clear()
+    pairing_request_count = 0
+    page.goto("http://device.test/?pairing=old-pairing-session#pair=old-secret", wait_until="networkidle")
+    page.get_by_text("测试电脑", exact=True).wait_for()
+    page.get_by_label("匹配码").fill("592748")
+    page.get_by_role("button", name="安全连接").click()
+    page.get_by_text("配对信息已过期，请在电脑端刷新二维码", exact=True).wait_for()
+    assert not pair_requests
+
+    pairing_request_count = 0
+    page.goto(f"http://device.test/?pairing={new_pairing['sessionId']}#pair=new-secret", wait_until="networkidle")
+    page.get_by_text("测试电脑", exact=True).wait_for()
     page.get_by_label("匹配码").fill("592748")
     page.get_by_role("button", name="安全连接").click()
     page.get_by_text("已提交最新配对代次", exact=True).wait_for()
 
-    assert pairing_request_count >= 3
+    assert pairing_request_count >= 1
     assert len(pair_requests) == 1
     assert pair_requests[0]["sessionId"] == new_pairing["sessionId"]
     assert "配对信息已过期" not in page.locator("#pairError").inner_text()

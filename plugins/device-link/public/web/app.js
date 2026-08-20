@@ -115,6 +115,13 @@
     if (size < 1073741824) return `${(size / 1048576).toFixed(1)} MB`;
     return `${(size / 1073741824).toFixed(1)} GB`;
   }
+  function getPairingContextFromUrl() {
+    const scannedUrl = new URL(location.href);
+    return {
+      secret: new URLSearchParams(scannedUrl.hash.slice(1)).get("pair"),
+      requestedSessionId: scannedUrl.searchParams.get("pairing")
+    };
+  }
   function messageTime(value) {
     return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
   }
@@ -302,10 +309,11 @@
     const button = document.querySelector("#pairButton");
     button.disabled = true;
     try {
-      const scannedUrl = new URL(location.href), secret = new URLSearchParams(scannedUrl.hash.slice(1)).get("pair"), requestedSessionId = scannedUrl.searchParams.get("pairing");
+      const { secret, requestedSessionId } = getPairingContextFromUrl();
+      if (!requestedSessionId) throw new Error("二维码缺少配对会话标识，请重新扫描最新二维码");
       if (!secret) throw new Error("二维码缺少一次性连接密钥，请重新扫描");
       const latestPairing = await loadPairing();
-      if (requestedSessionId && requestedSessionId !== latestPairing.sessionId) throw new Error("配对信息已过期，请在电脑端刷新二维码");
+      if (requestedSessionId !== latestPairing.sessionId) throw new Error("配对信息已过期，请在电脑端刷新二维码");
       const code = document.querySelector("#pairCode").value.trim();
       if (!/^\d{6,12}$/.test(code)) throw new Error("请输入 6–12 位数字匹配码");
       const name = document.querySelector("#deviceName").value.trim() || defaultName;
