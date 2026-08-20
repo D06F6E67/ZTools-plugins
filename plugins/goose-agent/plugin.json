@@ -3,7 +3,7 @@
   "description": "独立的 uTools Agent 工作台",
   "author": "goose",
   "homepage": "",
-  "version": "0.1.0",
+  "version": "0.1.0-beta",
   "logo": "public/logo.png",
   "pluginSetting": {
     "single": true,
