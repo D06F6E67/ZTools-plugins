@@ -20,13 +20,27 @@ const MAX_ITEMS = 100
 // ─── 模块级单例（进程内唯一，跨组件共享）────────────────────────────────
 const historyList = ref<HistoryItem[]>([])
 
-/** 从 dbStorage 载入历史记录到单例 ref。启动时调一次。 */
+/**
+ * 是否已完成首次载入。
+ *
+ * 历史记录单例是模块级 ref，进程内始终存活，无需每次 Manage 重新挂载都重读
+ * dbStorage。更关键的是：若在 pushHistory（写入内存 + 触发异步写盘）之后
+ * Manage 被卸载重建触发 loadHistory，会用 dbStorage 里的旧快照覆盖内存中
+ * 刚写入的新记录，导致历史丢失。故 loadHistory 只在模块首次加载时执行一次，
+ * 后续重复调用直接跳过。
+ */
+let loaded = false
+
+/** 从 dbStorage 载入历史记录到单例 ref。仅在模块首次加载时执行一次。 */
 function loadHistory(): void {
+  if (loaded) return
+  loaded = true
   try {
     const stored = window.ztools.dbStorage.getItem<HistoryItem[]>(STORAGE_KEY)
     historyList.value = Array.isArray(stored) ? stored : []
-  } catch (_) {
-    // dbStorage 不可用等异常：保持空列表，不阻塞 UI
+  } catch (e) {
+    // dbStorage 不可用等异常：保持空列表，不阻塞 UI；记录原因便于排查
+    console.warn('[useHistory] loadHistory 读取 dbStorage 失败:', e)
     historyList.value = []
   }
 }
@@ -34,9 +48,15 @@ function loadHistory(): void {
 /** 同步当前单例列表到 dbStorage。 */
 function persist(): void {
   try {
-    window.ztools.dbStorage.setItem(STORAGE_KEY, historyList.value)
-  } catch (_) {
-    /* 写入失败不阻塞 UI */
+    // historyList 是 ref，读出的 value 及嵌套元素是 Vue 响应式 Proxy；
+    // dbStorage.setItem 底层走 Electron 同步 IPC 的结构化克隆，无法克隆 Proxy，
+    // 会抛 "An object could not be cloned" 导致历史记录丢失。
+    // 这里经 JSON 序列化一次，剥离 Proxy 得到纯数据再写入。
+    const plain = JSON.parse(JSON.stringify(historyList.value))
+    window.ztools.dbStorage.setItem(STORAGE_KEY, plain)
+  } catch (e) {
+    // 写入失败不阻塞 UI，但输出告警：便于排查（如 OCR data URI 过大触发写盘失败）
+    console.warn('[useHistory] persist 写入 dbStorage 失败:', e)
   }
 }
 

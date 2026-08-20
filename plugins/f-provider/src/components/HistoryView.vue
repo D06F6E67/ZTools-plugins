@@ -210,7 +210,8 @@ const PROVIDER_LABELS: Record<TranslateProviderName, string> = {
   baidu: '百度翻译',
   google: '谷歌翻译',
   youdao: '有道翻译',
-  microsoft: '微软翻译'
+  microsoft: '微软翻译',
+  'ai-translation': 'AI 翻译'
 }
 
 function langLabel(code: string): string {

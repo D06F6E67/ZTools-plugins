@@ -138,7 +138,12 @@ declare global {
   }
 
   /** 翻译 Provider 名称（即 plugin.json providers 字段的 key）。 */
-  type TranslateProviderName = 'baidu' | 'google' | 'youdao' | 'microsoft'
+  type TranslateProviderName =
+    | 'baidu'
+    | 'google'
+    | 'youdao'
+    | 'microsoft'
+    | 'ai-translation'
 
   /** 微软翻译鉴权方案。 */
   type MicrosoftRequestMode = 'edge' | 'signature'
@@ -149,6 +154,30 @@ declare global {
     google: Record<string, never>
     youdao: { appKey: string; appSecret: string }
     microsoft: { requestMode: MicrosoftRequestMode }
+    /** AI 翻译：复用宿主 AI 模型，不存密钥；model 留空走宿主默认。 */
+    'ai-translation': { model: string; systemPrompt: string }
+  }
+
+  /** AI OCR provider 的设置（复用宿主 AI 视觉模型，不存密钥）。 */
+  interface OcrSettingsMap {
+    'ai-ocr': { model: string; systemPrompt: string }
+    /** AI 公式识别：独立 model + systemPrompt（prompt 要求输出 LaTeX 源码）。 */
+    'ai-latex-ocr': { model: string; systemPrompt: string }
+  }
+
+  /** 图床类型联合：后续新增图床在此扩展。 */
+  type ImageHostType = 'img-scdn'
+
+  /**
+   * 图床设置（ai-ocr / ai-latex-ocr 共用）。AI 识图默认先把图片上传图床，
+   * 拿到可访问 URL 再发给视觉模型，省 token 且避免大图 base64 截断；
+   * 关闭或上传失败自动回退 base64 data URI 直传。
+   */
+  interface ImageHostSettings {
+    /** 是否启用图床上传（关闭则 base64 直发 AI）。默认 true。 */
+    enabled: boolean
+    /** 图床适配器类型（当前仅 img-scdn，预留扩展）。 */
+    type: ImageHostType
   }
 
   interface Services {
@@ -225,19 +254,24 @@ declare global {
 
     // ─── 翻译 ───
     /** 通用 HTTP 请求；非 2xx 抛错。 */
-    _httpRequest: (
-      method: string,
-      url: string,
-      opts?: {
-        headers?: Record<string, string>
-        query?: Record<string, string | number>
-        json?: unknown
-        form?: Record<string, string>
-        body?: string
-        timeoutMs?: number
-        maxRedirects?: number
+  _httpRequest: (
+    method: string,
+    url: string,
+    opts?: {
+      headers?: Record<string, string>
+      query?: Record<string, string | number>
+      json?: unknown
+      form?: Record<string, string>
+      /** multipart/form-data 文件上传（图床用）；data 为 Buffer 二进制。 */
+      multipart?: {
+        fields?: Record<string, string>
+        files?: Record<string, { filename?: string; contentType?: string; data: Buffer }>
       }
-    ) => Promise<{ status: number; headers: Record<string, string>; body: string }>
+      body?: string
+      timeoutMs?: number
+      maxRedirects?: number
+    }
+  ) => Promise<{ status: number; headers: Record<string, string>; body: string }>
     /** 语言映射表（provider -> 中性码 -> 自家码；null 表示不支持）。 */
     TRANSLATE_LANG_MAP: Record<TranslateProviderName, Record<string, string | null>>
     /** 读某 provider 的设置（合并默认值）。 */
@@ -254,6 +288,26 @@ declare global {
     translateYoudao: (text: string, from?: string, to?: string) => Promise<TranslateProviderOutput>
     /** 微软翻译。 */
     translateMicrosoft: (text: string, from?: string, to?: string) => Promise<TranslateProviderOutput>
+    /** 读某 OCR provider 的设置（合并默认值）。 */
+    getOcrSettings: <P extends keyof OcrSettingsMap>(provider: P) => OcrSettingsMap[P]
+    /** 写某 OCR provider 的设置。 */
+    setOcrSettings: <P extends keyof OcrSettingsMap>(provider: P, data: OcrSettingsMap[P]) => void
+    /** 读图床设置（ai-ocr / ai-latex-ocr 共用，合并默认值 enabled=true）。 */
+    getImageHostSettings: () => ImageHostSettings
+    /** 写图床设置。 */
+    setImageHostSettings: (data: ImageHostSettings) => void
+    /**
+     * 上传图片到已启用图床，返回可访问 URL。
+     * 关闭 / 未知类型 / 上传失败时返回 null，由调用方回退 base64 data URI 直传。
+     * 入参 image 可为 本地路径 / data URI / http(s) URL；已是 URL 时直接原样返回不二次转存。
+     */
+    uploadImage: (image: string) => Promise<string | null>
+    /** AI 翻译（走宿主 ztools.ai，model 留空走宿主默认模型）。 */
+    translateAi: (text: string, from?: string, to?: string) => Promise<TranslateProviderOutput>
+    /** AI 识图（走宿主 ztools.ai，需选择支持视觉的模型）。 */
+    ocrAi: (image: string, lang?: string) => Promise<OcrProviderOutput>
+    /** AI 公式识别（走宿主 ztools.ai，需选择支持视觉的模型）。返回 LaTeX 源码。 */
+    latexAi: (image: string) => Promise<{ latex: string }>
   }
 
   interface Window {

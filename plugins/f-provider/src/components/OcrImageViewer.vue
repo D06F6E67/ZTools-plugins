@@ -123,14 +123,18 @@ interface OverlayLine {
 }
 
 const overlays = computed<OverlayLine[]>(() =>
-  props.lines.map((l) => ({
-    text: l.text,
-    rate: l.rate,
-    left: pct(l.left, naturalWidth.value),
-    top: pct(l.top, naturalHeight.value),
-    width: pct(l.right - l.left, naturalWidth.value),
-    height: pct(l.bottom - l.top, naturalHeight.value)
-  }))
+  // 过滤坐标无效的行（AI 识图渠道返回的伪 OcrLine 坐标全 0），
+  // 避免文字叠层全部叠到图片左上角。真实微信 OCR 行坐标恒为正，不受影响。
+  props.lines
+    .filter((l) => l.right > l.left && l.bottom > l.top)
+    .map((l) => ({
+      text: l.text,
+      rate: l.rate,
+      left: pct(l.left, naturalWidth.value),
+      top: pct(l.top, naturalHeight.value),
+      width: pct(l.right - l.left, naturalWidth.value),
+      height: pct(l.bottom - l.top, naturalHeight.value)
+    }))
 )
 
 // 列表↔图片高亮联动：鼠标在某一侧 hover 时另一侧同步高亮
