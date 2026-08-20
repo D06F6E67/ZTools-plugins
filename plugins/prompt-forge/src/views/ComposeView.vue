@@ -31,7 +31,10 @@ const backFrags = computed(() => canvasFrags.value.filter(f => f.position === 'b
 
 onMounted(async () => {
   await promptStore.ensureReady()
-  if (basePrompts.value.length && !selectedBaseId.value) selectedBaseId.value = basePrompts.value[0].id
+  if (basePrompts.value.length && !selectedBaseId.value) {
+    const first = basePrompts.value[0]
+    if (first) selectedBaseId.value = first.id
+  }
 })
 
 const composedText = computed(() => {
