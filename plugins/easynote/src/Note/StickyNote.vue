@@ -26,7 +26,7 @@ import { Close } from '@element-plus/icons-vue'
 import MarkdownEditor from './components/MarkdownEditor.vue'
 import { useNotes, type NoteType } from './composables/useNotes'
 import { useSettings } from './composables/useSettings'
-import { toPlainText, extractTitle } from './utils/md'
+import { toPlainText, normalizeContent, extractTitle } from './utils/md'
 
 const props = defineProps<{ embedded?: boolean }>()
 const emit = defineEmits<{
@@ -87,12 +87,12 @@ function askSaveType(): Promise<NoteType | null> {
 }
 
 function copyRaw() {
-  window.ztools.copyText(draft.value.content || '')
+  window.ztools.copyText(normalizeContent(draft.value.content || ''))
   ElMessage.success('已复制原文')
 }
 
 function copyPlain() {
-  window.ztools.copyText(toPlainText(draft.value.content))
+  window.ztools.copyText(toPlainText(normalizeContent(draft.value.content)))
   ElMessage.success('已复制纯文本')
 }
 

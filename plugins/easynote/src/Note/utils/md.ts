@@ -58,3 +58,19 @@ export function toPlainText(src: string): string {
   s = s.replace(/^[-*_]{3,}$/gm, '')
   return s.trim()
 }
+
+/** 净化 Markdown 内容：移除 <br> 空行，合并连续空行，清理序列化转义 */
+export function normalizeContent(src: string): string {
+  if (!src) return ''
+  return src
+    .split('\n')
+    // 移除 <br /> 独立行（包括 > <br /> 块引用内空行）
+    .filter(line => !/^(\s*>\s+)?<br\s*\/?>\s*$/i.test(line.trim()))
+    // 行首转义字符还原（remark-stringify 为防止语意冲突加的 \）
+    .map(line => line.replace(/^(\s*)\\([#*\-+>=])/, '$1$2'))
+    .join('\n')
+    // 移除尾部空引用行（空段落残留）
+    .replace(/(?:\n\s*>\s*)+\s*$/, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
