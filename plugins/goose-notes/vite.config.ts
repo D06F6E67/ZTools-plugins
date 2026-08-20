@@ -57,10 +57,16 @@ const isQuicknoteBuild = process.env.GOOSE_BUILD_TARGET === "quicknote";
 // 必须用「精确正则」只匹配裸包名 / 精确子路径的 JS import，不能用字符串前缀别名——
 // 否则会误伤 index.css 里的 `@import "katex/dist/katex.min.css"`（被改写成空壳目录下的
 // 不存在路径而构建失败）。katex CSS（~23KB）保留无妨，这里只剥离 katex 的 JS（~256KB）。
-const liteEmptyModule = path.resolve(__dirname, "./src/lib/build/lite-empty.ts");
+const liteEmptyModule = path.resolve(__dirname, "./src/lib/vite-stubs/lite-empty.ts");
 // pi-ai provider-env 静态 require("node:fs")（仅 Bun sandbox 回退，浏览器不可达）；
 // alias 掉以免 Vite 外部化并打警告。
-const nodeFsStubModule = path.resolve(__dirname, "./src/lib/build/node-fs-stub.ts");
+const nodeFsStubModule = path.resolve(__dirname, "./src/lib/vite-stubs/node-fs-stub.ts");
+if (!existsSync(liteEmptyModule) || !existsSync(nodeFsStubModule)) {
+  throw new Error(
+    `[vite] 缺少构建 stub（${path.relative(__dirname, liteEmptyModule)} / ${path.relative(__dirname, nodeFsStubModule)}）。` +
+      "不要把这些文件放在名为 build 的目录里：全局 gitignore 的 build/ 会让 ztools publish 漏传，商店 Linux CI 会挂。",
+  );
+}
 const liteStubAliases: { find: RegExp; replacement: string }[] = isQuicknoteBuild
   ? [
       { find: /^katex$/, replacement: liteEmptyModule },

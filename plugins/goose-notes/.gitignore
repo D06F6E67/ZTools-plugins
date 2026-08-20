@@ -24,10 +24,11 @@ dist-ssr
 dist-quicknote/
 dist-native-editor/
 default.profraw
-# src/lib/build/ contains source (lite-empty.ts is the quicknote alias target),
-# NOT build output. Global ~/.gitignore_global has `build/` which would hide it.
-!src/lib/build/
-!src/lib/build/*
+# Vite stubs live in src/lib/vite-stubs/ (NOT src/lib/build/).
+# Global ~/.gitignore_global has `build/`; a folder named build is dropped by
+# ztools publish and store Linux CI then fails (missing node-fs-stub.ts).
+!src/lib/vite-stubs/
+!src/lib/vite-stubs/*
 *.local
 
 # Editor directories and files
@@ -51,6 +52,7 @@ skills-lock.json
 # ---- Local-only scratch ----
 tasks/
 scripts/*
+!scripts/utools-build.js
 # stray verification screenshots in repo root
 /*.png
 
