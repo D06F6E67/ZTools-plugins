@@ -9,6 +9,7 @@ defineProps<{
   selectedId?: string
   emptyTitle?: string
   emptyDesc?: string
+  query?: string
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +22,21 @@ const emit = defineEmits<{
 }>()
 
 const prompt = usePromptStore()
+
+/** 高亮搜索关键词 */
+function highlightText(text: string, q: string): string {
+  if (!q) return text
+  // 转义特殊正则字符
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // 逐字符构造正则，允许字符之间有任意内容（模拟 Fuse.js 模糊匹配风格）
+  const pattern = escaped.split('').join('[\\s\\S]*?')
+  try {
+    const regex = new RegExp(`(${pattern})`, 'gi')
+    return text.replace(regex, '<mark>$1</mark>')
+  } catch {
+    return text
+  }
+}
 
 // 右键菜单状态
 const ctxMenu = ref<{ visible: boolean; x: number; y: number; item: PromptItem | null }>({
@@ -102,7 +118,7 @@ const sortIcon = computed(() => prompt.sortDir.value === 'desc' ? '↓' : '↑')
           </button>
         </div>
         <div class="card-body">
-          <div class="card-title">{{ item.title }}</div>
+          <div class="card-title" v-html="highlightText(item.title, query || prompt.query.value)"></div>
           <div class="card-meta">
             <span class="create-time">📅 {{ formatDate(item.createdAt) }}</span>
             <span v-for="tag in item.tags.slice(0, 3)" :key="tag" class="tag">#{{ tag }}</span>
@@ -198,6 +214,17 @@ const sortIcon = computed(() => prompt.sortDir.value === 'desc' ? '↓' : '↑')
   margin-bottom: 4px;
 }
 .card.active .card-title { color: var(--pf-accent); }
+.card-title :deep(mark) {
+  background: #fde68a;
+  color: #92400e;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+:global(.dark) .card-title :deep(mark),
+:root[data-theme="dark"] .card-title :deep(mark) {
+  background: #78350f;
+  color: #fde68a;
+}
 .card-meta {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
 }

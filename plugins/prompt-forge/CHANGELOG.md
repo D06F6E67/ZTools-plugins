@@ -1,5 +1,32 @@
 # Changelog
 
+## \[1.2.0] - 2026-08-20
+
+### ✨ Features
+
+* **版本差异对比** — 版本 Tab 新增「对比」按钮，基于 LCS（最长公共子序列）算法生成行级 diff，覆盖层并排展示快照版本与当前版本差异（新增绿色 / 删除红色 / 相同无色）
+* **全局快捷键面板** — 按 `?` 键弹出快捷键速查面板，按视图分组展示所有可用快捷键，`Esc` 或点击遮罩关闭
+
+### ⚡ Performance
+
+* **持久化 Debounce** — `prompt.ts` 新增 `schedulePersist()` 300ms debounce，高频操作（收藏 / 删除 / 新增 / 更新）合并写入，连续操作 I/O 从 N 次降为 1 次；关键操作（记录使用、批量操作）保留立即 flush
+* **Fuse 索引懒加载** — `prompt.ts` 与 `ManageView.vue` 的 Fuse 索引从 `computed(new Fuse(...))` 改为 `ref + watch` 懒加载，仅在搜索词非空时按需构建，避免列表变化时冗余重建
+
+### 🎨 Design
+
+* **搜索高亮** — PromptList 搜索结果标题中匹配关键词以 `<mark>` 标签高亮，支持浅色 / 深色主题
+
+### 🐛 Bug Fixes
+
+* **FillPanel null 安全** — `v-for` 访问 `unit.tags.slice()` 改为 `(unit?.tags || []).slice()`，防止 `unit` 为 null 时运行时崩溃
+* **ComposeView 空值保护** — `onMounted` 中 `basePrompts[0].id` 添加空值守卫，防止空库打开组合视图崩溃
+* **存储 Key 前缀统一** — `storage.ts` fallback 路径 key 前缀 `pf:` 统一为 `promptforge:`，与 preload `services.js` 一致，消除切换存储路径后数据不互通风险
+
+### ♻️ Refactor
+
+* **SpaceView 组件拆分** — 从 608 行拆分为 SpaceView（210 行）+ SpaceSidebar / ProjectPanel / HistoryPanel / TrashPanel 四个子组件
+* **ManageView 组件拆分** — 从 477 行拆分为 ManageView（280 行）+ ManageContentTab / ManagePropsTab / ManageVarsTab / ManageVersionsTab / ManageStatsTab 五个 Tab 子组件
+
 ## \[1.1.0] - 2026-07-14
 
 ### ✨ Features

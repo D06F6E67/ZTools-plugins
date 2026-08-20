@@ -64,7 +64,7 @@ function updateValue(name: string, value: string) {
         <div class="preview-header">
           <span class="preview-title">{{ unit?.title || '提示词预览' }}</span>
           <span class="preview-meta">
-            <span v-if="unit?.tags?.length" class="tag" v-for="t in unit.tags.slice(0,3)" :key="t">#{{ t }}</span>
+            <span v-if="unit?.tags?.length" class="tag" v-for="t in (unit?.tags || []).slice(0,3)" :key="t">#{{ t }}</span>
           </span>
         </div>
         <div class="preview-body">{{ preview }}</div>
