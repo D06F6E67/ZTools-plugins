@@ -8,6 +8,7 @@ on:
       - 'scripts/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.bun-version'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -107,7 +108,7 @@ jobs:
 
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head"
+          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/merge"
           git checkout --force FETCH_HEAD
           git clean -ffdx
 
