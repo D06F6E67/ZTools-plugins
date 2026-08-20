@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, markRaw, watch, onMounted } from 'vue'
+import { ref, computed, markRaw, watch, onMounted, nextTick } from 'vue'
 import SettingLayout from '../components/SettingLayout.vue'
 import type { NavItem } from '../components/SettingLayout.vue'
 import Settings from '../views/Settings.vue'
@@ -43,6 +43,41 @@ function onHistory(item: HistoryEmitItem) {
   pushHistory(item)
 }
 
+/**
+ * 识别并翻译联动：Recognize 文字识别成功后上抛识别文字，
+ * 切到「翻译」tab 并预填原文、重建 Translate 实例触发一次翻译
+ * （:key 含 enterSeq，重建后 initialText watcher 立即 run，即使文本相同也重跑）。
+ */
+function onOcrToTranslate(text: string) {
+  if (!text) return
+  initialText.value = text
+  // 清空 ocrText：自动联动走重建实例 + initialText watch 预填，
+  // 不再让下方 watch(activeKey) 二次 applyText（避免新实例就绪前后重复翻译）。
+  ocrText.value = ''
+  activeKey.value = 'translate'
+  enterSeq.value++
+}
+
+/**
+ * Recognize 文字识别成功后同步当前识别文本：供用户手动切到「翻译」tab 时带入。
+ * 与 onOcrToTranslate（translateAfterOcr 自动联动、重建实例）不同：
+ * 此处仅暂存文本，不切 tab、不重建，等用户手动切到翻译 tab 时由
+ * watch(activeKey) 调用 Translate 实例的 applyText 预填（保留已有翻译结果）。
+ */
+const ocrText = ref('')
+function onOcrTextResult(text: string) {
+  ocrText.value = text
+}
+
+/**
+ * Translate 组件实例引用：用于手动切 tab 时调用其 applyText 预填 OCR 文本。
+ * .vue 的模块声明丢失 defineExpose 类型，故用本地接口约束可见方法。
+ */
+interface TranslateExposed {
+  applyText: (text: string) => void
+}
+const translateRef = ref<TranslateExposed | null>(null)
+
 const activeKey = ref('settings')
 
 // 识别页当前模式（由 Recognize 上报）：公式模式下底部悬浮栏左对齐，
@@ -71,6 +106,12 @@ const initialMode = ref<'text' | 'formula'>('text')
  * 截图结果留在主窗口内展示，不再弹独立窗口。
  */
 const autoCapture = ref(false)
+/**
+ * 进入即识别完成并自动翻译（screen-ocr-translate / ocr-translate feature）。
+ * 仅这两个「识别并翻译」入口置 true，由 Recognize 在文字识别成功后上抛 translate 事件，
+ * 本容器接收后切到「翻译」tab 并预填识别文字、触发一次翻译。
+ */
+const autoTranslateAfterOcr = ref(false)
 // 组件重建 key：每次进入递增，强制 <component> 卸载旧实例、挂载全新实例。
 const enterSeq = ref(0)
 
@@ -126,6 +167,8 @@ watch(
     initialText.value = ''
     initialMode.value = 'text'
     autoCapture.value = false
+    autoTranslateAfterOcr.value = false
+    ocrText.value = ''
     // 截图识别 feature：进入「OCR 识别」并自动触发截屏，结果留主窗口内展示
     if (action.code === 'screen-ocr' || action.code === 'screen-latex') {
       initialMode.value = action.code === 'screen-latex' ? 'formula' : 'text'
@@ -134,11 +177,25 @@ watch(
       enterSeq.value++
       return
     }
+    // 截图识别并翻译 feature：进入「OCR 识别」+ 文字模式 + 自动截屏 + 识别完成自动翻译
+    if (action.code === 'screen-ocr-translate') {
+      initialMode.value = 'text'
+      activeKey.value = 'recognize'
+      autoCapture.value = true
+      autoTranslateAfterOcr.value = true
+      enterSeq.value++
+      return
+    }
     if (action.type === 'img' || action.type === 'files') {
       const img = extractImage(action)
       if (img) {
-        // latex-recognize feature → 公式模式；其它 → 文字模式
-        initialMode.value = action.code === 'latex-recognize' ? 'formula' : 'text'
+        // 模式判定：latex-recognize → 公式；ocr-translate → 文字 + 识别后翻译；其它 → 文字
+        if (action.code === 'ocr-translate') {
+          initialMode.value = 'text'
+          autoTranslateAfterOcr.value = true
+        } else {
+          initialMode.value = action.code === 'latex-recognize' ? 'formula' : 'text'
+        }
         activeKey.value = 'recognize'
         initialImage.value = img
         enterSeq.value++
@@ -157,6 +214,22 @@ watch(
   },
   { immediate: true }
 )
+
+/**
+ * 用户手动切到「翻译」tab 时，若当前有 OCR 识别结果，带入翻译输入框。
+ * 走 translateRef.applyText 而非重建实例：保留翻译 tab 已有的译文/渠道等状态，
+ * 仅预填原文并触发一次翻译（applyText 内已 suppress 自动翻译避免重复）。
+ * 自动联动场景（translateAfterOcr）已在 onOcrToTranslate 中清空 ocrText 并重建实例，
+ * 此处不会二次触发。
+ */
+watch(activeKey, (key) => {
+  if (key !== 'translate') return
+  if (!ocrText.value) return
+  // 下一 tick 确保 keep-alive 缓存实例已激活、translateRef 已绑定
+  nextTick(() => {
+    translateRef.value?.applyText(ocrText.value)
+  })
+})
 
 onMounted(() => {
   // 读取 plugin.json 中的 native / nativeLatex 版本号用于侧边栏展示
@@ -190,13 +263,17 @@ onMounted(() => {
       :initial-image="initialImage"
       :initial-mode="initialMode"
       :auto-capture="autoCapture"
+      :translate-after-ocr="autoTranslateAfterOcr"
       @mode-change="onRecognizeModeChange"
       @history="onHistory"
+      @translate="onOcrToTranslate"
+      @text-result="onOcrTextResult"
     />
   </KeepAlive>
   <KeepAlive>
     <Translate
       v-if="activeKey === 'translate'"
+      ref="translateRef"
       :key="'translate-' + enterSeq"
       :initial-text="initialText"
       @history="onHistory"

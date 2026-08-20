@@ -6,6 +6,77 @@ const http = require('node:http')
 const crypto = require('node:crypto')
 const { URL } = require('node:url')
 
+// ─── multipart/form-data body 构造（图床文件上传用）──────────────────────────
+// 手搓 boundary 拼装，避免引入第三方 form-data 包。
+//   fields：字符串键值对（如 { storage_destination: 'r2' }）
+//   files ：{ key: { filename, contentType, data: Buffer } }
+// 返回可直接作为 HTTP body 写出的完整 Buffer。
+function _buildMultipartBody(boundary, multipart) {
+  const parts = []
+  const enc = (s) => Buffer.from(s, 'utf8')
+  if (multipart.fields) {
+    for (const [k, v] of Object.entries(multipart.fields)) {
+      parts.push(enc(
+        '--' + boundary + '\r\n' +
+        'Content-Disposition: form-data; name="' + k + '"\r\n\r\n' +
+        String(v) + '\r\n'
+      ))
+    }
+  }
+  if (multipart.files) {
+    for (const [k, f] of Object.entries(multipart.files)) {
+      const fn = (f && f.filename) || 'upload.bin'
+      const ct = (f && f.contentType) || 'application/octet-stream'
+      const data = f && f.data
+      if (!Buffer.isBuffer(data)) continue
+      parts.push(enc(
+        '--' + boundary + '\r\n' +
+        'Content-Disposition: form-data; name="' + k + '"; filename="' + fn + '"\r\n' +
+        'Content-Type: ' + ct + '\r\n\r\n'
+      ))
+      parts.push(data)
+      parts.push(enc('\r\n'))
+    }
+  }
+  parts.push(enc('--' + boundary + '--\r\n'))
+  return Buffer.concat(parts)
+}
+
+// ─── 图床适配器注册表（可扩展）─────────────────────────────────────────────
+// 每个图床一个对象：{ name, description, upload(buf, ext, mime) -> { url } }。
+// upload 内 this 绑定为 services，可复用 this._httpRequest（代理/重定向/超时统一）。
+// 后续新增图床只需在此表加一项 + ImageHostType 联合类型扩一项即可。
+const IMAGE_HOST_ADAPTORS = {
+  'img-scdn': {
+    name: 'img.scdn.io',
+    description: '免鉴权图床，支持 Cloudflare R2 存储（storage_destination=r2）',
+    // buf: 图片二进制 Buffer；ext/mime 用于 multipart 文件头。返回 { url }。
+    async upload(buf, ext, mime) {
+      const filename = 'upload.' + (ext || 'png')
+      const resp = await this._httpRequest('POST', 'https://img.scdn.io/api/v1.php', {
+        multipart: {
+          fields: { storage_destination: 'r2' },
+          files: { image: { filename, contentType: mime, data: buf } }
+        },
+        timeoutMs: 30000
+      })
+      if (resp.status >= 400) {
+        throw new Error('img.scdn.io 上传失败：HTTP ' + resp.status)
+      }
+      let json
+      try { json = JSON.parse(resp.body) }
+      catch (e) {
+        throw new Error('img.scdn.io 返回非 JSON：' + String(resp.body).slice(0, 200))
+      }
+      if (!json || !json.success || !json.url) {
+        const msg = (json && (json.message || json.error)) ? (json.message || json.error) : 'img.scdn.io 未返回 url'
+        throw new Error(msg)
+      }
+      return { url: json.url }
+    }
+  }
+}
+
 // GitHub Release 下载加速镜像列表（竞速选最快）。
 // 对 github.com 域名的下载 URL，并发请求各镜像，谁先返回响应头即胜出，
 // 全部失败/超时则回退原始 URL 直连，保证不卡死。
@@ -1026,6 +1097,13 @@ async _httpRequest(method, url, opts) {
       bodyBuf = Buffer.from(new URLSearchParams(opts.form).toString(), 'utf8')
       headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded'
       headers['Content-Length'] = bodyBuf.length
+    } else if (opts.multipart !== undefined) {
+      // multipart/form-data 文件上传（图床用）：手搓 boundary，
+      // 由 _buildMultipartBody 拼装 fields + 文件 Buffer 为完整 body。
+      const boundary = '----ztools' + crypto.randomBytes(8).toString('hex')
+      bodyBuf = _buildMultipartBody(boundary, opts.multipart)
+      headers['Content-Type'] = headers['Content-Type'] || ('multipart/form-data; boundary=' + boundary)
+      headers['Content-Length'] = bodyBuf.length
     } else if (opts.body !== undefined) {
       bodyBuf = Buffer.from(String(opts.body), 'utf8')
       headers['Content-Length'] = bodyBuf.length
@@ -1155,7 +1233,12 @@ getTranslateSettings(provider) {
     baidu: { appID: '', appKey: '' },
     google: {},
     youdao: { appKey: '', appSecret: '' },
-    microsoft: { requestMode: 'signature' } // 'signature' | 'edge'
+    microsoft: { requestMode: 'signature' }, // 'signature' | 'edge'
+    // AI 翻译：复用宿主已配置的 AI 模型（走 ztools.ai），此处只存模型选择与 prompt 模板，不存密钥。
+    'ai-translation': {
+      model: '',
+      systemPrompt: '你是一个专业翻译。将用户输入翻译成 {to}，只输出译文，不要解释或附加说明。'
+    }
   }
   const base = defaults[provider] || {}
   const stored = window.ztools.dbStorage.getItem('translate.' + provider) || {}
@@ -1170,6 +1253,84 @@ getTranslateSettings(provider) {
 setTranslateSettings(provider, data) {
   data = data || {}
   window.ztools.dbStorage.setItem('translate.' + provider, data)
+},
+
+// 读某 OCR provider 的设置（合并默认值）。现有 ocr 无配置，
+// ai-ocr 与 ai-latex-ocr 复用宿主 AI 视觉模型，需模型选择与 prompt 模板（不存密钥）。
+getOcrSettings(provider) {
+  const defaults = {
+    'ai-ocr': {
+      model: '',
+      systemPrompt: '识别图片中的所有文字，按原文逐行输出，只输出识别到的文字，不要解释或附加说明。'
+    },
+    'ai-latex-ocr': {
+      model: '',
+      systemPrompt: '识别图片中的数学公式并输出对应的 LaTeX 源码。只输出 LaTeX 代码，不要用 $ 或 $$ 包裹，不要解释或附加说明。'
+    }
+  }
+  const base = defaults[provider] || {}
+  const stored = window.ztools.dbStorage.getItem('ocr.' + provider) || {}
+  return Object.assign({}, base, stored)
+},
+
+// 写某 OCR provider 的设置到 ztools.dbStorage。
+setOcrSettings(provider, data) {
+  data = data || {}
+  window.ztools.dbStorage.setItem('ocr.' + provider, data)
+},
+
+// ─── 图床（AI 识图/公式识别的图片上传通道，可扩展）─────────────────────────
+// 配置存 dbStorage key 'ocr.image-host'，ai-ocr 与 ai-latex-ocr 共用。
+// 默认 enabled=true：升级即生效；关闭或上传失败由 ocrAi/latexAi 回退 base64 直传。
+getImageHostSettings() {
+  const defaults = { enabled: true, type: 'img-scdn' }
+  const stored = window.ztools.dbStorage.getItem('ocr.image-host') || {}
+  return Object.assign({}, defaults, stored)
+},
+
+setImageHostSettings(data) {
+  data = data || {}
+  window.ztools.dbStorage.setItem('ocr.image-host', data)
+},
+
+// 把图片上传到已启用图床，返回可访问 URL；关闭/未知类型/上传失败返回 null。
+// image 可为 本地路径 / data URI / http(s) URL；已是 URL 直接原样返回不二次转存。
+async uploadImage(image) {
+  if (!image) return null
+  const cfg = this.getImageHostSettings()
+  if (!cfg || !cfg.enabled) { console.debug('[image-host] disabled, skip'); return null }
+  const adapter = IMAGE_HOST_ADAPTORS[cfg.type]
+  if (!adapter) { console.debug('[image-host] unknown type, skip:', cfg.type); return null }
+  // 已是 http(s) URL（如已有图床链接或网络图片），图床无需二次转存，直接返回。
+  if (/^https?:\/\//i.test(image)) { console.debug('[image-host] http(s) url passthrough'); return image }
+  // 归一化为 { buf, ext, mime }
+  let buf, ext, mime
+  const mimeMap = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml'
+  }
+  if (/^data:/i.test(image)) {
+    const m = /^data:([^;]+);base64,/i.exec(image)
+    mime = (m && m[1]) || 'image/png'
+    ext = (mime.split('/')[1] || 'png').replace('svg+xml', 'svg').toLowerCase()
+    buf = Buffer.from(image.split(',')[1] || '', 'base64')
+  } else {
+    // 本地路径：读取二进制，按扩展名推断 mime。
+    buf = fs.readFileSync(image)
+    ext = (path.extname(image).replace(/^\./, '').toLowerCase()) || 'png'
+    mime = mimeMap[ext] || 'image/png'
+  }
+  console.debug('[image-host] uploading', { type: cfg.type, ext, mime, bytes: buf.length })
+  const t0 = Date.now()
+  try {
+    const out = await adapter.upload.call(this, buf, ext, mime)
+    const url = (out && out.url) || null
+    console.debug('[image-host] upload ok', { ms: Date.now() - t0, urlLen: url ? url.length : 0 })
+    return url
+  } catch (e) {
+    console.warn('[image-host] upload failed (' + (Date.now() - t0) + 'ms), fallback to base64:', e && e.message ? e.message : e)
+    return null
+  }
 },
 
 // 把中性语言码映射到 provider 自家码；不支持的语种返回 null。
@@ -1358,7 +1519,135 @@ async translateMicrosoft(text, from, to) {
     throw new Error('微软翻译返回异常: ' + resp.body.slice(0, 200))
   }
   return { text: arr[0].translations[0].text, detectedFrom: from }
+  },
+
+// ─── AI 翻译 / AI OCR（走宿主 ztools.ai）─────────────────────────────────
+// 复用宿主已配置的 AI 模型，本插件不存 apiKey/baseUrl，仅存模型选择与 prompt 模板。
+// ztools.ai 非流式返回 { content, reasoning_content? }；system 提示须放进 messages[0]。
+// 注意：handler 内 this 不是 services，故这两个方法经 window.services.xxx 调用时，
+// 内部若要读配置须用 this.getTranslateSettings / this.getOcrSettings（与其它翻译方法一致）。
+
+// AI 翻译：input { text, from?, to? } -> { text, detectedFrom? }
+// model 留空则 ztools.ai 自动按宿主已启用供应商顺序选首个模型；prompt 模板支持 {from}/{to} 占位。
+async translateAi(text, from, to) {
+  if (!to) to = this._resolveDefaultTargetLang(text) // 未指定目标语言时按内容推断（中→英，其余→中）
+  const { model, systemPrompt } = this.getTranslateSettings('ai-translation')
+  const prompt = (systemPrompt || '')
+    .replace(/\{from\}/g, from && from !== 'auto' ? from : '自动检测')
+    .replace(/\{to\}/g, to)
+  const res = await window.ztools.ai({
+    model: model || undefined,
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user', content: text || '' }
+    ]
+  })
+  const out = (res && res.content ? String(res.content) : '').trim()
+  if (!out) throw new Error('AI 翻译返回为空，请检查 ZTools AI 模型配置')
+  return { text: out, detectedFrom: from }
+},
+
+// AI OCR：input { image, lang? } -> { text, blocks?, confidence? }
+// image 可为 本地路径 / data URI / http(s) URL：本地路径经 readFileAsDataURL 转 data URI 后传入。
+// 必须选择支持视觉的模型，宿主不识别「视觉模型」概念，纯文本模型会由远端报错透传。
+async ocrAi(image, lang) {
+  const { model, systemPrompt } = this.getOcrSettings('ai-ocr')
+  if (!model) throw new Error('AI 识图未选择模型，请在「翻译/OCR 提供商」设置页选择支持视觉的模型')
+  if (!image) throw new Error('AI 识图未提供图片')
+  console.debug('[ai-ocr] start', { model, lang: lang || null, src: image.slice(0, 24) + (image.length > 24 ? '…(' + image.length + ')' : '') })
+  // 先走图床（开启时）拿可访问 URL，省 token 且防大图 base64 截断；
+  // 关闭 / 未知类型 / 上传失败时 uploadImage 返回 null，回退本地路径转 data URI。
+  let imageUrl = await this.uploadImage(image)
+  if (!imageUrl) {
+    if (!/^https?:\/\//i.test(image) && !/^data:/i.test(image)) {
+      imageUrl = this.readFileAsDataURL(image)
+      console.debug('[ai-ocr] image-host miss → local-path data URI', { dataUriLen: imageUrl.length })
+    } else {
+      imageUrl = image
+      console.debug('[ai-ocr] image-host miss → input passthrough', { kind: /^data:/i.test(image) ? 'data-uri' : 'http' })
+    }
+  } else {
+    console.debug('[ai-ocr] image-host hit', { urlLen: imageUrl.length })
   }
+  const t0 = Date.now()
+  const res = await window.ztools.ai({
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt || '识别图片中的所有文字，只输出识别到的文字。' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: lang ? `请识别这张图片中的文字（语言：${lang}）。` : '请识别这张图片中的所有文字。' },
+          { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
+        ]
+      }
+    ]
+  })
+  const out = (res && res.content ? String(res.content) : '').trim()
+  console.debug('[ai-ocr] ai done', { ms: Date.now() - t0, contentLen: out.length })
+  if (!out) throw new Error('AI 识图返回为空，请确认所选模型支持视觉输入')
+  return { text: out }
+},
+
+// AI 公式识别：input { image } -> { latex }
+// 复用宿主 AI 视觉模型（与 ocrAi 同机制），但走独立的 ai-latex-ocr 配置块
+// （独立 model + systemPrompt，prompt 要求输出 LaTeX 源码）。
+// image 可为 本地路径 / data URI / http(s) URL：本地路径经 readFileAsDataURL 转 data URI 后传入。
+// 防御性剔除 AI 可能误加的 markdown 代码块围栏与 $/$$ 包裹，保证 KaTeX 可直接渲染。
+async latexAi(image) {
+  const { model, systemPrompt } = this.getOcrSettings('ai-latex-ocr')
+  if (!model) throw new Error('AI 公式识别未选择模型，请在「翻译/OCR 提供商」设置页选择支持视觉的模型')
+  if (!image) throw new Error('AI 公式识别未提供图片')
+  console.debug('[ai-latex] start', { model, src: image.slice(0, 24) + (image.length > 24 ? '…(' + image.length + ')' : '') })
+  // 先走图床（开启时）拿可访问 URL；关闭/失败回退本地路径转 data URI（与 ocrAi 一致）。
+  let imageUrl = await this.uploadImage(image)
+  if (!imageUrl) {
+    if (!/^https?:\/\//i.test(image) && !/^data:/i.test(image)) {
+      imageUrl = this.readFileAsDataURL(image)
+      console.debug('[ai-latex] image-host miss → local-path data URI', { dataUriLen: imageUrl.length })
+    } else {
+      imageUrl = image
+      console.debug('[ai-latex] image-host miss → input passthrough', { kind: /^data:/i.test(image) ? 'data-uri' : 'http' })
+    }
+  } else {
+    console.debug('[ai-latex] image-host hit', { urlLen: imageUrl.length })
+  }
+  const t0 = Date.now()
+  const res = await window.ztools.ai({
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt || '识别图片中的数学公式并输出对应的 LaTeX 源码。只输出 LaTeX 代码，不要用 $ 或 $$ 包裹，不要解释或附加说明。' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '请识别这张图片中的数学公式并输出 LaTeX 源码。' },
+          { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }
+        ]
+      }
+    ]
+  })
+  let out = (res && res.content ? String(res.content) : '').trim()
+  console.debug('[ai-latex] ai done', { ms: Date.now() - t0, contentLen: out.length })
+  if (!out) throw new Error('AI 公式识别返回为空，请确认所选模型支持视觉输入')
+  const before = out.length
+  out = this._stripLatexFencing(out)
+  console.debug('[ai-latex] stripped fencing', { before, after: out.length })
+  return { latex: out }
+},
+
+// 剔除 AI 输出常见的 markdown 代码块围栏与 $/$$ 包裹，得到纯净 LaTeX 源码。
+// 处理：```latex\n...\n``` / ```\n...\n``` 围栏；首尾的 $$...$$ / $...$ 包裹。
+_stripLatexFencing(s) {
+  let t = String(s || '').trim()
+  // ```lang\n...\n``` 或 ```\n...\n```
+  const fence = t.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)\n```$/)
+  if (fence) t = fence[1].trim()
+  // 首尾 $$...$$
+  if (t.startsWith('$$') && t.endsWith('$$')) t = t.slice(2, -2).trim()
+  // 首尾 $...$（避免误伤 $ 内部含 $ 的情形：仅当首尾各恰好一个 $ 时剥离）
+  else if (t.startsWith('$') && t.endsWith('$') && t.length >= 2) t = t.slice(1, -1).trim()
+  return t
+}
 }
 
 // ─── 注册 Providers ──────────────────────────────────────────────────────
@@ -1367,13 +1656,6 @@ async translateMicrosoft(text, from, to) {
 ztools.registerProvider('ocr', async (input) => {
   const { image } = input || {}
   return await window.services.ocrRecognize(image)
-})
-
-// LaTeX 公式识别 OCR 契约（与 ocr 一致）：input { image } -> { text, blocks, confidence }
-// text 为识别出的 LaTeX 源码；blocks 为单元素数组（整段公式）。
-ztools.registerProvider('latex-ocr', async (input) => {
-  const { image } = input || {}
-  return await window.services.latexRecognize(image)
 })
 
 // 翻译契约（对齐宿主 TranslationInput/Output）：
@@ -1395,4 +1677,16 @@ ztools.registerProvider('youdao', async (input) => {
 ztools.registerProvider('microsoft', async (input) => {
   const { text, from, to } = input || {}
   return await window.services.translateMicrosoft(text, from, to)
+})
+
+// AI 翻译（走宿主 ztools.ai）：input { text, from?, to? } -> { text, detectedFrom? }
+ztools.registerProvider('ai-translation', async (input) => {
+  const { text, from, to } = input || {}
+  return await window.services.translateAi(text, from, to)
+})
+
+// AI 识图（走宿主 ztools.ai，需视觉模型）：input { image, lang? } -> { text }
+ztools.registerProvider('ai-ocr', async (input) => {
+  const { image, lang } = input || {}
+  return await window.services.ocrAi(image, lang)
 })

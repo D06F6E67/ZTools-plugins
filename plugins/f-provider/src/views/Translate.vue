@@ -41,32 +41,36 @@ const langOptions = [
   { label: '阿拉伯语', value: 'ar' }
 ]
 
-type ProviderName = 'baidu' | 'google' | 'youdao' | 'microsoft'
+type ProviderName = 'baidu' | 'google' | 'youdao' | 'microsoft' | 'ai-translation'
 
 const providerLabels: Record<ProviderName, string> = {
   baidu: '百度翻译',
   google: '谷歌翻译',
   youdao: '有道翻译',
-  microsoft: '微软翻译'
+  microsoft: '微软翻译',
+  'ai-translation': 'AI 翻译'
 }
 
 // 各 provider 对应的 services 方法名。
 const providerFnNames: Record<
   ProviderName,
-  'translateBaidu' | 'translateGoogle' | 'translateYoudao' | 'translateMicrosoft'
+  'translateBaidu' | 'translateGoogle' | 'translateYoudao' | 'translateMicrosoft' | 'translateAi'
 > = {
   baidu: 'translateBaidu',
   google: 'translateGoogle',
   youdao: 'translateYoudao',
-  microsoft: 'translateMicrosoft'
+  microsoft: 'translateMicrosoft',
+  'ai-translation': 'translateAi'
 }
 
 // 读取各 provider 配置状态，用于在 provider 选择器旁标注「已配置 / 免授权」。
+// AI 翻译复用宿主已配置的 AI 模型、无需密钥，始终视为可用（与设置页一致）。
 const providerConfigured = ref<Record<ProviderName, boolean>>({
   baidu: false,
   google: true,
   youdao: false,
-  microsoft: true
+  microsoft: true,
+  'ai-translation': true
 })
 function refreshProviderStatus() {
   try {
@@ -76,7 +80,8 @@ function refreshProviderStatus() {
       baidu: !!(b.appID && b.appKey),
       google: true,
       youdao: !!(y.appKey && y.appSecret),
-      microsoft: true
+      microsoft: true,
+      'ai-translation': true
     }
   } catch (_) {
     /* preload 缺失等异常：保持默认值，不阻塞 */
@@ -98,7 +103,32 @@ function pickDefaultProvider(): ProviderName {
   return order.find((p) => providerConfigured.value[p]) || 'microsoft'
 }
 
-const provider = ref<ProviderName>('microsoft')
+// ─── 上次使用的翻译渠道持久化（dbStorage，与历史记录同库） ──────────
+// 切换渠道后留存，下次进入自动复用；存储值失效（渠道被禁用/移除）时回落默认。
+const LAST_PROVIDER_KEY = 'translate.lastProvider'
+function loadLastProvider(): ProviderName | null {
+  try {
+    const v = window.ztools.dbStorage.getItem<string>(LAST_PROVIDER_KEY)
+    if (v && v in providerLabels && providerConfigured.value[v as ProviderName]) {
+      return v as ProviderName
+    }
+  } catch (_) {
+    /* dbStorage 不可用等异常：回落默认，不阻塞 */
+  }
+  return null
+}
+function saveLastProvider(p: ProviderName): void {
+  try {
+    window.ztools.dbStorage.setItem(LAST_PROVIDER_KEY, p)
+  } catch (_) {
+    /* 写入失败忽略，不影响翻译流程 */
+  }
+}
+
+// 初始化渠道：先刷新各 provider 配置状态，再回填上次使用的渠道；失效时回落默认。
+// 在 setup 期完成，确保挂载时 provider 已是最终值，避免 initialText 首翻用错渠道。
+refreshProviderStatus()
+const provider = ref<ProviderName>(loadLastProvider() || pickDefaultProvider())
 const sourceLang = ref('auto')
 const targetLang = ref('auto') // auto = 走 preload 自动推断（中→英 / 其余→中）
 const sourceText = ref('') // 左侧原文（可编辑）
@@ -235,7 +265,9 @@ watch([sourceText, sourceLang, targetLang], () => {
 })
 
 // 切换 provider：立即翻译（不 debounce），让用户即时看到效果
+// 用户切换渠道时留存记录，下次进入自动复用。
 watch(provider, () => {
+  saveLastProvider(provider.value)
   if (hasInput.value) run()
 })
 
@@ -249,16 +281,29 @@ watch(
   () => props.initialText,
   (text) => {
     if (!text) return
-    suppressAuto = true
-    sourceText.value = text
-    run()
+    applyText(text)
   },
   { immediate: true }
 )
 
+/**
+ * 预填原文并立即翻译一次。
+ * - 抑制由程序化赋值引发的下一次自动翻译，避免「立即 run + 1s 后又 run」双重翻译。
+ * - 允许相同文本重复触发（不依赖 watch 值变化），供父组件在用户手动切 tab 时
+ *   把 OCR 识别结果带入翻译输入框。
+ */
+function applyText(text: string) {
+  if (!text) return
+  suppressAuto = true
+  sourceText.value = text
+  run()
+}
+
+// 暴露给父组件：手动切到翻译 tab 时预填 OCR 识别结果（不受 watch 值比较限制）
+defineExpose({ applyText })
+
 onMounted(() => {
-  refreshProviderStatus()
-  provider.value = pickDefaultProvider()
+  // 渠道回填已在 setup 期完成，此处仅做首挂聚焦 + 窗口失焦/恢复监听。
   // 首次挂载聚焦原文输入框并全选，便于直接覆盖输入。
   // nextTick 确保 DOM（含 v-model 文本）已渲染完成后再 select。
   nextTick(focusAndSelectAll)
