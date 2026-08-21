@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.6.1
+
+- 修复 Codex 代理模式调用技能/多工具调用时报 "An assistant message with 'tool_calls' must be followed by tool messages"：连续 function_call 合并为单条 assistant 消息，并为缺失结果的 tool_call 兜底补齐 tool 消息（Chat / Anthropic 转换均已修复）
+- 修复 Codex 代理模式下 model_catalog_json 写成相对路径导致报 "AbsolutePathBuf deserialized without a base path"
+
 ## v1.6.0
 
 - 桌面小组件：当前供应商余额置顶小窗，默认显示余额/模型名/备注，默认深色主题

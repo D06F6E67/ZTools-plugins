@@ -102,6 +102,7 @@ class ZtoolsPreload {
         return r;
       },
       deleteProvider: ProviderStore.deleteProvider,
+      sortProviders: ProviderStore.sortProviders,
 
       // Switch
       switchProvider: function (appType: string, providerId: string) {

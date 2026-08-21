@@ -42,13 +42,32 @@ function writeJsonMcpServer(filePath: string, name: string, entryOrNull: ConfigE
   fs.writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf8');
 }
 
-function slugify(name: string): string {
+export function slugify(name: string): string {
   return (
     (name || 'mcp')
       .toLowerCase()
       .replace(/[^a-z0-9_]/g, '_')
       .replace(/^_+|_+$/g, '') || 'mcp'
   );
+}
+
+// slug 感知的配置条目查找：先精确匹配，再尝试按 codex 式 slug 匹配
+export function findEntryIn(
+  configServers: Record<string, ConfigEntry> | undefined,
+  name: string
+): ConfigEntry | null {
+  if (!configServers) return null
+  if (configServers[name]) return configServers[name]
+  const slug = slugify(name)
+  if (slug !== name && configServers[slug]) return configServers[slug]
+  return null
+}
+
+export function hasServer(
+  configServers: Record<string, ConfigEntry> | undefined,
+  name: string
+): boolean {
+  return findEntryIn(configServers, name) !== null
 }
 
 function removeTomlSection(text: string, tableNameRegex: string): string {

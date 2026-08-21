@@ -100,6 +100,17 @@ function deleteProvider(id: string): void {
   }
 }
 
+function sortProviders(orderedIds: string[]): boolean {
+  const tab = activeTab();
+  const prev = providers.value.slice();
+  const ok = getSkillNest().sortProviders(tab, orderedIds);
+  loadProviders();
+  if (!ok) {
+    providers.value = prev;
+  }
+  return ok;
+}
+
 function presetToProviderData(preset: any): Partial<Provider> {
   const tab = activeTab();
   const base: Partial<Provider> = {
@@ -220,6 +231,7 @@ export function useProviders() {
     switchProvider,
     saveProvider,
     deleteProvider,
+    sortProviders,
     copyProvider,
     importPreset,
     getFullProvider,

@@ -3,7 +3,7 @@
 // 纯编排：读写差异在各 agent 适配器（./adapters）中
 
 import { DataMigration } from '../../core/cleanup';
-import { ALL_APPS, getAdapter } from './adapters';
+import { ALL_APPS, findEntryIn, getAdapter, hasServer, slugify } from './adapters';
 import {
   AppMapping,
   ConfigEntry,
@@ -158,6 +158,15 @@ export class McpManager {
     Object.keys(McpManager._readTemplates()).forEach(function (n) {
       nameSet[n] = true;
     });
+    // 去重：配置键若是某原始名的 codex 式 slug（如 mcp_server_github ↔ mcp-server-github），保留原始名
+    const slugOwners: Record<string, string> = {};
+    Object.keys(nameSet).forEach(function (n) {
+      const s = slugify(n);
+      if (s !== n) slugOwners[s] = n;
+    });
+    Object.keys(slugOwners).forEach(function (s) {
+      if (nameSet[s]) delete nameSet[s];
+    });
     return Object.keys(nameSet);
   }
 
@@ -169,19 +178,20 @@ export class McpManager {
     });
     if (apps.length === 0) {
       ALL_APPS.forEach(function (app) {
-        if ((configs[app] || {})[name]) apps.push(app);
+        if (hasServer(configs[app], name)) apps.push(app);
       });
     }
     return apps;
   }
 
-  // 从配置文件中查找 server 定义
+  // 从配置文件中查找 server 定义（slug 感知）
   private static _findDef(name: string, configs: ConfigsMap): ConfigEntry | null {
     for (let i = 0; i < ALL_APPS.length; i++) {
-      const cfg = configs[ALL_APPS[i]];
-      if (cfg && cfg[name]) return cfg[name];
+      const found = findEntryIn(configs[ALL_APPS[i]], name);
+      if (found) return found;
     }
-    return McpManager._readTemplates()[name] || null;
+    const templates = McpManager._readTemplates();
+    return templates[name] || templates[slugify(name)] || null;
   }
 
   // ─────────── CRUD ───────────
@@ -308,7 +318,7 @@ export class McpManager {
     // 也从配置文件中移除（处理不在映射中但存在于配置文件的情况）
     const configs = McpManager._readAllConfigs();
     ALL_APPS.forEach(function (app) {
-      if ((configs[app] || {})[name]) McpManager._removeFromApp(app, name);
+      if (hasServer(configs[app], name)) McpManager._removeFromApp(app, name);
     });
 
     // 从 disabled 列表中移除
@@ -340,20 +350,35 @@ export class McpManager {
     const isDisabled = mapping.disabled.indexOf(name) !== -1;
 
     if (isDisabled) {
-      // 启用：从 disabled 移除 + 写入配置文件
+      // 启用：从 disabled 移除 + 写入配置文件，并清除禁用时保存的模板
       mapping.disabled = mapping.disabled.filter(function (n) {
         return n !== name;
       });
       McpManager._putMapping(mapping);
       const configs = McpManager._readAllConfigs();
       const def = McpManager._findDef(name, configs);
-      if (def)
+      if (def) {
         apps.forEach(function (app) {
           McpManager._writeToApp(app, name, def);
         });
+        if (apps.length > 0) {
+          const templates = McpManager._readTemplates();
+          if (templates[name]) {
+            delete templates[name];
+            McpManager._putTemplates(templates);
+          }
+        }
+      }
       return true;
     } else {
-      // 禁用：加入 disabled + 从配置文件移除
+      // 禁用：定义先保存到模板（防止丢失），再加入 disabled + 从配置文件移除
+      const configs = McpManager._readAllConfigs();
+      const def = McpManager._findDef(name, configs);
+      if (def) {
+        const templates = McpManager._readTemplates();
+        templates[name] = def;
+        McpManager._putTemplates(templates);
+      }
       mapping.disabled.push(name);
       McpManager._putMapping(mapping);
       apps.forEach(function (app) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
   // @ts-nocheck TODO: 逐步添加类型注解后移除
-  import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+  import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+  import { useDraggable } from 'vue-draggable-plus';
   import { useProviders } from '../composables/useProviders';
   import { useBalance } from '../composables/useBalance';
   import { useWidgets } from '../composables/useWidgets';
@@ -17,6 +18,7 @@
     switchProvider,
     saveProvider,
     deleteProvider,
+    sortProviders,
     copyProvider,
     getFullProvider
   } = useProviders();
@@ -29,6 +31,91 @@
   const currentProvider = computed(() => providers.value.find(p => p.isCurrent));
   const otherProviders = computed(() => providers.value.filter(p => !p.isCurrent));
 
+  // ── 其他供应商卡片拖拽排序 ──
+  const gridEl = ref(null);
+  const gridList = ref([]);
+  let dragSnapshot = [];
+  let dragging = false;
+  let escPressed = false;
+
+  function restoreGridOrder(): void {
+    const map = new Map(providers.value.map(p => [p.id, p]));
+    gridList.value = dragSnapshot.map(id => map.get(id)).filter(Boolean);
+  }
+
+  function persistSort(): void {
+    const cur = currentProvider.value;
+    const curId = cur ? cur.id : null;
+    const oldFullIds = providers.value.map(p => p.id);
+    const oldOtherIds = oldFullIds.filter(id => id !== curId);
+    const newOtherIds = gridList.value.map(p => p.id);
+    // 顺序无变化：不落库
+    if (oldOtherIds.join(',') === newOtherIds.join(',')) return;
+
+    const newFullIds = [];
+    if (!curId) {
+      newFullIds.push(...newOtherIds);
+    } else {
+      // 以旧完整顺序为骨架，把网格段替换为新顺序；当前激活项保持在其原索引位
+      const curIdx = oldFullIds.indexOf(curId);
+      let oi = 0;
+      oldFullIds.forEach((id, i) => {
+        if (i === curIdx) {
+          newFullIds.push(curId);
+        } else {
+          newFullIds.push(newOtherIds[oi++]);
+        }
+      });
+    }
+    if (!sortProviders(newFullIds)) {
+      message.error('排序保存失败');
+    }
+  }
+
+  const draggable = useDraggable(gridEl, gridList, {
+    immediate: false,
+    animation: 150,
+    draggable: '.drag-grid-item',
+    forceFallback: true,
+    ghostClass: 'drag-ghost',
+    chosenClass: 'drag-chosen',
+    dragClass: 'drag-following',
+    fallbackClass: 'drag-following',
+    revertOnSpill: true,
+    onStart: () => {
+      dragging = true;
+      escPressed = false;
+      dragSnapshot = gridList.value.map(p => p.id);
+    },
+    onEnd: evt => {
+      dragging = false;
+      const noChange = evt.newIndex === evt.oldIndex && evt.from === evt.to;
+      if (escPressed || noChange) {
+        escPressed = false;
+        restoreGridOrder();
+        return;
+      }
+      persistSort();
+    }
+  });
+
+  // 网格渲染/重建后初始化或重建拖拽（v-if 使元素可能销毁重建）
+  watch(
+    otherProviders,
+    val => {
+      gridList.value = val.slice();
+      if (!val.length) return;
+      nextTick(() => {
+        if (gridEl.value) draggable.start();
+      });
+    },
+    { immediate: true }
+  );
+
+  function onGridKeydown(e): void {
+    if (e.key === 'Escape' && dragging) escPressed = true;
+  }
+
   // FLIP 动画状态
   const flipStyle = ref({});
   const isFlipping = ref(false);
@@ -37,11 +124,13 @@
     loadProviders();
     init();
     refreshWidgetState();
+    document.addEventListener('keydown', onGridKeydown);
   });
 
   let flipTimer = null;
   onUnmounted(() => {
     if (flipTimer) clearTimeout(flipTimer);
+    document.removeEventListener('keydown', onGridKeydown);
     dispose();
   });
 
@@ -163,13 +252,13 @@
           />
         </div>
 
-        <div v-if="otherProviders.length" class="providers-section">
+        <div v-if="gridList.length" class="providers-section">
           <div class="section-label">
             <n-text depth="3">其他供应商</n-text>
-            <n-tag size="tiny" :bordered="false" round>{{ otherProviders.length }}</n-tag>
+            <n-tag size="tiny" :bordered="false" round>{{ gridList.length }}</n-tag>
           </div>
-          <n-grid :cols="2" :x-gap="8" :y-gap="8" responsive="screen" :item-responsive="true">
-            <n-gi v-for="p in otherProviders" :key="p.id" :span="1">
+          <div ref="gridEl" class="drag-grid">
+            <div v-for="p in gridList" :key="p.id" class="drag-grid-item">
               <ProviderCard
                 :provider="p"
                 compact
@@ -181,8 +270,8 @@
                 @delete="onDelete"
                 @refresh="onBalanceRefresh"
               />
-            </n-gi>
-          </n-grid>
+            </div>
+          </div>
         </div>
       </template>
     </div>
@@ -242,6 +331,35 @@
     color: var(--text-muted);
     padding-bottom: 6px;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Draggable grid（其他供应商） ── */
+  .drag-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .drag-grid-item {
+    min-width: 0;
+    height: 100%;
+  }
+  .drag-grid-item :deep(.provider-card) {
+    cursor: grab;
+  }
+  .drag-grid-item :deep(.provider-card:hover) {
+    cursor: grab !important;
+  }
+  :deep(.drag-chosen) {
+    cursor: grabbing !important;
+  }
+  :deep(.drag-ghost) {
+    opacity: 0.4;
+  }
+  :deep(.drag-following) {
+    opacity: 1 !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    cursor: grabbing !important;
+    z-index: 10000;
   }
 
   /* ── Hero card FLIP ── */

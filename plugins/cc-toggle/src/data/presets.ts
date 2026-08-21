@@ -60,7 +60,13 @@ const CLAUDE_DESKTOP_DEFAULTS = {
 
 // Generate Codex `config` TOML from structured fields
 function generateCodexConfig(p) {
-  const lines = [`model_provider = "custom"`, `model = "${p.model || ''}"`];
+  // provider 块名使用供应商名（configName 优先，回退到 provider 标识），并清洗为合法 TOML 键名
+  const providerKey =
+    (p.configName || p.provider || 'custom')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/^_+|_+$/g, '') || 'custom';
+  const lines = [`model_provider = "${providerKey}"`, `model = "${p.model || ''}"`];
   if (p.reviewModel) lines.push(`review_model = "${p.reviewModel}"`);
   if (!p.noReasoningEffort) {
     lines.push(`model_reasoning_effort = "${p.reasoningEffort || 'high'}"`);
@@ -75,7 +81,7 @@ function generateCodexConfig(p) {
     lines.push(`model_auto_compact_token_limit = ${p.contextWindow}`);
   }
   lines.push('');
-  lines.push('[model_providers.custom]');
+  lines.push(`[model_providers.${providerKey}]`);
   lines.push(`name = "${p.configName || p.provider}"`);
   lines.push(`base_url = "${p.baseUrl || ''}"`);
   lines.push(`wire_api = "${p.wireApi || 'responses'}"`);

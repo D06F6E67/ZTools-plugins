@@ -2,6 +2,7 @@
 // 数据清理 / 迁移逻辑（幂等，无需版本号）
 
 import * as cryptoApi from './crypto';
+import { hasServer } from '../agents/mcp/adapters';
 
 export class DataMigration {
   static cleanMcpMapping(mapping: any, configs: any, allApps: string[]): boolean {
@@ -9,10 +10,10 @@ export class DataMigration {
     allApps.forEach(function (app) {
       const configServers = configs[app] || {};
       mapping[app] = (mapping[app] || []).filter(function (name: string) {
-        if (configServers[name]) return true;
+        if (hasServer(configServers, name)) return true;
         if ((mapping.disabled || []).indexOf(name) !== -1) return true;
         for (let i = 0; i < allApps.length; i++) {
-          if (allApps[i] !== app && (configs[allApps[i]] || {})[name]) return true;
+          if (allApps[i] !== app && hasServer(configs[allApps[i]], name)) return true;
         }
         changed = true;
         return false;
