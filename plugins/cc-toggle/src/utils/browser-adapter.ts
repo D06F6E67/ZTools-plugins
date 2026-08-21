@@ -94,6 +94,8 @@ export function createBrowserApi() {
     saveProvider: (appType: string, data: any) => postApiSync('/provider', { appType, data }),
     deleteProvider: (appType: string, id: string) =>
       postApiSync('/provider-delete', { appType, id }),
+    sortProviders: (appType: string, orderedIds: string[]) =>
+      postApiSync('/provider-sort', { appType, orderedIds })?.success === true,
 
     // Switch
     switchProvider: (_appType: string, _id: string) => {

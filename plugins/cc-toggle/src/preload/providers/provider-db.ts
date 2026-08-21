@@ -24,7 +24,7 @@ export class ProviderStore {
     try {
       const profile = ProviderStore.ProfileStore.getActiveProfile();
       const appProviders = (profile.providers || {})[appType] || {};
-      return Object.keys(appProviders).map(function (id) {
+      const result = Object.keys(appProviders).map(function (id) {
         const p = appProviders[id];
         return {
           id: id,
@@ -45,6 +45,15 @@ export class ProviderStore {
           wireApi: p.wireApi || '',
           balance: p.balance || null
         };
+      });
+      // 按 (sortOrder, createdAt) 稳定排序；同值时保持对象键（插入）顺序
+      return result.sort(function (a: any, b: any) {
+        const sa = a.sortOrder || 0;
+        const sb = b.sortOrder || 0;
+        if (sa !== sb) return sa - sb;
+        const ca = a.createdAt || '';
+        const cb = b.createdAt || '';
+        return ca < cb ? -1 : ca > cb ? 1 : 0;
       });
     } catch (e) {
       return [];
@@ -225,7 +234,75 @@ export class ProviderStore {
       providers: providers
     });
 
+    // 新增/复制供应商：按 (sortOrder, createdAt) 全量重排归属，落在「原 sortOrder 为 0 的一批」之后
+    if (!existing) {
+      ProviderStore.renumberApp(appType);
+    }
+
     return { id: id, changed: true };
+  }
+
+  /** 按 (sortOrder, createdAt) 稳定排序后将该 App 全部供应商重编号为连续 0..n-1 */
+  private static renumberApp(appType: string): void {
+    try {
+      const profile = ProviderStore.ProfileStore.getActiveProfile();
+      const appProviders = Object.assign({}, (profile.providers || {})[appType] || {});
+      const entries = Object.keys(appProviders)
+        .map(function (id) {
+          return { id: id, p: appProviders[id] };
+        })
+        .sort(function (a, b) {
+          const sa = a.p.sortOrder || 0;
+          const sb = b.p.sortOrder || 0;
+          if (sa !== sb) return sa - sb;
+          const ca = a.p.createdAt || '';
+          const cb = b.p.createdAt || '';
+          return ca < cb ? -1 : ca > cb ? 1 : 0;
+        });
+      const renumbered: Record<string, any> = {};
+      entries.forEach(function (entry, idx) {
+        renumbered[entry.id] = Object.assign({}, entry.p, { sortOrder: idx });
+      });
+      const providers = Object.assign({}, profile.providers || {});
+      providers[appType] = renumbered;
+      ProviderStore.ProfileStore.saveProfile({
+        id: profile.id,
+        name: profile.name,
+        createdAt: profile.createdAt,
+        providers: providers
+      });
+    } catch (e) {}
+  }
+
+  /**
+   * 按给定 id 顺序为同 App 供应商重编号连续 sortOrder（0..n-1）。
+   * 只改 sortOrder，不动 isCurrent / 配置 / 代理状态。返回是否成功。
+   */
+  static sortProviders(appType: string, orderedIds: string[]): boolean {
+    try {
+      const profile = ProviderStore.ProfileStore.getActiveProfile();
+      const appProviders = Object.assign({}, (profile.providers || {})[appType] || {});
+      const seen = new Set(orderedIds);
+      // 兜底：orderedIds 未覆盖的供应商追加到尾部（防御性，正常不会发生）
+      const fullOrder = [...orderedIds, ...Object.keys(appProviders).filter(id => !seen.has(id))];
+      const renumbered: Record<string, any> = {};
+      fullOrder.forEach(function (id, idx) {
+        if (appProviders[id]) {
+          renumbered[id] = Object.assign({}, appProviders[id], { sortOrder: idx });
+        }
+      });
+      const providers = Object.assign({}, profile.providers || {});
+      providers[appType] = renumbered;
+      ProviderStore.ProfileStore.saveProfile({
+        id: profile.id,
+        name: profile.name,
+        createdAt: profile.createdAt,
+        providers: providers
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   static deleteProvider(appType: string, providerId: string): boolean {

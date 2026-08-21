@@ -2,7 +2,7 @@
   "name": "cc-toggle",
   "title": "cc-toggle",
   "description": "一键切换供应商：为 Codex、Claude、Gemini、OpenCode、OpenClaw 等主流 AI CLI 工具管理多套 API 配置，点击即可切换 baseUrl、模型、密钥等参数，无需手动改配置文件。",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "main": "index.html",
   "logo": "logo.png",
   "preload": "preload/preload.js",

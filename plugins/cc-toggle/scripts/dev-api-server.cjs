@@ -195,6 +195,15 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { success: true });
     }
 
+    if (pathname === '/api/provider-sort' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.appType || !Array.isArray(body.orderedIds)) {
+        return sendError(res, 'appType and orderedIds required');
+      }
+      const ok = ProviderStore.sortProviders(body.appType, body.orderedIds);
+      return sendJson(res, { success: ok });
+    }
+
     if (pathname === '/api/provider/current') {
       const appType = url.searchParams.get('appType');
       if (!appType) return sendError(res, 'appType required');

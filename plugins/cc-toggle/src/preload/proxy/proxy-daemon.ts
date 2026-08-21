@@ -558,6 +558,31 @@ function forward(member, req, res, attemptsLeft, reqBody, reasoningStripped) {
                 role: 'assistant',
                 content: content
               });
+              // 兜底：强制补全 Responses 格式 usage，否则 Codex 解析 ResponseCompleted 报
+              // "missing field input_tokens"。state.responseJson.usage 可能缺失或为 chat 旧格式。
+              var _u = state.responseJson.usage;
+              state.responseJson.usage =
+                _u && typeof _u === 'object'
+                  ? {
+                      input_tokens:
+                        Number(_u.input_tokens != null ? _u.input_tokens : _u.prompt_tokens) || 0,
+                      input_tokens_details: {
+                        cached_tokens:
+                          Number(
+                            _u.input_tokens_details && _u.input_tokens_details.cached_tokens != null
+                              ? _u.input_tokens_details.cached_tokens
+                              : _u.prompt_tokens_details && _u.prompt_tokens_details.cached_tokens != null
+                                ? _u.prompt_tokens_details.cached_tokens
+                                : _u.cache_read_input_tokens != null
+                                  ? _u.cache_read_input_tokens
+                                  : 0
+                          ) || 0
+                      },
+                      output_tokens:
+                        Number(_u.output_tokens != null ? _u.output_tokens : _u.completion_tokens) || 0,
+                      total_tokens: Number(_u.total_tokens) || 0
+                    }
+                  : { input_tokens: 0, output_tokens: 0 };
               res.write('event: response.completed\n');
               res.write(
                 'data: ' +

@@ -36,6 +36,31 @@ function extractContentFromChat(choice) {
   };
 }
 
+// 兜底：为没有得到 tool 结果的 tool_call 补一条空 tool 消息。
+// 中断 / 历史压缩可能产生悬空的 function_call，严格校验的上游
+// （DeepSeek 等）会直接 400："must be followed by tool messages"。
+function repairToolCallMessages(messages) {
+  for (var i = 0; i < messages.length; i++) {
+    var m = messages[i];
+    if (m.role !== 'assistant' || !Array.isArray(m.tool_calls) || !m.tool_calls.length) continue;
+    var answered = {};
+    var j = i + 1;
+    while (j < messages.length && messages[j].role === 'tool') {
+      answered[messages[j].tool_call_id] = true;
+      j++;
+    }
+    var missing = m.tool_calls.filter(function (tc) {
+      return !answered[tc.id];
+    });
+    if (missing.length) {
+      var patch = missing.map(function (tc) {
+        return { role: 'tool', tool_call_id: tc.id, content: '(no output)' };
+      });
+      messages.splice.apply(messages, [j, 0].concat(patch));
+    }
+  }
+}
+
 // 角色映射：Codex Responses 可能出现 developer 角色，OpenAI Chat / Anthropic 不支持
 function mapRoleForChat(role) {
   if (role === 'developer') return 'system';
@@ -47,6 +72,32 @@ function mapRoleForAnthropic(role) {
   // Anthropic messages 仅支持 user / assistant；system 单独字段处理
   if (role === 'assistant') return 'assistant';
   return 'user';
+}
+
+// 将上游 chat / anthropic 的 usage 归一化为 Responses API 格式。
+// 关键：Responses API 的 usage 必须包含 input_tokens / output_tokens，
+// 否则 Codex 客户端解析 ResponseCompleted 时会报 "missing field input_tokens"。
+function normalizeResponsesUsage(u) {
+  if (!u || typeof u !== 'object') return { input_tokens: 0, output_tokens: 0 }
+  var input = Number(u.input_tokens != null ? u.input_tokens : u.prompt_tokens) || 0
+  var output = Number(u.output_tokens != null ? u.output_tokens : u.completion_tokens) || 0
+  var cached =
+    Number(
+      u.input_tokens_details && u.input_tokens_details.cached_tokens != null
+        ? u.input_tokens_details.cached_tokens
+        : u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens != null
+          ? u.prompt_tokens_details.cached_tokens
+          : u.cache_read_input_tokens != null
+            ? u.cache_read_input_tokens
+            : 0
+    ) || 0
+  var total = Number(u.total_tokens) || input + output
+  return {
+    input_tokens: input,
+    input_tokens_details: { cached_tokens: cached },
+    output_tokens: output,
+    total_tokens: total
+  }
 }
 
 // ── Responses API → Chat Completions（请求转换） ──
@@ -64,17 +115,20 @@ function responsesToChat(body, model) {
         if (c) messages.push({ role: mapRoleForChat(item.role), content: c });
       } else if (item.type === 'function_call') {
         // 助手发起的工具调用 → Chat 的 assistant.tool_calls
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: [
-            {
-              id: item.call_id || item.id || '',
-              type: 'function',
-              function: { name: item.name || '', arguments: item.arguments || '' }
-            }
-          ]
-        });
+        // 多个连续 function_call 必须合并进同一条 assistant 消息：
+        // 拆成多条时前一条的 tool_calls 未紧跟对应 tool 消息，
+        // DeepSeek 等严格上游会报 "must be followed by tool messages"。
+        var tc = {
+          id: item.call_id || item.id || '',
+          type: 'function',
+          function: { name: item.name || '', arguments: item.arguments || '' }
+        };
+        var lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && Array.isArray(lastMsg.tool_calls)) {
+          lastMsg.tool_calls.push(tc);
+        } else {
+          messages.push({ role: 'assistant', content: null, tool_calls: [tc] });
+        }
       } else if (item.type === 'function_call_output') {
         // 工具执行结果 → Chat 的 tool 消息，缺失会导致多轮工具对话断裂
         var out = item.output;
@@ -89,6 +143,7 @@ function responsesToChat(body, model) {
       }
     });
   }
+  repairToolCallMessages(messages);
   var chatReq = {
     model: model || body.model || 'gpt-4o',
     messages: messages,
@@ -287,6 +342,7 @@ function sseChatToResponses(raw, respId, state) {
           role: 'assistant',
           content: content
         });
+        state.responseJson.usage = normalizeResponsesUsage(state.responseJson.usage);
         lines.push('event: response.completed');
         lines.push(
           'data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson })
@@ -297,6 +353,12 @@ function sseChatToResponses(raw, respId, state) {
     }
     try {
       var d = JSON.parse(payload);
+      // usage 常在最后一个无 choices 的 chunk 中返回（include_usage=true），
+      // 必须在 early-return 之前捕获，否则会被整体丢弃。
+      if (d.usage) {
+        state.responseJson = state.responseJson || {};
+        state.responseJson.usage = normalizeResponsesUsage(d.usage);
+      }
       if (!d.choices || !d.choices.length) return;
       var choice = d.choices[0];
       var info = extractContentFromChat(choice);
@@ -491,7 +553,7 @@ function chatToResponses(chatResp, model) {
     created_at: Math.floor(Date.now() / 1000),
     status: 'completed',
     model: model || chatResp.model || '',
-    usage: chatResp.usage || {},
+    usage: normalizeResponsesUsage(chatResp.usage),
     output: []
   };
   if (chatResp.choices && chatResp.choices.length) {
@@ -529,6 +591,45 @@ function chatToResponses(chatResp, model) {
   return resp;
 }
 
+// 兜底：为没有得到 tool_result 的 tool_use 补一条 user.tool_result 消息。
+// Anthropic 要求每个 tool_use 都有对应 tool_result，且消息角色必须交替。
+function repairAnthropicToolUse(messages) {
+  for (var i = 0; i < messages.length; i++) {
+    var m = messages[i];
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    var uses = m.content.filter(function (b) {
+      return b && b.type === 'tool_use';
+    });
+    if (!uses.length) continue;
+    var answered = {};
+    var j = i + 1;
+    while (
+      j < messages.length &&
+      messages[j].role === 'user' &&
+      Array.isArray(messages[j].content) &&
+      messages[j].content.every(function (b) {
+        return b && b.type === 'tool_result';
+      })
+    ) {
+      messages[j].content.forEach(function (b) {
+        answered[b.tool_use_id] = true;
+      });
+      j++;
+    }
+    var missing = uses.filter(function (b) {
+      return !answered[b.id];
+    });
+    if (missing.length) {
+      messages.splice(j, 0, {
+        role: 'user',
+        content: missing.map(function (b) {
+          return { type: 'tool_result', tool_use_id: b.id, content: '(no output)' };
+        })
+      });
+    }
+  }
+}
+
 // ── Responses API → Anthropic Messages（请求转换） ──
 function responsesToAnthropic(body, model) {
   var system = body.instructions || '';
@@ -547,23 +648,25 @@ function responsesToAnthropic(body, model) {
         }
       } else if (item.type === 'function_call') {
         // 助手工具调用 → Anthropic assistant.tool_use 块
+        // 连续 function_call 合并进同一条 assistant 消息（Anthropic 要求角色交替）
         var input = {};
         try {
           input = item.arguments ? JSON.parse(item.arguments) : {};
         } catch (e) {
           input = {};
         }
-        messages.push({
-          role: 'assistant',
-          content: [
-            {
-              type: 'tool_use',
-              id: item.call_id || item.id || '',
-              name: item.name || '',
-              input: input
-            }
-          ]
-        });
+        var block = {
+          type: 'tool_use',
+          id: item.call_id || item.id || '',
+          name: item.name || '',
+          input: input
+        };
+        var lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && Array.isArray(lastMsg.content)) {
+          lastMsg.content.push(block);
+        } else {
+          messages.push({ role: 'assistant', content: [block] });
+        }
       } else if (item.type === 'function_call_output') {
         // 工具结果 → Anthropic user.tool_result 块
         var out = item.output;
@@ -583,6 +686,7 @@ function responsesToAnthropic(body, model) {
       }
     });
   }
+  repairAnthropicToolUse(messages);
   var anthReq = {
     model: model || body.model || 'claude-sonnet-4-20250514',
     messages: messages,
@@ -708,7 +812,7 @@ function sseAnthropicToResponses(raw, respId, state) {
           }
         }
       } else if (d.type === 'message_delta') {
-        if (d.usage) state.responseJson.usage = d.usage;
+        if (d.usage) state.responseJson.usage = normalizeResponsesUsage(d.usage);
       } else if (d.type === 'message_stop') {
         if (state.text) {
           lines.push('event: response.output_text.done');
@@ -778,6 +882,7 @@ function sseAnthropicToResponses(raw, respId, state) {
             role: 'assistant',
             content: content
           });
+          state.responseJson.usage = normalizeResponsesUsage(state.responseJson.usage);
           lines.push('event: response.completed');
           lines.push(
             'data: ' + JSON.stringify({ type: 'response.completed', response: state.responseJson })
@@ -798,7 +903,7 @@ function anthropicToResponses(anthResp, model) {
     object: 'response',
     created: Math.floor(Date.now() / 1000),
     model: model || anthResp.model || '',
-    usage: anthResp.usage || {},
+    usage: normalizeResponsesUsage(anthResp.usage),
     output: []
   };
   if (anthResp.content) {

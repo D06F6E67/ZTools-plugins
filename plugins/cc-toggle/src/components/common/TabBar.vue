@@ -180,6 +180,11 @@
     }
   }
 
+  function onManageCreate() {
+    showManage.value = false;
+    openCreate();
+  }
+
   // ── 管理项目弹窗 ──
 
   const showManage = ref(false);
@@ -517,17 +522,7 @@
         <n-empty v-if="profiles.length === 0" description="暂无项目" style="padding: 16px 0" />
 
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px">
-          <n-button
-            size="small"
-            type="primary"
-            @click="
-              () => {
-                showManage = false;
-                openCreate();
-              }
-            "
-            >新建项目</n-button
-          >
+          <n-button size="small" type="primary" @click="onManageCreate">新建项目</n-button>
         </div>
       </div>
     </n-modal>

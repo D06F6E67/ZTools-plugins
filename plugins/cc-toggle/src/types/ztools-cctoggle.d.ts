@@ -494,6 +494,7 @@ export interface ZtoolsCctoggle {
   getProvider(appType: AppType, providerId: string): Provider | null;
   saveProvider(appType: AppType, providerData: Partial<Provider>): { id: string; changed: boolean };
   deleteProvider(appType: AppType, providerId: string): void;
+  sortProviders(appType: AppType, orderedIds: string[]): boolean;
 
   // 供应商切换
   switchProvider(appType: AppType, providerId: string): SuccessResult & { providerName?: string };

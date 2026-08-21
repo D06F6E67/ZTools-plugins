@@ -526,18 +526,24 @@ function switchProviderCodex(provider) {
   }
 
   const hasCatalog = Array.isArray(provider.modelCatalog) && provider.modelCatalog.length;
+  // 只要有 model 就写出 model_catalog_json（绝对路径），避免代理模式下
+  // modelCatalog 丢失导致 hasCatalog 为 false、merge 把旧的(相对)值残留。
+  const emitCatalog = hasCatalog || !!provider.model;
   const catalogFileName = 'ztoolscctoggle-model-catalog.json';
+  // model_catalog_json 在 Codex 中被解析为 AbsolutePathBuf，必须是绝对路径，
+  // 否则报 "AbsolutePathBuf deserialized without a base path"。
+  const catalogPath = path.join(getHomeDir(), '.codex', catalogFileName);
 
   // 构建 config.toml
   let configToml = provider.extraConfig || '';
   if (!configToml) {
-    // 用供应商名作为 provider 键名（TOML 表键需 ASCII：中文等非 ASCII 字符清洗后回退 "custom"），
-    // 原始名称（可含中文）放到 name 展示字段
-    const cleanName =
-      (provider.name || 'custom')
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, '_')
-        .replace(/^_+|_+$/g, '') || 'custom';
+    // provider 块名使用供应商名（与 UI 预览 slugifyName 保持一致），清洗为合法 TOML 键名。
+    // 代理模式不再强制 "custom"：同一份 config 的 model_provider 与 [model_providers.X] 保持一致即可，
+    // 切换供应商时 mergeCodexConfig 会清掉旧的 model_providers.* 表，不会残留。
+    const cleanName = (provider.name || 'custom')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/^_+|_+$/g, '') || 'custom';
     const displayName = provider.name || cleanName;
     const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
     const model = provider.model || 'gpt-4o';
@@ -551,7 +557,8 @@ function switchProviderCodex(provider) {
       'disable_response_storage = true'
     ];
     // 有多模型目录时写入引用，Codex 的 /model 菜单据此展示可选模型
-    if (hasCatalog) lines.push('model_catalog_json = "' + catalogFileName + '"');
+    // 用正斜杠避免 TOML 基础字符串把 Windows 反斜杠当成转义符
+    if (emitCatalog) lines.push('model_catalog_json = "' + catalogPath.replace(/\\/g, '/') + '"');
     var needsAuth = !!provider.apiKey || !/^https?:\/\/(127\.0\.0\.1|localhost)/.test(baseUrl);
     lines.push(
       '',
@@ -568,11 +575,18 @@ function switchProviderCodex(provider) {
     configToml = lines.join('\n');
   }
 
-  if (hasCatalog) {
+  if (emitCatalog) {
     try {
       // 将前端精简字段(model/displayName/contextWindow)映射为 Codex 模型目录真实格式(下划线命名)，
       // 并补齐 Codex 期望的字段默认值；前端若已填同名字段则以其为准。
-      const catalogModels = provider.modelCatalog.map(function (m) {
+      // 无 modelCatalog 时退化为单模型目录，确保 model_catalog_json 指向有效文件。
+      const rawCatalog =
+        hasCatalog && Array.isArray(provider.modelCatalog)
+          ? provider.modelCatalog
+          : provider.model
+            ? [{ model: provider.model, displayName: provider.name || provider.model }]
+            : [];
+      const catalogModels = rawCatalog.map(function (m) {
         const slug = m.slug || m.model || '';
         const displayName = m.display_name || m.displayName || slug;
         const ctx = Number(m.context_window || m.contextWindow) || 128000;
@@ -624,7 +638,6 @@ function switchProviderCodex(provider) {
         };
       });
       const catalogJson = JSON.stringify({ models: catalogModels }, null, 2);
-      const catalogPath = path.join(getHomeDir(), '.codex', catalogFileName);
       ensureDir(catalogPath);
       fs.writeFileSync(catalogPath, catalogJson, 'utf8');
     } catch (e) {

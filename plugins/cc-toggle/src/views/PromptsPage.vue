@@ -141,6 +141,18 @@
     viewingFileContent.value = getFileBackupContent(agent, fileName) || '';
   }
 
+  // Close the content view modal
+  function closeContentView() {
+    viewingAgent.value = null;
+    viewingFile.value = null;
+  }
+
+  // Edit prompt from preview
+  function handlePreviewEdit(prompt) {
+    showPreview.value = false;
+    handleEdit(prompt);
+  }
+
   // 已备份文件数（openclaw 多文件）
   function backupFileCount(agent) {
     const agentBackups = backups.value[agent] || {};
@@ -309,12 +321,7 @@
         v-if="activePrompt"
         :prompt="activePrompt"
         @close="showPreview = false"
-        @edit="
-          p => {
-            showPreview = false;
-            handleEdit(p);
-          }
-        "
+        @edit="handlePreviewEdit"
       />
     </n-modal>
 
@@ -489,10 +496,7 @@
       :show="!!viewingAgent || !!viewingFile"
       @update:show="
         v => {
-          if (!v) {
-            viewingAgent = null;
-            viewingFile = null;
-          }
+          if (!v) closeContentView();
         }
       "
     >
@@ -503,17 +507,7 @@
         size="small"
       >
         <template #header-extra>
-          <n-button
-            quaternary
-            size="small"
-            @click="
-              () => {
-                viewingAgent = null;
-                viewingFile = null;
-              }
-            "
-            >关闭</n-button
-          >
+          <n-button quaternary size="small" @click="closeContentView">关闭</n-button>
         </template>
         <pre v-if="viewBody" class="view-content">{{ viewBody }}</pre>
         <n-text v-else depth="3" style="display: block; padding: 20px; text-align: center"
