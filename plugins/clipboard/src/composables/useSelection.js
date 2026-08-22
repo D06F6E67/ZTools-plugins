@@ -1,4 +1,9 @@
 import { computed, ref, watch } from 'vue'
+import {
+  clearNativeTextSelection,
+  hasNativeTextSelection,
+  shouldUseNativeCopy
+} from '../utils/nativeCopy.js'
 
 /**
  * @param {import('vue').ComputedRef<Array>} filteredData
@@ -86,6 +91,8 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     const item = filteredData.value[index]
     if (!item) return
 
+    clearNativeTextSelection()
+
     const currentItems = selectedItems.value
     if (currentItems.length > 0 && currentItems[0].type !== item.type) {
       selectSingle(index)
@@ -108,6 +115,9 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   }
 
   const handleItemClick = (event, index) => {
+    // A text drag emits click after mouseup; keep both the DOM selection and record selection intact.
+    if (hasNativeTextSelection() && !event.metaKey && !event.ctrlKey) return
+
     if (event.shiftKey) {
       selectRange(index)
     } else if (event.metaKey || event.ctrlKey) {
@@ -180,7 +190,13 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   }
 
   const handleKeydown = (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === 'c'
+    ) {
+      if (shouldUseNativeCopy(event) || selectedCount.value === 0) return
       event.preventDefault()
       executeSelected(false)
       return
