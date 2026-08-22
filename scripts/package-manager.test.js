@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { detectPackageManager, detectPackageManagersInTree } from './package-manager.js';
+import {
+  detectPackageManager,
+  detectPackageManagersInTree,
+  getPackageManagerExecutable,
+} from './package-manager.js';
 
 async function createFixture() {
   return mkdtemp(join(tmpdir(), 'ztools-package-manager-'));
@@ -72,4 +76,15 @@ test('finds Bun in nested projects used by custom build scripts', async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('uses command shims for npm and pnpm on Windows', () => {
+  assert.equal(getPackageManagerExecutable('npm', 'win32'), 'npm.cmd');
+  assert.equal(getPackageManagerExecutable('pnpm', 'win32'), 'pnpm.cmd');
+});
+
+test('keeps native executables and non-Windows commands unchanged', () => {
+  assert.equal(getPackageManagerExecutable('bun', 'win32'), 'bun');
+  assert.equal(getPackageManagerExecutable('npm', 'linux'), 'npm');
+  assert.equal(getPackageManagerExecutable('pnpm', 'darwin'), 'pnpm');
 });
