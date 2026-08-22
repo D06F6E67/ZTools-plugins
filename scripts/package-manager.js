@@ -39,6 +39,18 @@ function findLockfiles(pluginPath) {
 }
 
 /**
+ * npm and pnpm are installed as command scripts on Windows. execFileSync does
+ * not resolve .cmd through PATHEXT, while Bun is a native executable.
+ */
+export function getPackageManagerExecutable(name, platform = process.platform) {
+  if (platform === 'win32' && (name === 'npm' || name === 'pnpm')) {
+    return `${name}.cmd`;
+  }
+
+  return name;
+}
+
+/**
  * Detect the package manager for one project directory.
  * An explicit packageManager field wins over lockfiles; conflicting lockfile
  * families are rejected so CI does not silently install the wrong tree.
