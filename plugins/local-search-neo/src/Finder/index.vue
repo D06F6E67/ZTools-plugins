@@ -22,7 +22,7 @@ import { useFinderSettings } from "./composables/useFinderSettings";
 import { usePersistStorage } from "./composables/usePersistStorage";
 import { useResultActions } from "./composables/useResultActions";
 import { useSubInput } from "./composables/useSubInput";
-import type { FinderCategory } from "./core/finderLogic";
+import type { FinderCategory, FinderResult, SelectionMode } from "./core/finderLogic";
 import { useEverything } from "./composables/useEverything";
 
 const PAGE_SIZE = 30;
@@ -39,7 +39,41 @@ const {
   stopEverythingStatusPolling,
 } = useEverything({ runSearch: () => finderSearch.runSearch() });
 
-const { previewEnabled, sortMode, matchPathEnabled } = usePersistStorage();
+const { previewEnabled, sortMode, matchPathEnabled, resultListWidth, setResultListWidth } =
+  usePersistStorage();
+
+const MIN_LIST_WIDTH = 220;
+const DEFAULT_LIST_WIDTH = 315;
+const isResizingList = ref(false);
+
+function onResizerMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  isResizingList.value = true;
+  const startX = event.clientX;
+  const startWidth = resultListWidth.value;
+
+  function onMouseMove(moveEvent: MouseEvent) {
+    const deltaX = moveEvent.clientX - startX;
+    const maxAllowedWidth = Math.max(MIN_LIST_WIDTH, window.innerWidth - 64 - 260);
+    const targetWidth = Math.min(maxAllowedWidth, Math.max(MIN_LIST_WIDTH, startWidth + deltaX));
+    resultListWidth.value = targetWidth;
+  }
+
+  function onMouseUp() {
+    isResizingList.value = false;
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+    setResultListWidth(resultListWidth.value);
+  }
+
+  window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
+}
+
+function onResizerDoubleClick() {
+  setResultListWidth(DEFAULT_LIST_WIDTH);
+}
 
 const { bindSubInput, syncSubInputValue, focusSubInput } = useSubInput({
   onInput: queueSearch,
@@ -79,14 +113,13 @@ const resultLoading = computed(() => finderSearch.isLoading.value || everythingP
 const contextMenu = useContextMenu();
 const confirmDialog = useGlocalConfirmDialog();
 const resultActions = useResultActions({
-  onTrashed: (fullPath) => {
-    finderSearch.removeResultByPath(fullPath);
-    finderSearch.runSearch();
+  onTrashed: (fullPaths) => {
+    finderSearch.removeResultsByPaths(fullPaths);
   },
 });
 
 useFinderEnterAction({
-  selectedPath: finderSearch.selectedPath,
+  activePath: finderSearch.activePath,
   search: finderSearch.runSearch,
 });
 
@@ -104,23 +137,25 @@ useFinderKeyboard({
   closeTransientOverlays: contextMenu.close,
   focusSubInput,
   moveSelection: finderSearch.moveSelection,
-  openSelection: () => resultActions.open(finderSearch.selectedItem.value),
-  showSelectionInFolder: () => {
-    const selectedItem = finderSearch.selectedItem.value;
-    if (selectedItem) resultActions.showInFolder(selectedItem);
-  },
+  openSelection: () => resultActions.open(finderSearch.selectedItems.value),
+  showSelectionInFolder: () => resultActions.showInFolder(finderSearch.selectedItems.value),
   scrollSelectedIntoView: finderSearch.scrollSelectedIntoView,
 });
 
-watch(
-  [() => activeCategory.value.id, () => activeCategory.value.rule, sortMode, matchPathEnabled],
-  () => {
-    if (!everythingReady.value) return;
+watch([() => activeCategory.value.id, () => activeCategory.value.rule], () => {
+  if (!everythingReady.value) return;
 
-    finderSearch.resetVisibleCount();
-    finderSearch.runSearch();
-  },
-);
+  finderSearch.resetVisibleCount();
+  finderSearch.clearSelection();
+  finderSearch.runSearch();
+});
+
+watch([sortMode, matchPathEnabled], () => {
+  if (!everythingReady.value) return;
+
+  finderSearch.resetVisibleCount();
+  finderSearch.runSearch();
+});
 
 onMounted(() => {
   bindSubInput();
@@ -149,8 +184,8 @@ function closeTransientState(isKill = false) {
   window.services.everything.handlePluginOut(isKill);
 }
 
-function selectItem(item: { fullPath?: string }) {
-  finderSearch.selectedPath.value = item.fullPath ?? "";
+function selectItem(item: FinderResult, mode?: SelectionMode) {
+  finderSearch.selectItem(item, mode);
   releaseFinderFocus();
 }
 
@@ -161,7 +196,11 @@ function setActiveCategory(category: FinderCategory) {
 </script>
 
 <template>
-  <main class="finder-shell" :class="{ 'preview-open': previewEnabled }">
+  <main
+    class="finder-shell"
+    :class="{ 'preview-open': previewEnabled, 'is-resizing': isResizingList }"
+    :style="{ '--result-list-width': `${resultListWidth}px` }"
+  >
     <FinderSidebar
       :categories="enabledCategories"
       :active-category-id="activeCategoryId"
@@ -172,7 +211,9 @@ function setActiveCategory(category: FinderCategory) {
     <section class="finder-main">
       <FinderResultList
         :visible-results="finderSearch.visibleResults.value"
-        :selected-path="finderSearch.selectedPath.value"
+        :active-path="finderSearch.activePath.value"
+        :selected-paths="finderSearch.selectedPaths.value"
+        :selected-items="finderSearch.selectedItems.value"
         :is-loading="resultLoading"
         :status-text="resultStatusText"
         :preview-open="previewEnabled"
@@ -181,8 +222,18 @@ function setActiveCategory(category: FinderCategory) {
         @near-bottom="finderSearch.growVisibleCount"
         @select="selectItem"
         @context-menu="contextMenu.open"
-        @open="resultActions.open(finderSearch.selectedItem.value)"
+        @open="(item) => resultActions.open([item])"
       />
+      <div
+        v-if="previewEnabled"
+        class="finder-split-resizer"
+        :class="{ 'is-resizing': isResizingList }"
+        title="拖动调整列表宽度，双击恢复默认"
+        @mousedown="onResizerMouseDown"
+        @dblclick="onResizerDoubleClick"
+      >
+        <span class="resizer-line"></span>
+      </div>
     </section>
 
     <FinderFooter
@@ -200,10 +251,7 @@ function setActiveCategory(category: FinderCategory) {
       floating-label="悬浮预览窗口"
       placeholder="预览已放大显示"
     >
-      <FinderPreviewPane
-        :selected-item="finderSearch.selectedItem"
-        @context-menu="contextMenu.open"
-      />
+      <FinderPreviewPane :active-item="finderSearch.activeItem" @context-menu="contextMenu.open" />
     </FloatingZoom>
 
     <SettingsDrawer
@@ -245,7 +293,7 @@ function setActiveCategory(category: FinderCategory) {
 
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 42px;
+  grid-template-rows: minmax(0, 1fr) 32px;
   height: 100vh;
   min-height: 0;
   max-height: 100vh;
@@ -254,6 +302,11 @@ function setActiveCategory(category: FinderCategory) {
   color: #f5f7fa;
   font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
   user-select: none;
+}
+
+.finder-shell.is-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .finder-shell.preview-open {
@@ -265,6 +318,8 @@ function setActiveCategory(category: FinderCategory) {
 }
 
 .finder-main {
+  position: relative;
+  z-index: 10;
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
@@ -273,12 +328,41 @@ function setActiveCategory(category: FinderCategory) {
   overflow: visible;
 }
 
+.finder-split-resizer {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  cursor: col-resize;
+}
+
+.resizer-line {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+  pointer-events: none;
+}
+
+.finder-split-resizer:hover .resizer-line,
+.finder-split-resizer.is-resizing .resizer-line {
+  background: var(--primary-color);
+}
+
 .finder-preview-zoom {
   grid-column: 3;
   grid-row: 1;
 }
 
 .finder-footer-bar {
+  position: relative;
+  z-index: 25;
   grid-column: 2 / -1;
   grid-row: 2;
   min-width: 0;
@@ -301,8 +385,6 @@ function setActiveCategory(category: FinderCategory) {
 
 @media (max-width: 760px) {
   .finder-shell {
-    --result-list-width: 270px;
-
     grid-template-columns: 60px minmax(0, 1fr);
   }
 
