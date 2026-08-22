@@ -1,5 +1,7 @@
 export type CategoryKind = "all" | "folder" | "extension" | "custom";
 
+export type SelectionMode = "single" | "toggle" | "range";
+
 export interface FinderCategory {
   id: string;
   label: string;
@@ -166,6 +168,44 @@ export function getRestoredSelectedPath(results: FinderResult[], currentPath: st
   if (exists) return currentPath;
 
   return results[0]?.fullPath ?? "";
+}
+
+export function getRangeSelectedPaths(
+  visiblePaths: string[],
+  anchorPath: string,
+  targetPath: string,
+): string[] {
+  if (visiblePaths.length === 0 || !targetPath) return [];
+
+  const targetIndex = visiblePaths.indexOf(targetPath);
+  if (targetIndex === -1) return [];
+
+  const anchorIndex = visiblePaths.indexOf(anchorPath);
+  if (anchorIndex === -1) return [targetPath];
+
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  return visiblePaths.slice(start, end + 1);
+}
+
+export function filterResultsExcludingPaths<T extends Pick<FinderResult, "fullPath">>(
+  results: T[],
+  pathsToRemove: string[],
+): T[] {
+  if (pathsToRemove.length === 0) return results;
+  const toRemove = new Set(pathsToRemove);
+  return results.filter((item) => !item.fullPath || !toRemove.has(item.fullPath));
+}
+
+export function getDragTargetPaths(
+  itemPath: string,
+  selectedPaths: string[] = [],
+): string | string[] {
+  if (!itemPath) return "";
+  if (selectedPaths.length > 1 && selectedPaths.includes(itemPath)) {
+    return [...selectedPaths];
+  }
+  return itemPath;
 }
 
 export function mergeResultsByMatchPathPriority<

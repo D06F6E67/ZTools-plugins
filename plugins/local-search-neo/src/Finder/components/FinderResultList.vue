@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { LoaderCircle } from "@lucide/vue";
 import type { ContextMenuItem } from "../composables/useContextMenu";
 import { useFileIcons } from "../composables/useFileIcons";
 import type { ResultActions } from "../composables/useResultActions";
-import { formatBytes, type FinderResult } from "../core/finderLogic";
+import { formatBytes, type FinderResult, type SelectionMode } from "../core/finderLogic";
 
 const props = defineProps<{
   visibleResults: FinderResult[];
-  selectedPath: string;
+  activePath: string;
+  selectedPaths: string[];
+  selectedItems: FinderResult[];
   isLoading: boolean;
   statusText: string;
   previewOpen: boolean;
@@ -22,10 +25,16 @@ interface HighlightSegment {
 
 const emit = defineEmits<{
   nearBottom: [];
-  select: [item: FinderResult];
-  open: [];
+  select: [item: FinderResult, mode?: SelectionMode];
+  open: [item: FinderResult];
   "context-menu": [event: MouseEvent, items: ContextMenuItem[]];
 }>();
+
+const selectedPathSet = computed(() => new Set(props.selectedPaths));
+
+function isRowSelected(fullPath?: string): boolean {
+  return !!fullPath && selectedPathSet.value.has(fullPath);
+}
 
 const { displayItem, iconFor } = useFileIcons({
   visibleResults: () => props.visibleResults,
@@ -36,6 +45,25 @@ function handleListScroll(event: Event) {
   const element = event.currentTarget as HTMLElement;
   const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
   if (distanceToBottom < 120) emit("nearBottom");
+}
+
+function handleRowClick(event: MouseEvent, item: FinderResult) {
+  let mode: SelectionMode = "single";
+  if (event.ctrlKey || event.metaKey) {
+    mode = "toggle";
+  } else if (event.shiftKey) {
+    mode = "range";
+  }
+  emit("select", item, mode);
+}
+
+function handleDragStart(event: DragEvent, item: FinderResult) {
+  event.preventDefault();
+  if (!item.fullPath) return;
+  if (!selectedPathSet.value.has(item.fullPath)) {
+    emit("select", item, "single");
+  }
+  props.actions.startDrag(item, props.selectedPaths);
 }
 
 function fileInitial(item: FinderResult) {
@@ -83,42 +111,59 @@ function highlightSegments(value: string | undefined, fallback = ""): HighlightS
 }
 
 function openResultMenu(event: MouseEvent, item: FinderResult) {
-  emit("select", item);
-  const hasFullPath = !!item.fullPath;
-  const hasDirectoryPath = !!item.path;
+  if (item.fullPath && !selectedPathSet.value.has(item.fullPath)) {
+    emit("select", item, "single");
+  }
+
+  const isMulti =
+    !!item.fullPath && selectedPathSet.value.has(item.fullPath) && props.selectedItems.length > 1;
+
+  const targetItems = isMulti ? props.selectedItems : [item];
+
+  const count = targetItems.length;
+  const countSuffix = isMulti ? ` (${count} 项)` : "";
+  const hasFullPath = targetItems.some((r) => !!r.fullPath);
+  const hasDirectoryPath = targetItems.some((r) => !!r.path);
 
   emit("context-menu", event, [
     {
-      id: "show-in-folder",
-      label: "打开所在目录",
+      id: "open-file",
+      label: `打开文件${countSuffix}`,
       disabled: !hasFullPath,
-      action: () => props.actions.showInFolder(item),
+      action: () => props.actions.open(targetItems),
     },
     {
-      id: "copy-full-path",
-      label: "复制路径",
+      id: "show-in-folder",
+      label: `打开所在目录${countSuffix}`,
       disabled: !hasFullPath,
-      action: () => props.actions.copyFullPath(item),
+      action: () => props.actions.showInFolder(targetItems),
+    },
+    { id: "separator-open", label: "", separator: true },
+    {
+      id: "copy-full-path",
+      label: `复制路径${countSuffix}`,
+      disabled: !hasFullPath,
+      action: () => props.actions.copyFullPath(targetItems),
     },
     {
       id: "copy-directory-path",
-      label: "复制所在路径",
+      label: `复制所在路径${countSuffix}`,
       disabled: !hasDirectoryPath,
-      action: () => props.actions.copyDirectoryPath(item),
+      action: () => props.actions.copyDirectoryPath(targetItems),
     },
     {
       id: "copy-file",
-      label: "复制文件",
+      label: `复制文件${countSuffix}`,
       disabled: !hasFullPath,
-      action: () => props.actions.copyFile(item),
+      action: () => props.actions.copyFile(targetItems),
     },
     { id: "separator-delete", label: "", separator: true },
     {
       id: "trash-item",
-      label: "删除（回收站）",
+      label: isMulti ? `删除 ${count} 项（回收站）` : "删除（回收站）",
       danger: true,
       disabled: !hasFullPath,
-      action: () => props.actions.trash(item),
+      action: () => props.actions.trash(targetItems),
     },
   ]);
 }
@@ -130,13 +175,17 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
       v-for="(item, index) in visibleResults"
       :key="item.fullPath"
       :data-result-index="index"
+      :draggable="!!item.fullPath"
       class="result-row"
-      :class="{ selected: item.fullPath === selectedPath }"
+      :class="{
+        selected: isRowSelected(item.fullPath),
+        'active-focus': item.fullPath === activePath,
+      }"
       tabindex="-1"
-      @mousedown.left.prevent
+      @dragstart="handleDragStart($event, item)"
       @contextmenu.prevent.stop="openResultMenu($event, item)"
-      @click="emit('select', item)"
-      @dblclick="emit('open')"
+      @click="handleRowClick($event, item)"
+      @dblclick="emit('open', item)"
     >
       <span class="file-icon" :class="{ 'fallback-icon': !iconFor(item) }">
         <img v-if="iconFor(item)" :src="iconFor(item)" alt="" />
@@ -179,6 +228,7 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
   overflow: auto;
   min-height: 0;
   height: 100%;
+  outline: none;
 }
 
 .result-row {
@@ -198,6 +248,7 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
   border-bottom: 1px solid transparent;
   color: inherit;
   font: inherit;
+  user-select: none;
 }
 
 .result-row:focus,
@@ -207,11 +258,17 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
 
 .result-row:hover,
 .result-row.selected {
-  background: #4a4b4d;
+  background: var(--primary-color-dark-subtle-hover, #3c3e40);
 }
 
 .result-row.selected {
-  box-shadow: inset 3px 0 0 #3b82f6;
+  box-shadow: inset 3px 0 0 var(--primary-color-alpha-50);
+}
+
+.result-row.selected.active-focus,
+.result-row.active-focus {
+  background: var(--primary-color-dark-subtle-bg, #4a4b4d);
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 .file-icon {
@@ -306,7 +363,7 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
 }
 
 .loading-icon {
-  color: #3b82f6;
+  color: var(--primary-color);
   animation: loading-spin 0.9s linear infinite;
 }
 
@@ -324,11 +381,17 @@ function openResultMenu(event: MouseEvent, item: FinderResult) {
 
   .result-row:hover,
   .result-row.selected {
-    background: #e8edf4;
+    background: var(--primary-color-subtle-hover);
   }
 
   .result-row.selected {
-    box-shadow: inset 3px 0 0 #2563eb;
+    box-shadow: inset 3px 0 0 var(--primary-color-alpha-50);
+  }
+
+  .result-row.selected.active-focus,
+  .result-row.active-focus {
+    background: var(--primary-color-subtle-bg);
+    box-shadow: inset 3px 0 0 var(--primary-color-text, var(--primary-color));
   }
 
   .file-name {

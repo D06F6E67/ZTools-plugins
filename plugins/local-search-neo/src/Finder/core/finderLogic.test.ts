@@ -3,11 +3,14 @@
 import {
   DEFAULT_CATEGORIES,
   buildEverythingQuery,
+  filterResultsExcludingPaths,
   formatBytes,
   getArchiveTreePreviewBlockedReason,
   getCodePreviewLanguage,
+  getDragTargetPaths,
   getNextSelectedPath,
   getNextVisibleCount,
+  getRangeSelectedPaths,
   getRestoredSelectedPath,
   isArchiveTreePreviewCandidate,
   isAudioPreviewCandidate,
@@ -209,4 +212,50 @@ test("formatBytes returns compact human-readable values", () => {
   assert.equal(formatBytes(512), "512 B");
   assert.equal(formatBytes(1536), "1.5 KB");
   assert.equal(formatBytes(5 * 1024 * 1024), "5 MB");
+});
+
+test("getRangeSelectedPaths calculates slice of items between anchor and target", () => {
+  const visiblePaths = ["C:\\a.txt", "C:\\b.txt", "C:\\c.txt", "C:\\d.txt"];
+
+  assert.deepEqual(getRangeSelectedPaths(visiblePaths, "C:\\a.txt", "C:\\c.txt"), [
+    "C:\\a.txt",
+    "C:\\b.txt",
+    "C:\\c.txt",
+  ]);
+  assert.deepEqual(getRangeSelectedPaths(visiblePaths, "C:\\c.txt", "C:\\a.txt"), [
+    "C:\\a.txt",
+    "C:\\b.txt",
+    "C:\\c.txt",
+  ]);
+  assert.deepEqual(getRangeSelectedPaths(visiblePaths, "C:\\missing.txt", "C:\\b.txt"), [
+    "C:\\b.txt",
+  ]);
+  assert.deepEqual(getRangeSelectedPaths(visiblePaths, "C:\\a.txt", "C:\\missing.txt"), []);
+  assert.deepEqual(getRangeSelectedPaths([], "C:\\a.txt", "C:\\b.txt"), []);
+});
+
+test("getDragTargetPaths resolves single vs multi-selection drag targets", () => {
+  assert.equal(getDragTargetPaths("C:\\a.txt"), "C:\\a.txt");
+  assert.equal(getDragTargetPaths("C:\\a.txt", ["C:\\a.txt"]), "C:\\a.txt");
+  assert.deepEqual(getDragTargetPaths("C:\\a.txt", ["C:\\a.txt", "C:\\b.txt"]), [
+    "C:\\a.txt",
+    "C:\\b.txt",
+  ]);
+  assert.equal(getDragTargetPaths("C:\\c.txt", ["C:\\a.txt", "C:\\b.txt"]), "C:\\c.txt");
+  assert.equal(getDragTargetPaths(""), "");
+});
+
+test("filterResultsExcludingPaths removes specified paths and preserves others", () => {
+  const items = [
+    { name: "1.txt", fullPath: "C:\\1.txt" },
+    { name: "2.txt", fullPath: "C:\\2.txt" },
+    { name: "3.txt", fullPath: "C:\\3.txt" },
+  ];
+
+  assert.deepEqual(filterResultsExcludingPaths(items, ["C:\\2.txt"]), [
+    { name: "1.txt", fullPath: "C:\\1.txt" },
+    { name: "3.txt", fullPath: "C:\\3.txt" },
+  ]);
+  assert.deepEqual(filterResultsExcludingPaths(items, ["C:\\missing.txt"]), items);
+  assert.deepEqual(filterResultsExcludingPaths(items, []), items);
 });
