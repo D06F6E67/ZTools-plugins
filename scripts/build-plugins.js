@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSy
 import { dirname, join, resolve, sep } from 'path';
 import archiver from 'archiver';
 import { createWriteStream } from 'fs';
-import { detectPackageManager, getPackageManagerExecutable } from './package-manager.js';
+import { detectPackageManager, getPackageManagerInvocation } from './package-manager.js';
 
 const PLUGINS_DIR = 'plugins';
 const RELEASE_DIR = 'release';
@@ -135,7 +135,6 @@ function buildPlugin(pluginName) {
   if (install) {
     const packageManager = detectPackageManager(pluginPath);
     const pm = packageManager.name;
-    const executable = getPackageManagerExecutable(pm);
     const installArgs = pm === 'bun' && packageManager.lockfiles.length > 0
       ? ['install', '--frozen-lockfile']
       : ['install'];
@@ -143,9 +142,11 @@ function buildPlugin(pluginName) {
 
     try {
       // 安装依赖
-      execFileSync(executable, installArgs, {
+      const invocation = getPackageManagerInvocation(pm, installArgs);
+      execFileSync(invocation.command, invocation.args, {
         cwd: pluginPath,
-        stdio: 'inherit'
+        stdio: 'inherit',
+        shell: invocation.shell,
       });
       console.log('✓ 依赖安装完成');
     } catch (error) {
@@ -156,9 +157,11 @@ function buildPlugin(pluginName) {
     if (build) {
       console.log('检测到build脚本，执行构建...');
       try {
-        execFileSync(executable, ['run', 'build'], {
+        const invocation = getPackageManagerInvocation(pm, ['run', 'build']);
+        execFileSync(invocation.command, invocation.args, {
           cwd: pluginPath,
-          stdio: 'inherit'
+          stdio: 'inherit',
+          shell: invocation.shell,
         });
         console.log('✓ 构建完成');
       } catch (error) {

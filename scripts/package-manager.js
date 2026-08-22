@@ -39,15 +39,16 @@ function findLockfiles(pluginPath) {
 }
 
 /**
- * npm and pnpm are installed as command scripts on Windows. execFileSync does
- * not resolve .cmd through PATHEXT, while Bun is a native executable.
+ * Windows package-manager commands may be .cmd shims, which Node cannot
+ * execute directly. Running them through cmd.exe also lets PATHEXT resolve the
+ * appropriate shim or native executable.
  */
-export function getPackageManagerExecutable(name, platform = process.platform) {
-  if (platform === 'win32' && (name === 'npm' || name === 'pnpm')) {
-    return `${name}.cmd`;
-  }
-
-  return name;
+export function getPackageManagerInvocation(name, args, platform = process.platform) {
+  return {
+    command: name,
+    args,
+    shell: platform === 'win32',
+  };
 }
 
 /**

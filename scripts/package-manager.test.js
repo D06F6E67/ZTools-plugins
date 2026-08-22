@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   detectPackageManager,
   detectPackageManagersInTree,
-  getPackageManagerExecutable,
+  getPackageManagerInvocation,
 } from './package-manager.js';
 
 async function createFixture() {
@@ -78,13 +78,23 @@ test('finds Bun in nested projects used by custom build scripts', async () => {
   }
 });
 
-test('uses command shims for npm and pnpm on Windows', () => {
-  assert.equal(getPackageManagerExecutable('npm', 'win32'), 'npm.cmd');
-  assert.equal(getPackageManagerExecutable('pnpm', 'win32'), 'pnpm.cmd');
+test('runs package managers through the Windows command shell', () => {
+  assert.deepEqual(getPackageManagerInvocation('npm', ['install'], 'win32'), {
+    command: 'npm',
+    args: ['install'],
+    shell: true,
+  });
+  assert.deepEqual(getPackageManagerInvocation('pnpm', ['run', 'build'], 'win32'), {
+    command: 'pnpm',
+    args: ['run', 'build'],
+    shell: true,
+  });
 });
 
-test('keeps native executables and non-Windows commands unchanged', () => {
-  assert.equal(getPackageManagerExecutable('bun', 'win32'), 'bun');
-  assert.equal(getPackageManagerExecutable('npm', 'linux'), 'npm');
-  assert.equal(getPackageManagerExecutable('pnpm', 'darwin'), 'pnpm');
+test('executes package managers directly outside Windows', () => {
+  assert.deepEqual(getPackageManagerInvocation('bun', ['install'], 'linux'), {
+    command: 'bun',
+    args: ['install'],
+    shell: false,
+  });
 });
