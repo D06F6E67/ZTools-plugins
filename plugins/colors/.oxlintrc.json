@@ -4,7 +4,9 @@
   "categories": {
     "correctness": "warn"
   },
-  "rules": {},
+  "rules": {
+    "no-unused-vars": "off"
+  },
   "env": {
     "builtin": true
   }

@@ -487,3 +487,60 @@ export interface CategorySectionModel {
   title?: string
   plugins: PluginMarketUiPlugin[]
 }
+
+// 分片上传相关类型定义
+
+export interface ChunkedUploadInitRequest {
+  fileName: string
+  totalSize: number
+  totalChunks: number
+  fileHash?: string
+}
+
+export interface ChunkedUploadInitResponse {
+  uploadId: string
+  existingChunks: number[]
+  fileExists: boolean
+  existingPlugin?: {
+    pluginName: string
+    version: string
+  }
+}
+
+export interface ChunkedUploadChunkPayload {
+  uploadId: string
+  chunk: Blob
+  chunkIndex: number
+  chunkHash: string
+}
+
+export interface ChunkedUploadChunkResponse {
+  chunkIndex: number
+  success: boolean
+}
+
+export type ChunkedUploadStatus =
+  | 'UPLOADING'
+  | 'COMPLETED'
+  | 'MERGING'
+  | 'MERGED'
+  | 'FAILED'
+  | 'CANCELLED'
+
+export interface ChunkedUploadProgressResponse {
+  uploadId: string
+  fileName: string
+  totalChunks: number
+  uploadedChunks: number
+  status: ChunkedUploadStatus
+  progress: number
+}
+
+export interface ChunkedUploadCompleteResponse {
+  message: string
+  reviewTaskId: string
+}
+
+export interface ChunkedUploadCancelResponse {
+  message: string
+}

@@ -17,3 +17,13 @@ export const copyColor2 = async (color: Colord, options?: ColorToStringOptions) 
 
   copyColor(colorText);
 };
+export const copyCSS = async (css: string) => {
+  const message = useMessage();
+  try {
+    await navigator.clipboard.writeText(css);
+    message.success(`已复制 CSS: ${css}`);
+  } catch (err) {
+    console.error("复制失败:", err);
+    message.error("复制失败");
+  }
+};

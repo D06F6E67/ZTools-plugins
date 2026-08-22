@@ -1,7 +1,6 @@
 <template>
   <div class="app">
     <n-space :size="8" :wrap="true" align="center" style="margin-bottom: 10px">
-      <n-checkbox v-model:checked="joinWithCommaConfig.mergeToSingleLine" size="small">自动合一行</n-checkbox>
       <n-button type="primary" size="small" @click="removeDuplicates">去重</n-button>
       <n-button type="primary" size="small" @click="removeEmptyLines">去空行</n-button>
       <n-button type="primary" size="small" @click="addQuotes('single')">前后加'单引号'</n-button>
@@ -73,6 +72,7 @@
         </div>
       </n-popover>
       <n-button type="primary" size="small" @click="convertToJson">转JSON</n-button>
+      <n-button type="primary" size="small" @click="mergeToSingleLine">合一行</n-button>
     </n-space>
 
     <div class="textArea">
@@ -113,12 +113,7 @@ const separatorOptions = SEPARATOR_OPTIONS
 const codeEditorRef = ref(null)
 
 const joinWithCommaConfig = reactive({
-  mergeToSingleLine: JSON.parse(localStorage.getItem('mergeToSingleLine') || 'false'),
   separator: localStorage.getItem('separator') || ','
-})
-
-watch(() => joinWithCommaConfig.mergeToSingleLine, (newVal) => {
-  localStorage.setItem('mergeToSingleLine', JSON.stringify(newVal))
 })
 
 watch(() => joinWithCommaConfig.separator, (newVal) => {
@@ -144,17 +139,16 @@ function togglePopover() {
   popoverVisible.value = !popoverVisible.value
 }
 
-function applyMergeMode() {
-  if (joinWithCommaConfig.mergeToSingleLine) {
-    text.value = text.value.replace(/\n/g, '')
-  }
+function mergeToSingleLine() {
+  if (!text.value) return
+  text.value = text.value.replace(/\n/g, '')
+  copyText()
 }
 
 function removeDuplicates() {
   const lines = text.value.split('\n')
   const uniqueLines = [...new Set(lines)]
   text.value = uniqueLines.join('\n')
-  applyMergeMode()
   copyText()
 }
 
@@ -166,7 +160,6 @@ function addQuotes(type) {
     line !== '' ? `${quote}${line}${quote},` : `${quote}${quote},`
   )
   text.value = updatedLines.join('\n').replace(/,\s*$/, '')
-  applyMergeMode()
   copyText()
 }
 
@@ -185,7 +178,6 @@ function joinWithSeparator() {
   }).join('\n')
 
   text.value = result
-  applyMergeMode()
   copyText()
 }
 
@@ -233,7 +225,6 @@ function getSeparatorSymbol() {
 function convertToJson() {
   if (!text.value) return
   text.value = JSON.stringify(text.value.split('\n').filter(line => line !== ''))
-  applyMergeMode()
   copyText()
 }
 
@@ -241,7 +232,6 @@ function removeEmptyLines() {
   const lines = text.value.split('\n')
   const nonEmptyLines = lines.filter(line => line.trim() !== '')
   text.value = nonEmptyLines.join('\n')
-  applyMergeMode()
   copyText()
 }
 

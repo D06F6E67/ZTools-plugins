@@ -7,6 +7,13 @@ import {
   deriveFallbackCategories,
 } from './pluginMarketStorefront'
 import type {
+  ChunkedUploadCancelResponse,
+  ChunkedUploadChunkPayload,
+  ChunkedUploadChunkResponse,
+  ChunkedUploadCompleteResponse,
+  ChunkedUploadInitRequest,
+  ChunkedUploadInitResponse,
+  ChunkedUploadProgressResponse,
   CreatePluginCommentRequest,
   CreatePluginRatingRequest,
   MyPluginUploadRecord,
@@ -669,3 +676,70 @@ export async function uploadPluginPackage(
     }
   }
 }
+
+/**
+ * 初始化分片上传
+ */
+export async function initChunkedUpload(
+  request: ChunkedUploadInitRequest,
+): Promise<ChunkedUploadInitResponse> {
+  return requestJson<ChunkedUploadInitResponse, ChunkedUploadInitRequest>({
+    path: '/api/v1/plugins/chunked-upload/init',
+    method: 'POST',
+    body: request,
+  })
+}
+
+/**
+ * 上传单个分片
+ */
+export async function uploadChunk(
+  payload: ChunkedUploadChunkPayload,
+): Promise<ChunkedUploadChunkResponse> {
+  const formData = new FormData()
+  formData.append('chunk', payload.chunk)
+  formData.append('chunkIndex', payload.chunkIndex.toString())
+  formData.append('chunkHash', payload.chunkHash)
+
+  return requestFormData<ChunkedUploadChunkResponse>({
+    path: `/api/v1/plugins/chunked-upload/${encodeURIComponent(payload.uploadId)}/chunks`,
+    method: 'POST',
+    body: formData,
+  })
+}
+
+/**
+ * 完成分片上传
+ */
+export async function completeChunkedUpload(
+  uploadId: string,
+): Promise<ChunkedUploadCompleteResponse> {
+  return requestJson<ChunkedUploadCompleteResponse>({
+    path: `/api/v1/plugins/chunked-upload/${encodeURIComponent(uploadId)}/complete`,
+    method: 'POST',
+  })
+}
+
+/**
+ * 取消分片上传
+ */
+export async function cancelChunkedUpload(
+  uploadId: string,
+): Promise<ChunkedUploadCancelResponse> {
+  return requestJson<ChunkedUploadCancelResponse>({
+    path: `/api/v1/plugins/chunked-upload/${encodeURIComponent(uploadId)}/cancel`,
+    method: 'POST',
+  })
+}
+
+/**
+ * 查询分片上传进度
+ */
+export async function getChunkedUploadProgress(
+  uploadId: string,
+): Promise<ChunkedUploadProgressResponse> {
+  return requestJson<ChunkedUploadProgressResponse>({
+    path: `/api/v1/plugins/chunked-upload/${encodeURIComponent(uploadId)}/progress`,
+  })
+}
+

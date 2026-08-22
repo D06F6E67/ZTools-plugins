@@ -3,7 +3,7 @@
     <div class="template-description">
       <div class="template-description-content">
         <h4 class="description-title">模板使用说明</h4>
-        <p><strong>1. 模板语法：</strong>本系统使用 Handlebars 模板引擎，支持条件判断、循环等功能。详细文档请参考：<a href="https://handlebarsjs.com/zh/guide/" target="_blank">Handlebars 中文指南</a></p>
+        <p><strong>1. 模板语法：</strong>本系统使用 Handlebars 模板引擎，支持条件判断、循环等功能。详细文档请参考：<a href="https://handlebarsjs.com/zh/guide/" target="_blank" style="color: #2080f0">Handlebars 中文指南</a></p>
         <p><strong>2. 数据存储：</strong>自定义模板保存在浏览器的本地存储中（localStorage）。</p>
         <p><strong>3. 数据清除：</strong>清除浏览器缓存或本地存储数据会导致自定义模板丢失。系统默认模板不受影响，会自动重新加载。</p>
       </div>

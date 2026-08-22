@@ -22,6 +22,129 @@ function runCmd(cmd) {
     });
 }
 
+const PROJECT_SCAN_IGNORED_DIRS = new Set([
+    'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
+    '.idea', '.vscode', '__pycache__', '.next', '.nuxt', 'target',
+    'vendor', 'coverage', '.cache', 'tmp', 'temp', '.gradle',
+    // 部署/对外暴露的纯静态资源目录：只含 index.html 和资源文件，
+    // 既无构建系统也无源码组织，不应被识别为项目。
+    'public', 'static', 'www', 'htdocs', 'public_html', 'httpdocs'
+]);
+
+/**
+ * 扫描的最大层级，与 Rust MAX_SCAN_DEPTH 及前端 MAX_PROJECT_DEPTH 保持一致。
+ * 超出该层级的目录直接丢弃，不会被上提压平到父级。
+ */
+const MAX_SCAN_DEPTH = 3;
+
+function readPackageJson(projectPath) {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8'));
+    } catch (_) {
+        return {};
+    }
+}
+
+function identifyProjectModule(projectPath) {
+    const has = (name) => fs.existsSync(path.join(projectPath, name));
+    if (has('pom.xml')) return { kind: 'backend', framework: 'Spring Boot' };
+    if (has('build.gradle') || has('build.gradle.kts')) return { kind: 'backend', framework: 'Gradle' };
+    if (has('package.json')) {
+        const pkg = readPackageJson(projectPath);
+        const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+        if (deps.vue) return { kind: 'frontend', framework: 'Vue' };
+        if (deps.react) return { kind: 'frontend', framework: 'React' };
+        return { kind: 'node', framework: 'Node.js' };
+    }
+    if (has('index.html')) return { kind: 'static', framework: 'Static' };
+    if (has('go.mod')) return { kind: 'go', framework: 'Go' };
+    if (has('Cargo.toml')) return { kind: 'rust', framework: 'Rust' };
+    if (has('requirements.txt') || has('pyproject.toml')) return { kind: 'python', framework: 'Python' };
+    try {
+        if (fs.readdirSync(projectPath).some((name) => name.toLowerCase().endsWith('.csproj'))) {
+            return { kind: 'dotnet', framework: '.NET' };
+        }
+    } catch (_) {}
+    return null;
+}
+
+/**
+ * 统一的项目树扫描：递归识别 dirPath 并返回**保留真实层级**的节点。
+ *
+ * 三种情况（Git 与构建清单的规则是非对称的）：
+ *   - 含 .git            → 是项目节点，且继续向内递归（仓库根常承载多个模块）
+ *   - 有清单但无 .git    → 是项目节点，不再向内递归（单个完整包）
+ *   - 两者都无           → unknown 占位容器，继续递归；无子孙模块则丢弃
+ *
+ * depth 是该目录在项目树中的绝对层级，超过 maxDepth 直接截断丢弃。
+ */
+function scanProjectTree(dirPath, depth, maxDepth, seen) {
+    if (depth > maxDepth) return [];
+    const name = path.basename(dirPath) || 'Unknown';
+    if (name.startsWith('.') || PROJECT_SCAN_IGNORED_DIRS.has(name)) return [];
+    const pathKey = dirPath.replace(/\\/g, '/');
+    if (seen.has(pathKey)) return [];
+    seen.add(pathKey);
+
+    const moduleInfo = identifyProjectModule(dirPath);
+    const hasGit = fs.existsSync(path.join(dirPath, '.git'));
+    const hasPackageJson = fs.existsSync(path.join(dirPath, 'package.json'));
+    const pkg = hasPackageJson ? readPackageJson(dirPath) : {};
+    const scripts = Object.keys(pkg.scripts || {}).sort();
+
+    const makeNode = (kind, framework, children) => ({
+        name,
+        path: dirPath,
+        kind,
+        framework,
+        hasGit,
+        hasPackageJson,
+        scripts,
+        children,
+    });
+
+    // Git 仓库：本身即项目边界，同时继续向内递归挂载其内部模块。
+    if (hasGit) {
+        const children = scanChildDirs(dirPath, depth + 1, maxDepth, seen);
+        // 即使既无清单也无子模块（例如只有 README 的仓库）也必须保留——它是真实仓库。
+        return [makeNode(moduleInfo ? moduleInfo.kind : 'unknown', moduleInfo ? moduleInfo.framework : undefined, children)];
+    }
+
+    // 有构建清单但不是仓库根：视为一个完整项目，不再向内递归。
+    if (moduleInfo) {
+        return [makeNode(moduleInfo.kind, moduleInfo.framework, [])];
+    }
+
+    // 纯容器目录：作为 unknown 占位节点保留层级，并递归其子目录。
+    const children = scanChildDirs(dirPath, depth + 1, maxDepth, seen);
+    // 子孙中没有任何模块的空容器不入结果。
+    if (children.length === 0) return [];
+    return [makeNode('unknown', undefined, children)];
+}
+
+/**
+ * 扫描 dirPath 的所有直接子目录并汇总为节点列表。
+ * 同层内 Git 仓库优先展示，其余按目录名升序，保证结果稳定。
+ */
+function scanChildDirs(dirPath, depth, maxDepth, seen) {
+    if (depth > maxDepth) return [];
+    let entries = [];
+    try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch (_) { return []; }
+
+    const childDirs = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+
+    let nodes = [];
+    for (const childName of childDirs) {
+        const sub = scanProjectTree(path.join(dirPath, childName), depth, maxDepth, seen);
+        if (sub.length) nodes = nodes.concat(sub);
+    }
+    // 稳定排序：Git 仓库排前面
+    return nodes.sort((a, b) => Number(b.hasGit) - Number(a.hasGit));
+}
+
 const processes = new Map();
 let outputCallback = null;
 let exitCallback = null;
@@ -278,17 +401,38 @@ function buildPmAlias(nodeDir, packageManager, shell) {
     return `npm() { node '${cli.replace(/'/g, "'\\''")}' "$@"; }`;
 }
 
+/** 各 shell 的命令分隔符 */
+function shellSeparator(shell) {
+    return shell === 'ps' ? '; ' : ' && ';
+}
+
+/**
+ * 按分隔符拼接命令片段，自动跳过空片段。
+ *
+ * 非 node 项目的启动脚本为空，若直接模板拼接会产出悬空的 `&&` / `;`，
+ * 在 CMD 与 bash 下都是语法错误。
+ */
+function joinShellCommands(parts, sep) {
+    return parts
+        .map((part) => String(part || '').trim())
+        .filter((part) => part.length > 0)
+        .join(sep);
+}
+
 /**
  * 构造打开终端时的版本检查命令：`node -v && <pm> -v`。
  * - 对 npm 优先使用 `node "<abs>/npm-cli.js" -v` 绕过 npm.cmd 软链问题。
  * - 其它 PM：`<pm> -v`，依赖注入的 PATH。
+ * - **包管理器为空：返回空串，终端只做 cd 不做任何版本注入。**
+ *   非 node 项目（Go/Rust/Python 等）由前端传空包管理器走这条分支——
+ *   对它们输出 `node -v` 既无意义，在未装 Node 的机器上还会报错刷屏。
  * - shell: 'ps' | 'cmd' | 'bash'
  */
 function buildStartupCheck(nodeDir, packageManager, shell) {
     const pm = (packageManager || '').trim();
-    const sep = shell === 'ps' ? '; ' : ' && ';
+    const sep = shellSeparator(shell);
 
-    if (!pm) return 'node -v';
+    if (!pm) return '';
 
     if (pm.toLowerCase() === 'npm') {
         const cli = resolveNpmCliJs(nodeDir);
@@ -306,12 +450,12 @@ function buildStartupCheck(nodeDir, packageManager, shell) {
 
 /**
  * 把别名命令和启动检查拼接：别名先生效，再做版本输出（这样版本输出走的也是别名）。
+ * 非 node 项目两者均为空，返回空串。
  */
 function buildStartupScript(nodeDir, packageManager, shell) {
-    const sep = shell === 'ps' ? '; ' : ' && ';
     const alias = buildPmAlias(nodeDir, packageManager, shell);
     const check = buildStartupCheck(nodeDir, packageManager, shell);
-    return alias ? `${alias}${sep}${check}` : check;
+    return joinShellCommands([alias, check], shellSeparator(shell));
 }
 
 function getTerminalSpawnOptions(nodePath) {
@@ -343,6 +487,139 @@ function escapePowerShellSingleQuotes(value) {
 
 // Platform-adaptive: support both uTools and ZTools
 const platform = typeof ztools !== 'undefined' ? ztools : utools;
+
+// Editor detection helpers
+const PLUGIN_EDITOR_DEFINITIONS = [
+    { name: 'Visual Studio Code', matches: ['visual studio code'], commands: ['code'], relativePaths: [['bin', 'code.cmd'], ['bin', 'code'], ['Code.exe']] },
+    { name: 'Trae CN', matches: ['trae'], commands: ['trae'], relativePaths: [['bin', 'trae.cmd'], ['bin', 'trae'], ['Trae.exe']] },
+    { name: 'Cursor', matches: ['cursor'], commands: ['cursor'], relativePaths: [['bin', 'cursor.cmd'], ['bin', 'cursor'], ['Cursor.exe']] },
+    { name: 'Windsurf', matches: ['windsurf'], commands: ['windsurf'], relativePaths: [['bin', 'windsurf.cmd'], ['bin', 'windsurf'], ['Windsurf.exe']] },
+    { name: 'WebStorm', matches: ['webstorm'], commands: ['webstorm64', 'webstorm'], relativePaths: [['bin', 'webstorm64.exe'], ['bin', 'webstorm']] },
+    { name: 'IntelliJ IDEA', matches: ['intellij idea'], commands: ['idea64', 'idea'], relativePaths: [['bin', 'idea64.exe'], ['bin', 'idea']] },
+    { name: 'Sublime Text', matches: ['sublime text'], commands: ['subl'], relativePaths: [['sublime_text.exe']] },
+    { name: 'Notepad++', matches: ['notepad++'], commands: ['notepad++'], relativePaths: [['notepad++.exe']] },
+];
+
+function cleanWindowsRegistryPath(value) {
+    const trimmed = String(value || '').trim().replace(/^"|"$/g, '');
+    const withoutArgs = trimmed.split('",')[0].replace(/^"|"$/g, '');
+    return withoutArgs.replace(/,\s*\d+$/, '').replace(/^"|"$/g, '').trim();
+}
+
+function findExecutableOnPath(command) {
+    try {
+        const locator = process.platform === 'win32' ? 'where.exe' : 'which';
+        const output = execFileSync(locator, [command], {
+            encoding: 'utf8',
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        return String(output || '').split(/\r?\n/).map(item => item.trim()).find(Boolean) || '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function resolveWindowsEditor(displayName, installLocation, displayIcon) {
+    const normalizedName = String(displayName || '').toLowerCase();
+    const definition = PLUGIN_EDITOR_DEFINITIONS.find(item =>
+        item.matches.some(keyword => normalizedName.includes(keyword))
+    );
+    if (!definition) return null;
+
+    const candidates = [];
+    if (installLocation) {
+        for (const relativePath of definition.relativePaths) {
+            candidates.push(path.join(installLocation, ...relativePath));
+        }
+    }
+    const iconPath = cleanWindowsRegistryPath(displayIcon);
+    if (iconPath) candidates.push(iconPath);
+
+    const executablePath = candidates.find(candidate => candidate && fs.existsSync(candidate));
+    return executablePath ? { name: definition.name, path: executablePath } : null;
+}
+
+function scanWindowsUninstallEditors() {
+    const registryRoots = [
+        'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+        'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+        'HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    ];
+    const editors = [];
+
+    for (const registryRoot of registryRoots) {
+        let output = '';
+        try {
+            output = execFileSync('reg.exe', ['query', registryRoot, '/s'], {
+                encoding: 'utf8',
+                windowsHide: true,
+                maxBuffer: 20 * 1024 * 1024,
+                stdio: ['ignore', 'pipe', 'ignore'],
+            });
+        } catch (_) {
+            continue;
+        }
+
+        let entry = {};
+        const flushEntry = () => {
+            const editor = resolveWindowsEditor(entry.DisplayName, entry.InstallLocation, entry.DisplayIcon);
+            if (editor) editors.push(editor);
+            entry = {};
+        };
+
+        for (const line of String(output || '').split(/\r?\n/)) {
+            if (/^HKEY_/i.test(line.trim())) {
+                flushEntry();
+                continue;
+            }
+            const match = line.match(/^\s+(DisplayName|InstallLocation|DisplayIcon)\s+REG_\w+\s+(.*)$/i);
+            if (match) entry[match[1]] = match[2].trim();
+        }
+        flushEntry();
+    }
+
+    return editors;
+}
+
+function detectAvailableEditorsSync() {
+    const editors = process.platform === 'win32' ? scanWindowsUninstallEditors() : [];
+
+    if (process.platform === 'win32') {
+        const localAppData = process.env.LOCALAPPDATA || '';
+        const programFiles = process.env.ProgramFiles || '';
+        const commonInstalls = [
+            ['Visual Studio Code', localAppData && path.join(localAppData, 'Programs', 'Microsoft VS Code')],
+            ['Cursor', localAppData && path.join(localAppData, 'Programs', 'cursor')],
+            ['Trae', localAppData && path.join(localAppData, 'Programs', 'Trae')],
+            ['Windsurf', localAppData && path.join(localAppData, 'Programs', 'Windsurf')],
+            ['Visual Studio Code', programFiles && path.join(programFiles, 'Microsoft VS Code')],
+        ];
+        for (const [name, installLocation] of commonInstalls) {
+            const editor = resolveWindowsEditor(name, installLocation, '');
+            if (editor) editors.push(editor);
+        }
+    }
+
+    for (const definition of PLUGIN_EDITOR_DEFINITIONS) {
+        if (editors.some(editor => editor.name === definition.name)) continue;
+        for (const command of definition.commands) {
+            const commandPath = findExecutableOnPath(command);
+            if (commandPath) {
+                editors.push({ name: definition.name, path: commandPath });
+                break;
+            }
+        }
+    }
+
+    const seen = new Set();
+    return editors.filter(editor => {
+        const key = editor.name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
 
 // Port parsing helpers
 function parseLsofEndpoint(str) {
@@ -404,11 +681,11 @@ window.services = {
         if (process.platform === 'win32') {
             const nvmHome = process.env.NVM_HOME;
             if (!nvmHome) return [];
-            
+
             try {
                 const dirs = fs.readdirSync(nvmHome);
                 const versions = [];
-                
+
                 for (const dir of dirs) {
                     if (dir.startsWith('v')) {
                         versions.push({
@@ -423,19 +700,19 @@ window.services = {
                 console.error(e);
                 return [];
             }
-        } 
+        }
         // macOS / Linux
         else {
             const home = process.env.HOME;
             const nvmDir = process.env.NVM_DIR || path.join(home, '.nvm');
             const versionsDir = path.join(nvmDir, 'versions', 'node');
-            
+
             if (!fs.existsSync(versionsDir)) return [];
-            
+
             try {
                 const dirs = fs.readdirSync(versionsDir);
                 const versions = [];
-                
+
                 for (const dir of dirs) {
                     if (dir.startsWith('v')) {
                         versions.push({
@@ -460,7 +737,7 @@ window.services = {
             return null;
         }
     },
-    
+
     getNodeVersion: async (nodePath) => {
         return new Promise(resolve => {
             const cb = (err, stdout) => {
@@ -490,7 +767,7 @@ window.services = {
                         reject(error);
                         return;
                     }
-                    
+
                     // Best-effort verify installation for numeric versions only.
                     // For aliases (e.g. lts), nvm may install a resolved semver folder.
                     const nvmHome = process.env.NVM_HOME;
@@ -559,7 +836,7 @@ window.services = {
             }
         });
     },
-    
+
     uninstallNode: async (version) => {
         return new Promise((resolve, reject) => {
             if (!isValidVersion(version)) {
@@ -572,7 +849,7 @@ window.services = {
                         reject(error);
                         return;
                     }
-                    
+
                     // Verify uninstallation
                     const nvmHome = process.env.NVM_HOME;
                     if (nvmHome) {
@@ -602,7 +879,7 @@ window.services = {
             }
         });
     },
-    
+
     useNode: async (version) => {
         return new Promise((resolve, reject) => {
             if (!isValidVersion(version)) {
@@ -648,7 +925,7 @@ window.services = {
                     projectType: 'other'
                 };
             }
-            
+
             let pkg = {};
             try {
                 const content = fs.readFileSync(pkgPath, 'utf-8');
@@ -674,7 +951,7 @@ window.services = {
                     nvmVersion = rawNvmVersion;
                 }
             }
-            
+
             return {
                 name: pkg.name || dirName,
                 scripts: Object.keys(pkg.scripts || {}),
@@ -687,6 +964,13 @@ window.services = {
             throw e;
         }
     },
+
+    scanSubProjects: async (projectPath, maxDepth) => {
+        const limit = typeof maxDepth === 'number' && maxDepth > 0 ? maxDepth : MAX_SCAN_DEPTH;
+        return scanChildDirs(projectPath, 1, limit, new Set());
+    },
+
+    scanImportTree: async (rootPath) => scanChildDirs(rootPath, 1, MAX_SCAN_DEPTH, new Set()),
 
     gitListRemoteBranches: async (url) => {
         return new Promise((resolve, reject) => {
@@ -765,7 +1049,7 @@ window.services = {
 
         function appendLog(text) {
             if (!text) return;
-            
+
             // Update buffer
             logBuffer.push(text);
             if (logBuffer.length > MAX_LOG_LINES) {
@@ -801,7 +1085,7 @@ window.services = {
         try {
             const userData = platform.getPath('userData');
             const baseLogDir = path.join(userData, 'logs');
-            
+
             // Determine Project Name
             let projectName = path.basename(projectPath);
             try {
@@ -824,11 +1108,11 @@ window.services = {
             if (!fs.existsSync(projectLogDir)) {
                 fs.mkdirSync(projectLogDir, { recursive: true });
             }
-            
+
             // Sanitize script name
             const safeScript = script.replace(/[<>:"/\\|?*]/g, '_');
             logFilePath = path.join(projectLogDir, `${safeScript}.log`);
-            
+
             // Open with 'w' to overwrite existing file (clearing previous run logs)
             logStream = fs.createWriteStream(logFilePath, { flags: 'w' });
         } catch (e) {
@@ -893,7 +1177,7 @@ window.services = {
 
             appendLog(`Executing: ${cmdStr}\n`);
             appendLog(`Node Path used: ${nodeDir || 'System Default'}\n`);
-            
+
             const child = spawn(spawnCmd, ['run', script], {
                 cwd: projectPath,
                 shell: true,
@@ -903,21 +1187,21 @@ window.services = {
             });
 
             spawnParentDeathWatch(child);
-            
+
             processes.set(id, child);
-            
+
             child.stdout.on('data', (data) => {
                 const str = data.toString();
                 if (outputCallback) outputCallback({ id, data: str });
                 appendLog(str);
             });
-            
+
             child.stderr.on('data', (data) => {
                 const str = data.toString();
                 if (outputCallback) outputCallback({ id, data: str });
                 appendLog(`ERR: ${str}`);
             });
-            
+
             child.on('exit', () => {
                 processes.delete(id);
                 // Final rewrite
@@ -925,7 +1209,7 @@ window.services = {
                 if (logStream) logStream.end();
                 if (exitCallback) exitCallback({ id });
             });
-            
+
             child.on('error', (err) => {
                 console.error('[Runner] Spawn error:', err);
                 const errMsg = `Error spawning process: ${err.message}`;
@@ -992,7 +1276,7 @@ window.services = {
         outputCallback = cb;
         return () => { outputCallback = null; };
     },
-    
+
     onProjectExit: async (cb) => {
         exitCallback = cb;
         return () => { exitCallback = null; };
@@ -1007,7 +1291,7 @@ window.services = {
         }
         return "";
     },
-    
+
     writeConfigFile: async (filename, content) => {
         const userPath = platform.getPath('userData');
         const filePath = path.join(userPath, filename);
@@ -1025,7 +1309,7 @@ window.services = {
     writeTextFile: async (path, content) => {
         fs.writeFileSync(path, content, 'utf-8');
     },
-    
+
     readDir: async (dirPath) => {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         return entries.map(e => ({
@@ -1033,7 +1317,7 @@ window.services = {
             isDirectory: e.isDirectory()
         }));
     },
-    
+
     openDialog: async (options) => {
         const electronOptions = {
             properties: []
@@ -1058,19 +1342,19 @@ window.services = {
         if (options?.multiple) return result;
         return result[0];
     },
-    
+
     saveDialog: async (options) => {
         return platform.showSaveDialog(options);
     },
-    
+
     openUrl: async (url) => {
         platform.shellOpenExternal(url);
     },
-    
+
     openFolder: async (path) => {
         platform.shellOpenPath(path);
     },
-    
+
     openInEditor: async (path, editor = 'code') => {
         // Validate editor: must be a simple command name or an absolute file path
         const isAbsolutePath = require('path').isAbsolute(editor);
@@ -1081,19 +1365,19 @@ window.services = {
         }
         spawn(editor, [path], { shell: false });
     },
-    
+
     getAppVersion: async () => {
-        return "1.3.1";
+        return "1.5.7";
     },
-    
+
     installUpdate: async (url) => {
         platform.shellOpenExternal(url);
     },
-    
+
     onDownloadProgress: async (cb) => {
         return () => {};
     },
-    
+
     // Window controls
     windowMinimize: async () => {
         platform.hideMainWindow();
@@ -1111,7 +1395,7 @@ window.services = {
     //************* 终端检测 *************
     detectAvailableTerminals: async () => {
         const terminals = [];
-        
+
         // Windows 平台
         if (process.platform === 'win32') {
             terminals.push({
@@ -1146,10 +1430,14 @@ window.services = {
              try { execSync('which konsole', { stdio: 'ignore' }); terminals.push({ id: 'konsole', name: 'Konsole (KDE)' }); } catch(e) {}
              try { execSync('which xfce4-terminal', { stdio: 'ignore' }); terminals.push({ id: 'xfce4-terminal', name: 'XFCE Terminal' }); } catch(e) {}
         }
-        
+
         return terminals;
     },
-    
+
+    detectAvailableEditors: async () => {
+        return detectAvailableEditorsSync();
+    },
+
     //************* 终端打开 *************
     openInTerminal: async (projectPath, terminal, nodePath, packageManager) => {
         const termRaw = (terminal || 'cmd').trim();
@@ -1178,26 +1466,42 @@ window.services = {
                 const isPwsh = term === 'pwsh' || term === 'pwsh.exe' || terminalBaseName === 'pwsh.exe';
 
                 if (isWindowsPowerShell) {
-                     const startupScript = pathEnvPs
-                        ? `$env:PATH='${pathEnvPs}'; Set-Location '${winPathPs}'; ${startupCheckPs}`
-                        : `Set-Location '${winPathPs}'; ${startupCheckPs}`;
+                     // 用 joinShellCommands 拼接：非 node 项目 startupCheck 为空时不会留下悬空的 `;`
+                     const startupScript = joinShellCommands([
+                        pathEnvPs ? `$env:PATH='${pathEnvPs}'` : '',
+                        `Set-Location '${winPathPs}'`,
+                        startupCheckPs,
+                     ], '; ');
                      const executable = isCustomExecutable ? termRaw : 'powershell';
                      spawn('cmd', ['/C', 'start', '', executable, '-NoExit', '-Command', startupScript], spawnOptions);
                 } else if (isPwsh) {
-                     const startupScript = pathEnvPs
-                        ? `$env:PATH='${pathEnvPs}'; Set-Location '${winPathPs}'; ${startupCheckPs}`
-                        : `Set-Location '${winPathPs}'; ${startupCheckPs}`;
+                     const startupScript = joinShellCommands([
+                        pathEnvPs ? `$env:PATH='${pathEnvPs}'` : '',
+                        `Set-Location '${winPathPs}'`,
+                        startupCheckPs,
+                     ], '; ');
                      const executable = isCustomExecutable ? termRaw : 'pwsh';
                      spawn('cmd', ['/C', 'start', '', executable, '-NoExit', '-Command', startupScript], spawnOptions);
                 } else if (term === 'windows-terminal') {
-                    const startupCommand = pathEnvCmd
-                        ? `set "PATH=${pathEnvCmd}" && cd /d "${winPathCmd}" && ${startupCheckCmd}`
-                        : startupCheckCmd;
-                    spawn('wt', ['-d', winPath, 'cmd', '/K', startupCommand], spawnOptions);
+                    const startupCommand = joinShellCommands([
+                        pathEnvCmd ? `set "PATH=${pathEnvCmd}"` : '',
+                        // wt 已用 -d 切到目标目录，这里仅在需要改 PATH 时补一次 cd 保证同一会话内生效
+                        pathEnvCmd ? `cd /d "${winPathCmd}"` : '',
+                        startupCheckCmd,
+                    ], ' && ');
+                    if (startupCommand) {
+                        spawn('wt', ['-d', winPath, 'cmd', '/K', startupCommand], spawnOptions);
+                    } else {
+                        // 非 node 项目且无需改 PATH：直接开一个干净的 cmd，不带 /K 命令
+                        spawn('wt', ['-d', winPath, 'cmd'], spawnOptions);
+                    }
                 } else if (term === 'cmder') {
-                    const startupCommand = pathEnvCmd
-                        ? `set "PATH=${pathEnvCmd}" && cd /d "${winPathCmd}" && cmder && ${startupCheckCmd}`
-                        : `cd /d "${winPathCmd}" && cmder && ${startupCheckCmd}`;
+                    const startupCommand = joinShellCommands([
+                        pathEnvCmd ? `set "PATH=${pathEnvCmd}"` : '',
+                        `cd /d "${winPathCmd}"`,
+                        'cmder',
+                        startupCheckCmd,
+                    ], ' && ');
                     spawn('cmd', ['/C', 'start', '', 'cmd', '/K', startupCommand], spawnOptions);
                 } else if (term === 'git-bash') {
                     const gitBash = [
@@ -1209,10 +1513,12 @@ window.services = {
                     if (gitBash) {
                         spawn('cmd', ['/C', 'start', '', gitBash, `--cd=${winPath}`], spawnOptions);
                     } else {
-                        const bashInner = `${startupCheckBash}; exec bash`.replace(/"/g, '\\"');
-                        const startupCommand = pathEnvCmd
-                            ? `set "PATH=${pathEnvCmd}" && cd /d "${winPathCmd}" && bash -c "${bashInner}"`
-                            : `cd /d "${winPathCmd}" && bash -c "${bashInner}"`;
+                        const bashInner = joinShellCommands([startupCheckBash, 'exec bash'], '; ').replace(/"/g, '\\"');
+                        const startupCommand = joinShellCommands([
+                            pathEnvCmd ? `set "PATH=${pathEnvCmd}"` : '',
+                            `cd /d "${winPathCmd}"`,
+                            `bash -c "${bashInner}"`,
+                        ], ' && ');
                         spawn('cmd', ['/K', startupCommand], spawnOptions);
                     }
                 } else {
@@ -1221,9 +1527,11 @@ window.services = {
                         spawn(termRaw, [], customOptions);
                     } else {
                         // CMD (Default)
-                        const startupCommand = pathEnvCmd
-                            ? `set "PATH=${pathEnvCmd}" && cd /d "${winPathCmd}" && ${startupCheckCmd}`
-                            : `cd /d "${winPathCmd}" && ${startupCheckCmd}`;
+                        const startupCommand = joinShellCommands([
+                            pathEnvCmd ? `set "PATH=${pathEnvCmd}"` : '',
+                            `cd /d "${winPathCmd}"`,
+                            startupCheckCmd,
+                        ], ' && ');
                         spawn('cmd', ['/C', 'start', '', 'cmd', '/K', startupCommand], spawnOptions);
                     }
                 }
@@ -1242,16 +1550,17 @@ window.services = {
              }
         } else {
             // Linux
-            const bashInner = `${startupCheckBash}; exec bash`;
+            // 非 node 项目 startupCheckBash 为空，用 join 跳过空段，避免 `; exec bash` 前面留下悬空分隔符
+            const bashInner = joinShellCommands([startupCheckBash, 'exec bash'], '; ');
             const xfceInline = `bash -c '${bashInner.replace(/'/g, "'\\''")}'`;
             const terms = [
                 { id: 'gnome-terminal', cmd: 'gnome-terminal', args: ['--working-directory', projectPath, '--', 'bash', '-c', bashInner] },
                 { id: 'konsole', cmd: 'konsole', args: ['--workdir', projectPath, '-e', 'bash', '-c', bashInner] },
                 { id: 'xfce4-terminal', cmd: 'xfce4-terminal', args: ['--working-directory', projectPath, '-e', xfceInline] }
             ];
-            
+
             const target = terms.find(t => t.id === term);
-            
+
             if (target) {
                  spawn(target.cmd, target.args, spawnOptions).unref();
             } else {
@@ -1303,10 +1612,13 @@ $ports += Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
     OwningProcess = $_.OwningProcess
   }
 }
-$pids = ($ports | Select-Object -ExpandProperty OwningProcess -Unique) -join ','
+$processIds = @{}
+$ports | ForEach-Object { $processIds[[int]$_.OwningProcess] = $true }
 $procs = @{}
-if ($pids) {
-  Get-CimInstance Win32_Process -Filter "ProcessId IN ($pids)" -ErrorAction SilentlyContinue | ForEach-Object {
+if ($processIds.Count -gt 0) {
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $processIds.ContainsKey([int]$_.ProcessId)
+  } | ForEach-Object {
     $procs[$_.ProcessId] = @{ Name = $_.Name; Path = $_.ExecutablePath; Cmd = $_.CommandLine }
   }
 }
@@ -1327,7 +1639,12 @@ $result = $ports | ForEach-Object {
 } | Sort-Object local_port, protocol, pid
 $result | ConvertTo-Json -Compress`;
 
-                exec(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"')}"`, {
+                const powershellPath = path.join(
+                    process.env.SystemRoot || 'C:\\Windows',
+                    'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+                );
+                const powershellCommand = fs.existsSync(powershellPath) ? powershellPath : 'powershell.exe';
+                execFile(powershellCommand, ['-NoProfile', '-NonInteractive', '-Command', script], {
                     maxBuffer: 50 * 1024 * 1024,
                     windowsHide: true,
                     encoding: 'utf8',
@@ -1489,12 +1806,16 @@ $result | ConvertTo-Json -Compress`;
 
     gitCheck: async (projectPath) => {
         try {
-            const result = execSync('git rev-parse --is-inside-work-tree', {
+            const result = execFileSync('git', ['rev-parse', '--show-toplevel'], {
                 cwd: projectPath,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 windowsHide: true,
             });
-            return result.toString().trim() === 'true';
+            const requestedPath = fs.realpathSync(projectPath);
+            const repoRootPath = fs.realpathSync(result.toString().trim());
+            return process.platform === 'win32'
+                ? requestedPath.toLowerCase() === repoRootPath.toLowerCase()
+                : requestedPath === repoRootPath;
         } catch (e) {
             return false;
         }
@@ -1516,13 +1837,15 @@ $result | ConvertTo-Json -Compress`;
             ? (runGitSafe(['rev-parse', '--short', 'HEAD']) || 'HEAD')
             : branchRaw;
 
-        let ahead = 0, behind = 0, hasRemote = false, remoteName = null;
+        let ahead = 0, behind = 0, hasRemote = false, remoteName = null, upstream = null;
 
         if (!isDetached) {
             const remote = runGitSafe(['config', `branch.${branchRaw}.remote`]);
             if (remote) {
                 hasRemote = true;
                 remoteName = remote;
+                const upRef = runGitSafe(['rev-parse', '--abbrev-ref', `${branchRaw}@{upstream}`]);
+                if (upRef) upstream = upRef;
                 const track = runGitSafe(['rev-list', '--left-right', '--count', `${branchRaw}@{upstream}...HEAD`]);
                 if (track) {
                     const parts = track.split(/\s+/);
@@ -1534,7 +1857,55 @@ $result | ConvertTo-Json -Compress`;
             }
         }
 
-        return { branch, is_detached: isDetached, ahead, behind, has_remote: hasRemote, remote_name: remoteName };
+        // 状态计数与冲突
+        let stagedCount = 0, unstagedCount = 0, untrackedCount = 0, conflictedCount = 0;
+        try {
+            const porcelain = execSync('git status --porcelain=v1 -uall', {
+                cwd: projectPath, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, maxBuffer: 10 * 1024 * 1024
+            }).toString();
+            for (const line of porcelain.split('\n')) {
+                if (line.length < 3) continue;
+                const x = line[0], y = line[1];
+                if ((x === 'U' || y === 'U') || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
+                    conflictedCount++;
+                    continue;
+                }
+                if (x === '?' && y === '?') { untrackedCount++; continue; }
+                if (x !== ' ' && x !== '?') stagedCount++;
+                if (y !== ' ' && y !== '?') unstagedCount++;
+            }
+        } catch (_) {}
+
+        // 进行中操作
+        let operationState = null;
+        const gitDir = runGitSafe(['rev-parse', '--git-dir']);
+        if (gitDir) {
+            const base = path.isAbsolute(gitDir) ? gitDir : path.join(projectPath, gitDir);
+            if (fs.existsSync(path.join(base, 'MERGE_HEAD'))) operationState = 'merge';
+            else if (fs.existsSync(path.join(base, 'CHERRY_PICK_HEAD'))) operationState = 'cherry-pick';
+            else if (fs.existsSync(path.join(base, 'REVERT_HEAD'))) operationState = 'revert';
+            else if (
+                fs.existsSync(path.join(base, 'REBASE_HEAD')) ||
+                fs.existsSync(path.join(base, 'rebase-merge')) ||
+                fs.existsSync(path.join(base, 'rebase-apply'))
+            ) operationState = 'rebase';
+        }
+
+        return {
+            branch,
+            is_detached: isDetached,
+            ahead,
+            behind,
+            has_remote: hasRemote,
+            remote_name: remoteName,
+            upstream,
+            has_conflicts: conflictedCount > 0,
+            conflicted_count: conflictedCount,
+            staged_count: stagedCount,
+            unstaged_count: unstagedCount,
+            untracked_count: untrackedCount,
+            operation_state: operationState,
+        };
     },
 
     gitStatus: async (projectPath) => {
@@ -1605,6 +1976,17 @@ $result | ConvertTo-Json -Compress`;
         return execSync('git restore --staged .', { cwd: projectPath, windowsHide: true }).toString();
     },
 
+    gitAmend: async (projectPath, message) => {
+        if (message && String(message).trim()) {
+            return execFileSync('git', ['commit', '--amend', '-m', String(message).trim()], {
+                cwd: projectPath, windowsHide: true
+            }).toString();
+        }
+        return execFileSync('git', ['commit', '--amend', '--no-edit'], {
+            cwd: projectPath, windowsHide: true
+        }).toString();
+    },
+
     gitCommit: async (projectPath, message) => {
         // Use spawn to safely pass message without shell injection
         return new Promise((resolve, reject) => {
@@ -1620,8 +2002,9 @@ $result | ConvertTo-Json -Compress`;
         });
     },
 
-    gitPull: async (projectPath, remote, branch, operationId) => {
+    gitPull: async (projectPath, remote, branch, operationId, strategy) => {
         const args = ['pull'];
+        if (strategy === 'ff-only') args.push('--ff-only');
         if (remote) args.push(remote);
         if (branch) args.push(branch);
         return new Promise((resolve, reject) => {
@@ -1642,9 +2025,10 @@ $result | ConvertTo-Json -Compress`;
         });
     },
 
-    gitPush: async (projectPath, remote, branch, force, setUpstream, operationId) => {
+    gitPush: async (projectPath, remote, branch, force, setUpstream, operationId, forceWithLease) => {
         const args = ['push'];
-        if (force) args.push('--force');
+        if (forceWithLease) args.push('--force-with-lease');
+        else if (force) args.push('--force');
         if (setUpstream) args.push('-u');
         if (remote) args.push(remote);
         if (branch) args.push(branch);
@@ -1890,6 +2274,75 @@ $result | ConvertTo-Json -Compress`;
         return commits;
     },
 
+    gitOwnCommits: async (projectPath, since, until) => {
+        function readGitConfig(key) {
+            try {
+                const localValue = execFileSync('git', ['config', '--get', key], {
+                    cwd: projectPath, windowsHide: true
+                }).toString().trim();
+                if (localValue) return localValue;
+            } catch (_) {}
+
+            try {
+                const globalValue = execFileSync('git', ['config', '--global', '--get', key], {
+                    windowsHide: true
+                }).toString().trim();
+                if (globalValue) return globalValue;
+            } catch (_) {}
+
+            return undefined;
+        }
+
+        const identity = {
+            name: readGitConfig('user.name'),
+            email: readGitConfig('user.email'),
+        };
+        if (!identity.name && !identity.email) {
+            throw new Error('No Git author identity configured.');
+        }
+
+        let output;
+        try {
+            output = execFileSync('git', [
+                '--no-pager',
+                'log',
+                '--all',
+                `--since=${since}`,
+                `--before=${until}`,
+                '--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s'
+            ], {
+                cwd: projectPath, windowsHide: true, maxBuffer: 10 * 1024 * 1024
+            }).toString();
+        } catch (e) {
+            output = e.stdout ? e.stdout.toString() : '';
+        }
+
+        const commits = [];
+        for (const line of output.split('\n')) {
+            const parts = line.split('\x1f');
+            if (parts.length < 6) continue;
+
+            const author = parts[2];
+            const email = parts[3];
+            const matched = identity.email
+                ? email.toLowerCase() === identity.email.toLowerCase()
+                : author === identity.name;
+            if (!matched) continue;
+
+            commits.push({
+                hash: parts[0],
+                shortHash: parts[1],
+                author,
+                email,
+                date: parts[4],
+                message: parts[5],
+            });
+        }
+
+        commits.sort((a, b) => a.date.localeCompare(b.date));
+        return { identity, commits };
+    },
+
     gitCommitDetail: async (projectPath, hash) => {
         let output;
         try {
@@ -1981,6 +2434,127 @@ $result | ConvertTo-Json -Compress`;
             input: patch,
             stdio: ['pipe', 'pipe', 'pipe'],
         }).toString();
+    },
+
+    gitMerge: async (projectPath, branch) => {
+        return execFileSync('git', ['merge', branch], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitMergeContinue: async (projectPath) => {
+        return execFileSync('git', ['merge', '--continue'], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitMergeAbort: async (projectPath) => {
+        return execFileSync('git', ['merge', '--abort'], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitRebase: async (projectPath, branch) => {
+        return execFileSync('git', ['rebase', branch], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitReset: async (projectPath, mode, target) => {
+        const modeFlag = mode === 'soft' ? '--soft' : mode === 'hard' ? '--hard' : '--mixed';
+        const rev = target || 'HEAD~1';
+        return execFileSync('git', ['reset', modeFlag, rev], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitCherryPick: async (projectPath, hash) => {
+        return execFileSync('git', ['cherry-pick', hash], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitRevertCommit: async (projectPath, hash) => {
+        return execFileSync('git', ['revert', '--no-edit', hash], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitStashList: async (projectPath) => {
+        let output = '';
+        try {
+            output = execFileSync('git', ['stash', 'list', '--format=%gd%n%gs%n%aI%n---END---'], {
+                cwd: projectPath, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
+            }).toString();
+        } catch (_) {
+            return [];
+        }
+        const entries = [];
+        let lines = [];
+        for (const line of output.split('\n')) {
+            if (line === '---END---') {
+                if (lines.length >= 3) {
+                    const indexStr = lines[0].replace(/^stash@\{/, '').replace(/\}$/, '');
+                    entries.push({
+                        index: parseInt(indexStr, 10) || 0,
+                        message: lines[1],
+                        date: lines[2],
+                    });
+                }
+                lines = [];
+            } else if (line.length) {
+                lines.push(line);
+            }
+        }
+        return entries;
+    },
+    gitStashSave: async (projectPath, message) => {
+        const args = ['stash', 'push'];
+        if (message) { args.push('-m', message); }
+        return execFileSync('git', args, { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitStashPop: async (projectPath, index) => {
+        const idx = `stash@{${index == null ? 0 : index}}`;
+        return execFileSync('git', ['stash', 'pop', idx], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitStashApply: async (projectPath, index) => {
+        const idx = `stash@{${index == null ? 0 : index}}`;
+        return execFileSync('git', ['stash', 'apply', idx], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitStashDrop: async (projectPath, index) => {
+        const idx = `stash@{${index}}`;
+        return execFileSync('git', ['stash', 'drop', idx], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitTags: async (projectPath) => {
+        let output = '';
+        try {
+            output = execFileSync('git', ['tag', '-l', '--format=%(refname:short)\t%(objectname:short)'], {
+                cwd: projectPath, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
+            }).toString();
+        } catch (_) {
+            return [];
+        }
+        return output.split('\n').filter(Boolean).map((line) => {
+            const parts = line.split('\t');
+            return { name: parts[0] || '', hash: parts[1] || '' };
+        });
+    },
+    gitCreateTag: async (projectPath, name, message, target) => {
+        const args = ['tag'];
+        if (message && String(message).trim()) {
+            args.push('-a', name, '-m', String(message).trim());
+        } else {
+            args.push(name);
+        }
+        if (target) args.push(target);
+        return execFileSync('git', args, { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitDeleteTag: async (projectPath, name) => {
+        return execFileSync('git', ['tag', '-d', name], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitRemoteList: async (projectPath) => {
+        let output = '';
+        try {
+            output = execFileSync('git', ['remote', '-v'], {
+                cwd: projectPath, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
+            }).toString();
+        } catch (_) {
+            return [];
+        }
+        const remotes = [];
+        for (const line of output.split('\n')) {
+            const m = line.match(/^(\S+)\s+(\S+)\s+\((fetch|push)\)$/);
+            if (m) remotes.push({ name: m[1], url: m[2], remote_type: m[3] });
+        }
+        return remotes;
+    },
+    gitRemoteAdd: async (projectPath, name, url) => {
+        return execFileSync('git', ['remote', 'add', name, url], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitRemoteSetUrl: async (projectPath, name, url) => {
+        return execFileSync('git', ['remote', 'set-url', name, url], { cwd: projectPath, windowsHide: true }).toString();
+    },
+    gitRemoteRemove: async (projectPath, name) => {
+        return execFileSync('git', ['remote', 'remove', name], { cwd: projectPath, windowsHide: true }).toString();
     },
 
     //************* 包管理器解析 *************

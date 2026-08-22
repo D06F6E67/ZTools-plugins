@@ -170,6 +170,35 @@ const availableTabs = computed(() => {
     return Array.from(openTabs.value);
 });
 
+/** *********************可运行命令列表（无输出 tab 时展示）*********************/
+
+/** 可见脚本（遵循 visibleScripts 白名单） */
+const runnableScripts = computed(() => {
+    const project = activeProject.value;
+    if (!project || project.type !== 'node' || !project.scripts?.length) return [];
+    if (project.visibleScripts?.length) {
+        return project.scripts.filter(s => project.visibleScripts!.includes(s));
+    }
+    return project.scripts;
+});
+
+/** 自定义命令 */
+const runnableCustomCommands = computed(() => activeProject.value?.customCommands ?? []);
+
+/** 是否有任何可运行命令 */
+const hasRunnableCommands = computed(() =>
+    runnableScripts.value.length > 0 || runnableCustomCommands.value.length > 0
+);
+
+function isCommandRunning(id: string): boolean {
+    if (!activeProject.value) return false;
+    return !!projectStore.runningStatus[`${activeProject.value.id}:${id}`];
+}
+
+function getCustomCmdLabel(cmd: { name: string; builtinId?: 'install_dependencies' }): string {
+    return getCustomCommandDisplayName(cmd, t);
+}
+
 function getTabLabel(tabId: string): string {
     if (!activeProject.value) return tabId;
     const customCmd = activeProject.value.customCommands?.find(c => c.id === tabId);
@@ -315,6 +344,18 @@ function handleRun(script: string) {
     }
 }
 
+/** 启动器点击：运行中则停止，否则运行 */
+function toggleRun(id: string) {
+    if (!activeProject.value) return;
+    if (isCommandRunning(id)) {
+        projectStore.stopProject(activeProject.value, id);
+    } else {
+        handleRun(id);
+        // 运行后自动切到该命令的输出标签
+        activeScript.value = id;
+    }
+}
+
 function handleCloseTab(script: string) {
     // Stop the script if running
     if (activeProject.value && projectStore.runningStatus[`${activeProject.value.id}:${script}`]) {
@@ -329,26 +370,55 @@ function handleCloseTab(script: string) {
 </script>
 
 <template>
-    <div class="absolute inset-0 flex flex-col bg-slate-50 dark:bg-[#0f172a] text-slate-700 dark:text-slate-300 overflow-hidden transition-colors duration-200">
+    <div class="app-page absolute inset-0">
+        <!-- 可运行命令启动器（常驻显示）-->
+        <div v-if="activeProject && hasRunnableCommands" class="command-launcher app-panel-toolbar flex flex-wrap items-center gap-1.5 px-3 py-2 border-b">
+            <span class="text-[11px] text-slate-400 dark:text-slate-500 mr-1 shrink-0">{{ t('dashboard.runnableCommands') }}</span>
+            <!-- 自定义命令 -->
+            <button
+                v-for="cmd in runnableCustomCommands"
+                :key="cmd.id"
+                @click="toggleRun(cmd.id)"
+                class="launcher-btn"
+                :class="isCommandRunning(cmd.id) ? 'launcher-btn-running' : 'launcher-btn-custom'"
+            >
+                <div :class="isCommandRunning(cmd.id) ? 'i-mdi-stop' : 'i-mdi-play'" class="text-[11px]" />
+                {{ getCustomCmdLabel(cmd) }}
+            </button>
+            <!-- node 脚本 -->
+            <button
+                v-for="script in runnableScripts"
+                :key="script"
+                @click="toggleRun(script)"
+                class="launcher-btn"
+                :class="isCommandRunning(script)
+                    ? 'launcher-btn-running'
+                    : (script === 'dev' || script === 'start' || script === 'serve' ? 'launcher-btn-primary' : 'launcher-btn-muted')"
+            >
+                <div :class="isCommandRunning(script) ? 'i-mdi-stop' : 'i-mdi-play'" class="text-[11px]" />
+                {{ script }}
+            </button>
+        </div>
+
         <!-- Header -->
         <div v-if="activeProject"
-            class="flex flex-col border-b border-slate-200 dark:border-slate-700/30 bg-white dark:bg-[#1e293b] z-10">
+            class="app-panel-toolbar flex flex-col z-10">
             <!-- Tabs for outputs -->
             <div v-if="availableTabs.length > 0" class="flex px-3 gap-0.5 overflow-x-auto custom-scrollbar pt-1.5">
                 <div v-for="script in availableTabs" :key="script" @click="activeScript = script"
                     class="group relative px-3 py-1.5 text-xs font-medium rounded-t-md border-t border-x transition-all duration-150 cursor-pointer select-none flex items-center gap-2 min-w-[90px] justify-between"
                     :class="activeScript === script 
-                        ? 'bg-slate-50 dark:bg-[#0f172a] text-blue-600 dark:text-blue-400 border-slate-200 dark:border-slate-700/30 border-b-transparent z-10' 
-                        : 'bg-white dark:bg-slate-800/20 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border-slate-200/60 dark:border-slate-700/20 hover:bg-slate-50 dark:hover:bg-slate-800/40'">
+                        ? 'bg-[var(--app-bg-muted)] text-[var(--app-primary)] border-[var(--app-border)] border-b-transparent z-10'
+                        : 'bg-[var(--app-surface)] text-muted hover:text-secondary border-[var(--app-border)] hover:bg-[var(--app-surface-soft)]'">
                     <div class="flex items-center gap-1.5">
                         <span v-if="projectStore.runningStatus[`${activeProject.id}:${script}`]"
-                            class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.4)]"></span>
-                        <span v-else class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+                            class="console-status-dot console-status-dot-running"></span>
+                        <span v-else class="console-status-dot"></span>
                         {{ getTabLabel(script) }}
                     </div>
 
                     <button @click.stop="handleCloseTab(script)"
-                        class="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all duration-150">
+                        class="app-icon-btn !h-5 !min-w-5 opacity-0 group-hover:opacity-100 !rounded">
                         <div class="i-mdi-close text-[10px]" />
                     </button>
                 </div>
@@ -357,7 +427,7 @@ function handleCloseTab(script: string) {
 
         <!-- Logs Control Bar (only if script selected) -->
         <div v-if="activeScript"
-            class="flex items-center justify-between px-3 py-1.5 bg-slate-100/80 dark:bg-[#0f172a] border-b border-slate-200 dark:border-slate-800/50">
+            class="app-panel-toolbar flex items-center justify-between px-3 py-1.5">
             <div class="text-[11px] text-slate-400 dark:text-slate-500 font-mono flex items-center gap-2">
                 <span>{{ getTabLabel(activeScript) }}</span>
                 <span v-if="isRunning" class="text-emerald-500 flex items-center gap-1">
@@ -366,7 +436,7 @@ function handleCloseTab(script: string) {
                 <span v-else class="text-slate-300 dark:text-slate-600">{{ t('dashboard.stopped') }}</span>
             </div>
             <div class="flex gap-1.5">
-                <button @click="handleClear" class="p-1 hover:bg-slate-200/60 dark:hover:bg-slate-700/40 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors duration-150"
+                <button @click="handleClear" class="app-icon-btn !h-6 !min-w-6 !rounded"
                     title="Clear Logs">
                     <div class="i-mdi-delete-sweep text-sm" />
                 </button>
@@ -392,7 +462,7 @@ function handleCloseTab(script: string) {
                 <div
                     v-for="item in renderedLogs"
                     :key="item.key"
-                    class="break-all border-l-2 border-transparent hover:border-slate-200 dark:hover:border-slate-700 pl-2 -ml-2 hover:bg-slate-100/40 dark:hover:bg-slate-800/20 transition-colors duration-100 py-px"
+                    class="console-log-row break-all border-l-2 border-transparent pl-2 -ml-2 transition-colors duration-100 py-px"
                     v-html="item.html">
                 </div>
             </div>
@@ -406,7 +476,7 @@ function handleCloseTab(script: string) {
             <button
                 v-if="!shouldFollowLogs && logs.length > 0"
                 @click.stop="resumeLogFollow"
-                class="absolute right-4 bottom-4 z-10 px-3 py-1.5 rounded-full shadow-lg border border-blue-200/80 dark:border-blue-400/20 bg-white/95 dark:bg-slate-900/95 text-blue-600 dark:text-blue-300 text-[11px] font-medium flex items-center gap-1.5 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors duration-150">
+                class="app-primary-action absolute right-4 bottom-4 z-10 !min-h-0 rounded-full px-3 py-1.5 text-[11px]">
                 <div class="i-mdi-arrow-down-circle text-sm" />
                 <span>{{ t('dashboard.scrollToBottom') }}</span>
             </button>
@@ -414,11 +484,12 @@ function handleCloseTab(script: string) {
 
         <!-- Empty State -->
         <div v-else class="flex-1 flex flex-col items-center justify-center text-slate-300 dark:text-slate-600">
-            <div class="w-20 h-20 rounded-full bg-slate-100 dark:bg-slate-800/40 flex items-center justify-center mb-4">
+            <div class="w-20 h-20 rounded-full flex items-center justify-center mb-4" style="background: var(--app-surface-soft);">
                 <div class="i-mdi-monitor-dashboard text-4xl opacity-25" />
             </div>
-            <p class="text-sm font-medium text-slate-500 dark:text-slate-500">{{ t('dashboard.selectScript') }}</p>
-            <p class="text-xs opacity-40 mt-1">{{ t('dashboard.clickRunHint') }}</p>
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-500">
+                {{ !activeProject ? t('dashboard.selectScript') : (hasRunnableCommands ? t('dashboard.clickRunHint') : t('dashboard.noRunnableCommands')) }}
+            </p>
         </div>
     </div>
 </template>
@@ -435,19 +506,107 @@ function handleCloseTab(script: string) {
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #cbd5e1; /* slate-300 */
+  background: color-mix(in srgb, var(--app-text-muted) 52%, transparent);
   border-radius: 4px;
 }
 
-.dark .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #475569; /* slate-600 */
-}
-
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
+  background: color-mix(in srgb, var(--app-text-muted) 74%, transparent);
 }
 
-.dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b; /* slate-500 */
+.console-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--app-text-muted);
+}
+
+.console-status-dot-running {
+  background: var(--app-success);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--app-success) 54%, transparent);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.console-log-row:hover {
+  background: color-mix(in srgb, var(--app-text-muted) 10%, transparent);
+  border-left-color: var(--app-border);
+}
+
+/* 命令启动器按钮 */
+.launcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--app-radius-md);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color var(--app-duration-fast) var(--app-ease), color var(--app-duration-fast) var(--app-ease);
+}
+.launcher-btn-custom {
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
+  color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 18%, transparent);
+  border-style: dashed;
+}
+.launcher-btn-custom:hover {
+  background: color-mix(in srgb, var(--app-primary) 16%, transparent);
+}
+.launcher-btn-primary {
+  background: color-mix(in srgb, var(--app-success) 10%, transparent);
+  color: var(--app-success);
+  border-color: color-mix(in srgb, var(--app-success) 20%, transparent);
+}
+.launcher-btn-primary:hover {
+  background: color-mix(in srgb, var(--app-success) 18%, transparent);
+}
+.launcher-btn-muted {
+  background: var(--app-surface-soft);
+  color: var(--app-text-secondary);
+  border-color: var(--app-border);
+}
+.launcher-btn-muted:hover {
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+.launcher-btn-running {
+  background: color-mix(in srgb, var(--app-danger, #ef4444) 12%, transparent);
+  color: var(--app-danger, #ef4444);
+  border-color: color-mix(in srgb, var(--app-danger, #ef4444) 22%, transparent);
+}
+
+/* 可运行命令 chip */
+.run-cmd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--app-radius-md);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background-color var(--app-duration-fast) var(--app-ease),
+    color var(--app-duration-fast) var(--app-ease),
+    border-color var(--app-duration-fast) var(--app-ease);
+}
+.run-cmd-chip:hover {
+  color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 40%, transparent);
+  background: var(--app-primary-soft);
+}
+.run-cmd-chip-primary {
+  color: var(--app-success);
+  border-color: color-mix(in srgb, var(--app-success) 30%, transparent);
+  background: color-mix(in srgb, var(--app-success) 8%, transparent);
+}
+.run-cmd-chip-running {
+  color: var(--app-success);
+  border-color: color-mix(in srgb, var(--app-success) 40%, transparent);
+  background: color-mix(in srgb, var(--app-success) 12%, transparent);
 }
 </style>

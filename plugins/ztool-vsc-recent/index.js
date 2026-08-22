@@ -1,6 +1,8 @@
 "use strict";
 let state = null;
 document.addEventListener('keydown', (e) => {
+    if (e.target?.closest('button'))
+        return;
     if (!state || state.view.length === 0)
         return;
     if (e.key === 'ArrowDown') {
@@ -72,14 +74,45 @@ function applyHeight() {
     const desired = listH + emptyH + diagH + padding;
     ztools.setExpendHeight(desired);
 }
+async function configureWindowsVSCode(button) {
+    button.disabled = true;
+    try {
+        const result = await window.recentApi.configureWindowsExecutable();
+        if (result.ok) {
+            ztools.showNotification('VSCode 已配置：' + result.path);
+        }
+        else if (!result.canceled) {
+            ztools.showNotification('配置 VSCode 失败：' + result.reason);
+        }
+    }
+    catch (e) {
+        ztools.showNotification('配置 VSCode 失败（IPC 异常）：' + (e instanceof Error ? e.message : String(e)));
+    }
+    finally {
+        button.disabled = false;
+    }
+}
 async function select(item) {
-    const r = await window.recentApi.open(item);
+    // KEEP-IN-SYNC with src/select-actions.ts:decideSelectActions — the
+    // sandboxed plugin view has no module loader so the policy lives inline
+    // here AND as a pure function in src/ (tested). When you change one,
+    // change the other.
+    let r;
+    try {
+        r = await window.recentApi.open(item);
+    }
+    catch (e) {
+        ztools.showNotification('启动 VSCode 失败（IPC 异常）：' + (e instanceof Error ? e.message : String(e)));
+        return;
+    }
     if (r.ok) {
+        // 关闭 ztool 主窗口（不仅退出插件视图），让用户专注于刚启动的 VSCode
+        ztools.hideMainWindow?.(false);
         ztools.outPlugin();
     }
     else {
         ztools.showNotification('无法启动 VSCode：' + r.reason +
-            '。请确认 PATH 中包含 code 命令（在 VSCode 中按 Ctrl+Shift+P 运行 "Shell Command: Install code command in PATH"）。');
+            '。请确认已安装稳定版 Visual Studio Code；Windows 用户可通过页面中的“设置 VSCode”手动选择 Code.exe，Linux 用户需确保 code 命令可用。');
     }
 }
 function formatDiag(d) {
@@ -106,6 +139,11 @@ ztools.onPluginEnter(async () => {
     const list = document.getElementById('list');
     const empty = document.getElementById('empty');
     const diag = document.getElementById('diag');
+    const toolbar = document.getElementById('toolbar');
+    const configureButton = document.getElementById('configure-vscode');
+    const isWindows = window.recentApi.platform === 'win32';
+    toolbar.hidden = !isWindows;
+    configureButton.onclick = () => configureWindowsVSCode(configureButton);
     let items = [];
     let diagText = '';
     try {

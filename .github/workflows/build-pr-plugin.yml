@@ -8,6 +8,7 @@ on:
       - 'scripts/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.bun-version'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -16,6 +17,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
 
@@ -24,8 +26,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-pr-plugin:
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+      changed_plugins: ${{ steps.detect.outputs.changed_plugins }}
+      has_linux: ${{ steps.split.outputs.has_linux }}
+      has_windows: ${{ steps.split.outputs.has_windows }}
+      has_macos: ${{ steps.split.outputs.has_macos }}
+      linux_plugins: ${{ steps.split.outputs.linux_plugins }}
+      windows_plugins: ${{ steps.split.outputs.windows_plugins }}
+      macos_plugins: ${{ steps.split.outputs.macos_plugins }}
+      pr_number: ${{ steps.pr.outputs.number }}
 
     steps:
       - name: Resolve PR metadata
@@ -96,7 +108,7 @@ jobs:
 
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head"
+          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/merge"
           git checkout --force FETCH_HEAD
           git clean -ffdx
 
@@ -104,11 +116,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
 
       - name: Detect changed plugins
         id: detect
@@ -179,22 +186,136 @@ jobs:
 
           cat release/build-info.json
 
-      - name: Install root dependencies
+      - name: Split changed plugins by platform
+        id: split
         if: steps.detect.outputs.has_changes == 'true'
-        run: npm ci
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+          import { join } from 'node:path'
 
-      - name: Build changed plugins
-        if: steps.detect.outputs.has_changes == 'true'
-        run: node scripts/build-plugins.js
+          const RELEASE_DIR = 'release'
+          const BUILD_INFO_FILE = join(RELEASE_DIR, 'build-info.json')
+          const GROUPS = {
+            linux: {
+              output: join(RELEASE_DIR, 'build-info.linux.json'),
+              plugins: [],
+            },
+            windows: {
+              output: join(RELEASE_DIR, 'build-info.windows.json'),
+              plugins: [],
+            },
+            macos: {
+              output: join(RELEASE_DIR, 'build-info.macos.json'),
+              plugins: [],
+            },
+          }
 
-      - name: Upload plugin packages
+          if (!existsSync(BUILD_INFO_FILE)) {
+            console.error('找不到 release/build-info.json，请先运行变更检测脚本')
+            process.exit(1)
+          }
+
+          if (!existsSync(RELEASE_DIR)) {
+            mkdirSync(RELEASE_DIR, { recursive: true })
+          }
+
+          const buildInfo = JSON.parse(readFileSync(BUILD_INFO_FILE, 'utf-8'))
+          const changedPlugins = Array.isArray(buildInfo.changedPlugins) ? buildInfo.changedPlugins : []
+
+          for (const pluginName of changedPlugins) {
+            const pluginInfo = getPluginInfo(pluginName)
+            const group = getBuildGroup(pluginInfo.platform)
+            GROUPS[group].plugins.push(pluginName)
+          }
+
+          for (const [groupName, group] of Object.entries(GROUPS)) {
+            const groupBuildInfo = {
+              ...buildInfo,
+              hasChanges: group.plugins.length > 0,
+              changedPlugins: group.plugins,
+            }
+
+            writeFileSync(group.output, JSON.stringify(groupBuildInfo, null, 2))
+            console.log(`${groupName}: ${group.plugins.length > 0 ? group.plugins.join(', ') : '(none)'}`)
+          }
+
+          if (process.env.GITHUB_OUTPUT) {
+            const lines = [
+              `has_linux=${GROUPS.linux.plugins.length > 0 ? 'true' : 'false'}`,
+              `has_windows=${GROUPS.windows.plugins.length > 0 ? 'true' : 'false'}`,
+              `has_macos=${GROUPS.macos.plugins.length > 0 ? 'true' : 'false'}`,
+              `linux_plugins=${GROUPS.linux.plugins.join(',')}`,
+              `windows_plugins=${GROUPS.windows.plugins.join(',')}`,
+              `macos_plugins=${GROUPS.macos.plugins.join(',')}`,
+            ]
+
+            appendFileSync(process.env.GITHUB_OUTPUT, lines.join('\n') + '\n')
+          }
+
+          function getPluginInfo(pluginName) {
+            const pluginJsonPaths = [
+              join('plugins', pluginName, 'plugin.json'),
+              join('plugins', pluginName, 'public', 'plugin.json'),
+              join('plugins', pluginName, 'dist', 'plugin.json'),
+            ]
+
+            for (const pluginJsonPath of pluginJsonPaths) {
+              if (existsSync(pluginJsonPath)) {
+                return JSON.parse(readFileSync(pluginJsonPath, 'utf-8'))
+              }
+            }
+
+            console.warn(`找不到插件 ${pluginName} 的 plugin.json，默认使用 linux 构建`)
+            return {}
+          }
+
+          function getBuildGroup(platform) {
+            if (Array.isArray(platform) && platform.length === 1) {
+              if (platform[0] === 'win32') return 'windows'
+              if (platform[0] === 'darwin') return 'macos'
+            }
+
+            return 'linux'
+          }
+          NODE
+
+      - name: Upload build info
         if: steps.detect.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: pr-${{ steps.pr.outputs.number }}-plugin-packages
+          name: pr-${{ steps.pr.outputs.number }}-build-info
           path: |
-            release/*.zip
             release/build-info.json
-            release/latest
+            release/build-info.linux.json
+            release/build-info.windows.json
+            release/build-info.macos.json
           if-no-files-found: error
           retention-days: 14
+
+  build-linux:
+    needs: detect
+    if: needs.detect.outputs.has_linux == 'true'
+    uses: ./.github/workflows/build-pr-plugin-platform.yml
+    with:
+      pr_number: ${{ needs.detect.outputs.pr_number }}
+      platform_name: linux
+      runner: ubuntu-latest
+
+  build-windows:
+    needs: detect
+    if: needs.detect.outputs.has_windows == 'true'
+    uses: ./.github/workflows/build-pr-plugin-platform.yml
+    with:
+      pr_number: ${{ needs.detect.outputs.pr_number }}
+      platform_name: windows
+      runner: windows-latest
+
+  build-macos:
+    needs: detect
+    if: needs.detect.outputs.has_macos == 'true'
+    uses: ./.github/workflows/build-pr-plugin-platform.yml
+    with:
+      pr_number: ${{ needs.detect.outputs.pr_number }}
+      platform_name: macos
+      runner: macos-latest

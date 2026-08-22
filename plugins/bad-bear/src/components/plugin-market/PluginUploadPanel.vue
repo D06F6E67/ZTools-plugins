@@ -18,6 +18,8 @@ const props = defineProps<{
   isHashing: boolean
   isCheckingHash: boolean
   isUploading: boolean
+  uploadProgress: number
+  uploadStage: 'hashing' | 'uploading' | 'merging' | 'completed' | null
   canUpload: boolean
   uploads: MyPluginUploadRecord[]
   uploadsTotal: number
@@ -31,6 +33,7 @@ const emit = defineEmits<{
   (e: 'select-file', file: File): void
   (e: 'clear-file'): void
   (e: 'upload'): void
+  (e: 'cancel-upload'): void
   (e: 'refresh-uploads'): void
   (e: 'delete-upload', record: MyPluginUploadRecord): void
   (e: 'open-plugin', name: string): void
@@ -162,6 +165,30 @@ function isDeleting(id: string): boolean {
 function canDelete(record: MyPluginUploadRecord): boolean {
   return record.status === 'PUBLISHED' || record.status === 'MANUAL_REVIEW'
 }
+
+/**
+ * 获取上传阶段的显示文本
+ */
+function getUploadStageText(): string {
+  if (props.isHashing) return '计算哈希中...'
+  if (props.isCheckingHash) return '预检中...'
+  if (!props.isUploading) return '确认上传'
+
+  switch (props.uploadStage) {
+    case 'hashing': return '计算文件哈希...'
+    case 'uploading': return `上传中 ${props.uploadProgress}%`
+    case 'merging': return '合并分片中...'
+    case 'completed': return '上传完成'
+    default: return `上传中 ${props.uploadProgress}%`
+  }
+}
+
+/**
+ * 判断是否正在上传分片（大于20MB的文件）
+ */
+const isChunkedUploading = computed(() => {
+  return props.isUploading && props.selectedFile && props.selectedFile.size > 20 * 1024 * 1024
+})
 </script>
 
 <template>
@@ -245,14 +272,27 @@ function canDelete(record: MyPluginUploadRecord): boolean {
               :loading="isUploading || isHashing || isCheckingHash"
               @click="emit('upload')"
             >
-              {{ isHashing ? '计算哈希中...' : isCheckingHash ? '预检中...' : '确认上传' }}
+              {{ getUploadStageText() }}
             </ZButton>
             <ZButton
+              v-if="isUploading && isChunkedUploading"
+              type="danger"
+              @click="emit('cancel-upload')"
+            >
+              取消
+            </ZButton>
+            <ZButton
+              v-else
               :disabled="isUploading || isHashing || isCheckingHash"
               @click="emit('clear-file')"
             >
               清空
             </ZButton>
+          </div>
+
+          <!-- 上传进度条 -->
+          <div v-if="isUploading && uploadProgress > 0" class="upload-progress-bar">
+            <div class="progress-fill" :style="{ width: `${uploadProgress}%` }"></div>
           </div>
         </div>
       </div>
@@ -490,6 +530,43 @@ function canDelete(record: MyPluginUploadRecord): boolean {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.upload-progress-bar {
+  height: 6px;
+  width: 100%;
+  border-radius: 3px;
+  background: var(--divider-color);
+  overflow: hidden;
+  position: relative;
+}
+
+.upload-progress-bar .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 80%, #fff));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  position: relative;
+}
+
+.upload-progress-bar .progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: progress-shimmer 1.5s infinite;
+}
+
+@keyframes progress-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .hash-check-result {

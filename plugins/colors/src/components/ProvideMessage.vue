@@ -34,7 +34,7 @@ const getMessageConfig = (type: string) => {
 <template>
   <div
     v-if="messageStore.messages.length > 0"
-    class="pointer-events-none fixed top-8 left-1/2 z-50 flex -translate-x-1/2 transform flex-col items-start justify-start space-y-3"
+    class="pointer-events-none fixed top-8 left-1/2 z-[60] flex -translate-x-1/2 transform flex-col items-start justify-start space-y-3"
   >
     <transition-group name="message">
       <div
@@ -51,7 +51,9 @@ const getMessageConfig = (type: string) => {
         </div>
 
         <!-- 内容 -->
-        <div class="flex-1 text-sm font-medium text-gray-800">{{ msg.content }}</div>
+        <div class="flex-1 text-sm font-medium text-gray-800">
+          {{ msg.content }}
+        </div>
 
         <!-- 关闭按钮 -->
         <button
@@ -76,6 +78,7 @@ const getMessageConfig = (type: string) => {
       </div>
     </transition-group>
   </div>
+  <slot></slot>
 </template>
 
 <style scoped>

@@ -48,9 +48,45 @@ const parsedDate = computed(() => {
     const num = Number(trimmed)
     return new Date(num < 1e12 ? num * 1000 : num)
   }
-  // 尝试解析为本地时间日期字符串
-  // 支持 YYYY-MM-DD HH:mm:ss 或 YYYY-MM-DDTHH:mm:ss 格式
-  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2}):(\d{1,2}))?/)
+  // 尝试解析 ISO 8601 格式：YYYY-MM-DDTHH:mm:ss[.sss][Z|±HH:mm]
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})?$/)
+  if (isoMatch) {
+    const [, year, month, day, hour, minute, second, msPart, timezone] = isoMatch
+    const milliseconds = msPart ? Math.floor(Number('0.' + msPart) * 1000) : 0
+    
+    // 如果有时区信息（Z 或 ±HH:mm），使用 UTC 方式创建 Date
+    if (timezone) {
+      // 使用 Date.UTC 创建 UTC 时间戳
+      const utcTimestamp = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second),
+        milliseconds
+      )
+      
+      // 如果不是 Z（UTC），需要调整时区偏移
+      if (timezone !== 'Z') {
+        const sign = timezone[0] === '+' ? 1 : -1
+        const tzHours = Number(timezone.substring(1, 3))
+        const tzMinutes = Number(timezone.substring(4, 6))
+        const offsetMs = sign * (tzHours * 60 + tzMinutes) * 60 * 1000
+        // 减去偏移量得到 UTC 时间戳
+        return new Date(utcTimestamp - offsetMs)
+      }
+      
+      // Z 表示 UTC 时间，直接返回
+      return new Date(utcTimestamp)
+    }
+    
+    // 没有时区信息，当作本地时间处理
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), milliseconds)
+  }
+  // 尝试解析为本地时间日期字符串（不带 T 的格式）
+  // 支持 YYYY-MM-DD HH:mm:ss 格式
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s(\d{1,2}):(\d{1,2}):(\d{1,2}))?/)
   if (match) {
     const [, year, month, day, hour = 0, minute = 0, second = 0] = match
     // 使用本地时间组件创建 Date

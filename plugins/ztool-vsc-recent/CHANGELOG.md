@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.2 — 2026-06-29
+
+### 修复
+- 修复未安装应用或未配置环境变量时由于无报错而导致的静默失效问题
+- 修复 macOS 下 ZTools GUI 环境中环境变量缺失导致无法拉起 VSCode 的问题（重构使用 ZTools 原生 `isMacOs` 判断并优先通过 `open -b` 原生应用唤醒）
+- 为 Remote 连接的 Folder URI 在 Windows shell 模式下增加双引号包裹，防御特殊路径空格导致截断的边缘异常
+
+
+## 0.1.1 — 2026-06-12
+
+### 修复
+
+- 选中条目启动 VSCode 后，ztool 主窗口未关闭。改为先 `hideMainWindow(false)` 再 `outPlugin()`，让 VSCode 自然抢焦点。
+
+### 测试
+
+- 新增 `tests/select-actions.test.ts`，将 select 后的 host 动作策略提取到 `src/select-actions.ts`，覆盖成功/失败/空 reason 三种分支。
+
 ## 0.1.0 — 2026-05-23
 
 首个公开版本。

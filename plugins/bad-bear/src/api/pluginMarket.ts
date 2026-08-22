@@ -15,7 +15,24 @@ export {
   getMyPluginUpload,
   deleteMyPluginUpload,
   uploadPluginPackage,
+  initChunkedUpload,
+  uploadChunk,
+  completeChunkedUpload,
+  cancelChunkedUpload,
+  getChunkedUploadProgress,
 } from './pluginMarketRemote'
+
+export {
+  uploadPluginWithChunks,
+  queryChunkedUploadProgress,
+  abortChunkedUpload,
+} from './pluginMarketChunkedUpload'
+
+export type {
+  ChunkedUploadConfig,
+  ChunkedUploadOptions,
+  ChunkedUploadProgressInfo,
+} from './pluginMarketChunkedUpload'
 
 export {
   applyMarketInstalledPluginHashes,

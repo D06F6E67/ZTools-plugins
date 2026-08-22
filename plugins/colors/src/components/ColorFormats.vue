@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Colord } from "colord";
 import { useMessage } from "@/utils/message";
-import { useFavorites } from "../utils/favorites";
+import { useFavorites, type HexColor } from "../utils/favorites";
 import ColorFormat from "./ColorFormat.vue";
 
 const message = useMessage();
@@ -10,10 +10,11 @@ let color = defineModel<Colord>({ required: true });
 
 const formats = ["hex", "rgb", "hsv/hsb", "hsl", "hwb", "cmyk", "lab", "lch", "xyz"] as const;
 
-// 添加到收藏
+// 添加到收藏（纯色）
 const addToFavorites = () => {
   try {
-    addFavorite(color.value?.toHex() || "#000000");
+    const hex: HexColor = { type: "hex", hex: color.value?.toHex() || "#000000" };
+    addFavorite(hex);
     message.success("已添加到收藏");
   } catch (error) {
     message.error(error instanceof Error ? error.message : "添加失败");

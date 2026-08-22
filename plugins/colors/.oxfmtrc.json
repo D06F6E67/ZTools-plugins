@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["node_modules", "dist", "typed-router.d.ts"],
+  "ignorePatterns": ["node_modules", "dist", "typed-router.d.ts", "CHANGELOG.md"],
   "sortImports": {
     "newlinesBetween": false,
     "groups": [

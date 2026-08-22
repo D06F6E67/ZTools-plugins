@@ -5,11 +5,16 @@ import type {
   GifOptions,
   ImageJobSettings,
   MergeImagesOptions,
+  SharpRuntimeProgress,
   SourceFile
 } from "../shared/types";
 import { imageDataUrlToBuffer } from "./data-url";
 import { createGif, mergeImages, mergePdfs, processImages } from "./processor";
-import { discoverFiles, inspectFile, isImagePath, isPdfPath } from "./file-discovery";
+import { discoverFiles } from "./file-discovery";
+import {
+  installSharpRuntime,
+  sharpRuntimeStatus
+} from "./sharp-runtime";
 
 declare global {
   interface Window {
@@ -19,7 +24,7 @@ declare global {
 }
 
 const electron = require("electron");
-const { clipboard, nativeImage, shell, webUtils } = electron;
+const { shell, webUtils } = electron;
 
 const tempRoot = path.join(getZToolsPath("temp"), "image-batch-studio");
 
@@ -52,7 +57,26 @@ async function imagePayloadToFile(payload: unknown): Promise<string[]> {
 async function resolveLaunchFiles(action: any): Promise<SourceFile[]> {
   const directPaths = payloadPaths(action?.payload);
   const imagePaths = action?.type === "img" ? await imagePayloadToFile(action?.payload) : [];
+  if (directPaths.length > 0 || imagePaths.length > 0) await ensureSharpRuntime();
   return discoverFiles([...directPaths, ...imagePaths]);
+}
+
+function dispatchRuntimeProgress(progress: SharpRuntimeProgress) {
+  window.dispatchEvent(new CustomEvent("image-batch-runtime-progress", { detail: progress }));
+}
+
+async function ensureSharpRuntime() {
+  const current = await sharpRuntimeStatus();
+  if (current.state === "ready") return current;
+  if (current.state === "unsupported") {
+    throw new Error(`当前平台暂不支持图像运行组件：${current.target}`);
+  }
+  const installed = await installSharpRuntime(dispatchRuntimeProgress);
+  window.dispatchEvent(new CustomEvent("image-batch-runtime-status", { detail: installed }));
+  if (installed.state !== "ready") {
+    throw new Error(installed.error || "图像运行组件安装失败");
+  }
+  return installed;
 }
 
 async function notifyEnter(action: any) {
@@ -68,14 +92,22 @@ const services = {
   },
 
   async resolveFiles(paths: string[]) {
+    if (paths.length > 0) await ensureSharpRuntime();
     return discoverFiles(paths);
   },
 
-  async inspectFile(filePath: string) {
-    return inspectFile(filePath);
+  runtimeStatus() {
+    return sharpRuntimeStatus();
+  },
+
+  async installRuntime() {
+    const status = await installSharpRuntime(dispatchRuntimeProgress);
+    window.dispatchEvent(new CustomEvent("image-batch-runtime-status", { detail: status }));
+    return status;
   },
 
   async processImages(paths: string[], settings: ImageJobSettings) {
+    await ensureSharpRuntime();
     return processImages(paths, settings, (completed, total, result) => {
       window.dispatchEvent(
         new CustomEvent("image-batch-progress", {
@@ -90,10 +122,12 @@ const services = {
   },
 
   async mergeImages(paths: string[], outputPath: string, options: MergeImagesOptions) {
+    await ensureSharpRuntime();
     return mergeImages(paths, outputPath, options);
   },
 
   async createGif(paths: string[], outputPath: string, options: GifOptions) {
+    await ensureSharpRuntime();
     return createGif(paths, outputPath, options);
   },
 
@@ -104,7 +138,9 @@ const services = {
         { name: "Images and PDFs", extensions: ["jpg", "jpeg", "png", "webp", "avif", "heif", "heic", "tiff", "gif", "pdf"] }
       ]
     });
-    return paths ? discoverFiles(paths) : [];
+    if (!paths?.length) return [];
+    await ensureSharpRuntime();
+    return discoverFiles(paths);
   },
 
   async chooseDirectory() {
@@ -142,25 +178,9 @@ const services = {
     return webUtils.getPathForFile(file);
   },
 
-  copyFile(filePath: string) {
-    if (window.ztools?.copyFile) return window.ztools.copyFile(filePath);
-    clipboard.writeBuffer("public.file-url", Buffer.from(pathToFileURL(filePath).toString()));
-    return true;
-  },
-
-  copyImage(filePath: string) {
-    if (!isImagePath(filePath)) return false;
-    if (window.ztools?.copyImage) return window.ztools.copyImage(filePath);
-    clipboard.writeImage(nativeImage.createFromPath(filePath));
-    return true;
-  },
-
   reveal(filePath: string) {
     shell.showItemInFolder(filePath);
-  },
-
-  isImagePath,
-  isPdfPath
+  }
 };
 
 window.services = services;

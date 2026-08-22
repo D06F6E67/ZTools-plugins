@@ -11,17 +11,7 @@ const allTags = useAllTags();
 const editing = useTagsEditing();
 const message = useMessage();
 
-// 添加颜色到收藏
-const addToFavorites = (color: string) => {
-  try {
-    favorites.addFavorite(color);
-    message.success("已添加到收藏");
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : "添加失败");
-  }
-};
-
-// 移除收藏
+// 从收藏中移除
 const removeFromFavorites = (id: string) => {
   favorites.removeFavorite(id);
   message.success("已取消收藏");

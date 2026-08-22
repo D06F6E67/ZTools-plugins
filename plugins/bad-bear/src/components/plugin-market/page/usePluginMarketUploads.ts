@@ -5,6 +5,8 @@ import {
   getMyPluginUpload,
   getMyPluginUploads,
   uploadPluginPackage,
+  uploadPluginWithChunks,
+  type ChunkedUploadProgressInfo,
 } from '../../../api/pluginMarket'
 import type {
   MyPluginUploadRecord,
@@ -15,7 +17,8 @@ import type {
 import type { AuthUser } from '../../../types/auth'
 import { getErrorMessage } from './shared'
 
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+const MAX_UPLOAD_SIZE = 75 * 1024 * 1024
+const CHUNKED_UPLOAD_THRESHOLD = 20 * 1024 * 1024 // 20MB
 const UPLOADS_PAGE_SIZE = 20
 const PROCESSING_UPLOAD_STATUSES = new Set(['AI_CLASSIFYING', 'AI_REVIEWING'])
 const DELETABLE_UPLOAD_STATUSES = new Set(['PUBLISHED', 'MANUAL_REVIEW'])
@@ -43,6 +46,9 @@ export function usePluginMarketUploads(options: {
   const isHashing = ref(false)
   const isCheckingHash = ref(false)
   const isUploading = ref(false)
+  const uploadProgress = ref(0)
+  const uploadStage = ref<'hashing' | 'uploading' | 'merging' | 'completed' | null>(null)
+  const uploadAbortController = ref<AbortController | null>(null)
 
   const uploads = ref<MyPluginUploadRecord[]>([])
   const uploadsTotal = ref(0)
@@ -69,7 +75,7 @@ export function usePluginMarketUploads(options: {
       return '仅支持 .zpx 或 .zip 格式的插件包'
     }
     if (file.size > MAX_UPLOAD_SIZE) {
-      return '文件大小不能超过 50MB'
+      return '文件大小不能超过 75MB'
     }
     return ''
   }
@@ -155,7 +161,17 @@ export function usePluginMarketUploads(options: {
   }
 
   /**
-   * 响应确认上传操作：先执行哈希预检，提交成功后再用 reviewTaskId 拉取单次进度记录。
+   * 取消当前正在进行的上传
+   */
+  function cancelUpload(): void {
+    if (uploadAbortController.value) {
+      uploadAbortController.value.abort()
+      uploadAbortController.value = null
+    }
+  }
+
+  /**
+   * 响应确认上传操作：先执行哈希预检，根据文件大小选择单次上传或分片上传。
    */
   async function performUpload(): Promise<{ success: boolean; reviewTaskId?: string }> {
     const file = selectedFile.value
@@ -167,11 +183,32 @@ export function usePluginMarketUploads(options: {
     }
 
     isUploading.value = true
+    uploadProgress.value = 0
+    uploadStage.value = null
+    uploadAbortController.value = new AbortController()
+
     try {
-      const result = await uploadPluginPackage({
-        file,
-        fileName: file.name,
-      })
+      let result
+
+      // 根据文件大小选择上传方式
+      if (file.size > CHUNKED_UPLOAD_THRESHOLD) {
+        // 大于 20MB 使用分片上传
+        result = await uploadPluginWithChunks(file, file.name, {
+          chunkSize: 5 * 1024 * 1024, // 5MB 每片
+          maxConcurrency: 3,
+          onProgress: (progress: ChunkedUploadProgressInfo) => {
+            uploadProgress.value = progress.progress
+            uploadStage.value = progress.stage
+          },
+          signal: uploadAbortController.value.signal,
+        })
+      } else {
+        // 小于等于 20MB 使用单次上传
+        result = await uploadPluginPackage({
+          file,
+          fileName: file.name,
+        })
+      }
 
       if (!result.success) {
         options.notifyError(result.error || '上传失败')
@@ -180,14 +217,24 @@ export function usePluginMarketUploads(options: {
 
       options.notifySuccess(result.message || '插件上传成功，正在后台处理中')
       selectFile(null)
+      uploadProgress.value = 0
+      uploadStage.value = null
       await loadUploads()
       await refreshUploadProgress(result.reviewTaskId)
       return { success: true, reviewTaskId: result.reviewTaskId }
     } catch (error) {
-      options.notifyError(getErrorMessage(error, '上传失败'))
+      // 检查是否是用户主动取消
+      if (error instanceof Error && error.message === '上传已取消') {
+        options.notifyError('上传已取消')
+      } else {
+        options.notifyError(getErrorMessage(error, '上传失败'))
+      }
       return { success: false }
     } finally {
       isUploading.value = false
+      uploadProgress.value = 0
+      uploadStage.value = null
+      uploadAbortController.value = null
     }
   }
 
@@ -261,6 +308,7 @@ export function usePluginMarketUploads(options: {
   }
 
   function resetState(): void {
+    cancelUpload()
     selectedFile.value = null
     validationError.value = ''
     computedHash.value = ''
@@ -268,6 +316,8 @@ export function usePluginMarketUploads(options: {
     isHashing.value = false
     isCheckingHash.value = false
     isUploading.value = false
+    uploadProgress.value = 0
+    uploadStage.value = null
     uploads.value = []
     uploadsTotal.value = 0
     uploadsPage.value = 1
@@ -284,6 +334,8 @@ export function usePluginMarketUploads(options: {
     isHashing,
     isCheckingHash,
     isUploading,
+    uploadProgress,
+    uploadStage,
     canUpload,
     uploads,
     uploadsTotal,
@@ -295,6 +347,7 @@ export function usePluginMarketUploads(options: {
     selectFile,
     computeHashAndPrecheck,
     performUpload,
+    cancelUpload,
     loadUploads,
     handleDeleteUpload,
     resetState,

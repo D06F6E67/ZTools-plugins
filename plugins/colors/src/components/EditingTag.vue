@@ -1,7 +1,13 @@
 <script lang="ts" setup>
 import { colord } from "colord";
 import { computed, ref, watch } from "vue";
-import { useTagsEditing, useAllTags, useFavorites } from "../utils/favorites";
+import {
+  useTagsEditing,
+  useAllTags,
+  useFavorites,
+  colorToCSS,
+  colorToDisplay,
+} from "../utils/favorites";
 
 const editing = useTagsEditing();
 const allTag = useAllTags();
@@ -16,7 +22,16 @@ const addTag = () => {
   isAddEditing.value = false;
   newTag.value = "";
 };
-const isLight = computed(() => (editing.color && colord(editing.color).isLight()) ?? false);
+
+// 纯色判断明暗，渐变色默认当暗色处理
+const isLight = computed(() => {
+  if (editing.color?.type === "hex") {
+    return colord(editing.color.hex).isLight();
+  }
+  return false;
+});
+const cssColor = computed(() => (editing.color ? colorToCSS(editing.color) : ""));
+const displayText = computed(() => (editing.color ? colorToDisplay(editing.color) : ""));
 </script>
 
 <template>
@@ -27,7 +42,7 @@ const isLight = computed(() => (editing.color && colord(editing.color).isLight()
     <!-- Header Section -->
     <div
       @click="editing.back()"
-      :style="{ backgroundColor: editing.color }"
+      :style="{ background: cssColor }"
       class="mb-6 flex items-center justify-between rounded-lg px-4 py-3"
     >
       <div>
@@ -37,7 +52,7 @@ const isLight = computed(() => (editing.color && colord(editing.color).isLight()
           编辑标签
         </h3>
         <p :class="['text-sm', isLight ? 'text-black' : 'text-white']">
-          {{ editing.color }}
+          {{ displayText }}
         </p>
       </div>
       <svg

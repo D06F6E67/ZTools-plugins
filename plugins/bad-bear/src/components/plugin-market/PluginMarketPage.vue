@@ -606,6 +606,8 @@ const {
   isHashing: uploadIsHashing,
   isCheckingHash: uploadIsCheckingHash,
   isUploading: uploadIsUploading,
+  uploadProgress,
+  uploadStage,
   canUpload: uploadCanUpload,
   uploads: uploadRecords,
   uploadsTotal: uploadRecordsTotal,
@@ -615,6 +617,7 @@ const {
   deletingIds: uploadDeletingIds,
   selectFile: uploadSelectFile,
   performUpload: uploadPerformUpload,
+  cancelUpload: uploadCancelUpload,
   loadUploads: uploadLoadRecords,
   handleDeleteUpload: uploadHandleDelete,
 } = uploads
@@ -1322,6 +1325,8 @@ onUnmounted(() => {
             :is-hashing="uploadIsHashing"
             :is-checking-hash="uploadIsCheckingHash"
             :is-uploading="uploadIsUploading"
+            :upload-progress="uploadProgress"
+            :upload-stage="uploadStage"
             :can-upload="uploadCanUpload"
             :uploads="uploadRecords"
             :uploads-total="uploadRecordsTotal"
@@ -1332,6 +1337,7 @@ onUnmounted(() => {
             @select-file="handleUploadSelectFile"
             @clear-file="handleUploadClearFile"
             @upload="uploadPerformUpload"
+            @cancel-upload="uploadCancelUpload"
             @refresh-uploads="uploadLoadRecords"
             @delete-upload="uploadHandleDelete"
             @open-plugin="handleUploadOpenPlugin"

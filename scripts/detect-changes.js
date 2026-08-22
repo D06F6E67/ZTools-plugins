@@ -8,6 +8,16 @@ const PLUGINS_DIR = 'plugins';
 // 解析命令行参数
 const args = process.argv.slice(2);
 const BUILD_ALL = args.includes('--all') || process.env.BUILD_ALL === 'true';
+const BUILD_PLUGINS = parsePluginList(process.env.BUILD_PLUGINS || '');
+
+function parsePluginList(value) {
+  return [...new Set(
+    value
+      .split(/[\s,]+/)
+      .map(name => name.trim())
+      .filter(Boolean)
+  )];
+}
 
 /**
  * 获取所有插件目录
@@ -21,9 +31,31 @@ function getAllPlugins() {
 }
 
 /**
+ * 校验手动指定的插件目录
+ */
+function validatePluginNames(pluginNames) {
+  const invalidPlugins = pluginNames.filter(name => {
+    const pluginPath = join(PLUGINS_DIR, name);
+    return !existsSync(pluginPath) || !statSync(pluginPath).isDirectory();
+  });
+
+  if (invalidPlugins.length > 0) {
+    console.error(`指定的插件目录不存在: ${invalidPlugins.join(', ')}`);
+    process.exit(1);
+  }
+}
+
+/**
  * 检测变动的插件
  */
 function detectChangedPlugins() {
+  // 手动指定插件时优先构建指定插件
+  if (BUILD_PLUGINS.length > 0) {
+    validatePluginNames(BUILD_PLUGINS);
+    console.log(`检测到 BUILD_PLUGINS，将构建指定插件: ${BUILD_PLUGINS.join(', ')}`);
+    return BUILD_PLUGINS;
+  }
+
   // 如果指定了--all参数，构建所有插件
   if (BUILD_ALL) {
     console.log('检测到 --all 参数，将构建所有插件');
@@ -55,7 +87,17 @@ function detectChangedPlugins() {
       }
     });
 
-    return Array.from(changedPlugins);
+    const existingPlugins = Array.from(changedPlugins).filter(name => {
+      const pluginPath = join(PLUGINS_DIR, name);
+      return existsSync(pluginPath) && statSync(pluginPath).isDirectory();
+    });
+    const deletedPlugins = Array.from(changedPlugins).filter(name => !existingPlugins.includes(name));
+
+    if (deletedPlugins.length > 0) {
+      console.log(`忽略已删除的插件目录: ${deletedPlugins.join(', ')}`);
+    }
+
+    return existingPlugins;
   } catch (error) {
     console.log('无法检测git变动，可能是首次提交，构建所有插件');
     return getAllPlugins();
@@ -116,7 +158,8 @@ const output = {
   hasChanges: true,
   releaseVersion,
   changedPlugins: changedPlugins,
-  buildAll: BUILD_ALL
+  buildAll: BUILD_ALL,
+  requestedPlugins: BUILD_PLUGINS
 };
 
 // 确保release目录存在

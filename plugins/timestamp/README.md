@@ -128,8 +128,8 @@ pnpm run build
 ## 🔗 相关链接
 
 - [项目地址](https://github.com/loocao/ztools-timestamp)
-- [ZTools 官方仓库](https://github.com/ztool-center/ztools)
-- [ZTools API 文档](https://github.com/ztool-center/ztools-api-types)
+- [ZTools 官方仓库](https://github.com/ZToolsCenter/ZTools)
+- [ZTools 开发者文档](https://ztoolscenter.github.io/ZTools-doc/getting-started.html)
 
 ## 📄 开源协议
 

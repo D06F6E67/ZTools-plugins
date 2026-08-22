@@ -41,6 +41,9 @@ const editForm = ref<RemoteHost>({
   password: ''
 })
 
+const showAddPassword = ref(false)
+const showEditPassword = ref(false)
+
 const originalId = ref('')
 
 onMounted(() => {
@@ -121,7 +124,7 @@ function handleDelete(host: RemoteHost) {
 
 function handleConnect(host: RemoteHost) {
   try {
-    const result = window.services.connectRdp(host.address, host.username, 'base64:' + host.password)
+    const result = window.services.connectRdp(host.address, host.username, host.password)
     if (result.success) {
       showTip('正在连接...')
       setTimeout(() => window.ztools.hideMainWindow(), 800)
@@ -225,7 +228,18 @@ function showTip(msg: string) {
           </div>
           <div class="form-group">
             <label>密码</label>
-            <input v-model="form.password" type="password" placeholder="远程登录密码" />
+            <div class="password-input">
+              <input v-model="form.password" :type="showAddPassword ? 'text' : 'password'" placeholder="远程登录密码" />
+              <button class="btn-toggle-password" type="button" @click="showAddPassword = !showAddPassword">
+                <svg v-if="!showAddPassword" viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                  <path d="M8 3.5C4.36 3.5 1.22 5.91 0 9c1.22 3.09 4.36 5.5 8 5.5s6.78-2.41 8-5.5c-1.22-3.09-4.36-5.5-8-5.5zm0 8.5c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm0-4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/>
+                </svg>
+                <svg v-else viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                  <path d="M8 5c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 4.5c-.828 0-1.5-.672-1.5-1.5s.672-1.5 1.5-1.5 1.5.672 1.5 1.5-.672 1.5-1.5 1.5z"/>
+                  <path d="M8 2.5C3.5 2.5.5 6.348.5 8c0 1.652 3 5.5 7.5 5.5s7.5-3.848 7.5-5.5c0-1.652-3-5.5-7.5-5.5zm0 9.5c-3.033 0-5.723-2.73-6.43-4 .707-1.27 3.397-4 6.43-4s5.723 2.73 6.43 4c-.707 1.27-3.397 4-6.43 4z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -256,7 +270,18 @@ function showTip(msg: string) {
           </div>
           <div class="form-group">
             <label>密码</label>
-            <input v-model="editForm.password" type="password" placeholder="远程登录密码" />
+            <div class="password-input">
+              <input v-model="editForm.password" :type="showEditPassword ? 'text' : 'password'" placeholder="远程登录密码" />
+              <button class="btn-toggle-password" type="button" @click="showEditPassword = !showEditPassword">
+                <svg v-if="!showEditPassword" viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                  <path d="M8 3.5C4.36 3.5 1.22 5.91 0 9c1.22 3.09 4.36 5.5 8 5.5s6.78-2.41 8-5.5c-1.22-3.09-4.36-5.5-8-5.5zm0 8.5c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm0-4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/>
+                </svg>
+                <svg v-else viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                  <path d="M8 5c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 4.5c-.828 0-1.5-.672-1.5-1.5s.672-1.5 1.5-1.5 1.5.672 1.5 1.5-.672 1.5-1.5 1.5z"/>
+                  <path d="M8 2.5C3.5 2.5.5 6.348.5 8c0 1.652 3 5.5 7.5 5.5s7.5-3.848 7.5-5.5c0-1.652-3-5.5-7.5-5.5zm0 9.5c-3.033 0-5.723-2.73-6.43-4 .707-1.27 3.397-4 6.43-4s5.723 2.73 6.43 4c-.707 1.27-3.397 4-6.43 4z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -397,22 +422,22 @@ function showTip(msg: string) {
   z-index: 1;
 }
 
+.hosts-table th,
+.hosts-table td {
+  padding: 10px 12px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color, #f0f0f0);
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
 .hosts-table th {
-  padding: 10px 16px;
-  text-align: left;
   font-weight: 600;
   color: #666;
   font-size: 12px;
   background: var(--bg-color, #fafafa);
-  border-bottom: 1px solid var(--border-color, #e8e8e8);
+  border-bottom-color: var(--border-color, #e8e8e8);
   white-space: nowrap;
-}
-
-.hosts-table td {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-color, #f0f0f0);
-  vertical-align: middle;
-  line-height: 1.5;
 }
 
 .hosts-table tbody tr {
@@ -591,6 +616,36 @@ function showTip(msg: string) {
   outline: none;
   border-color: rgb(88, 164, 246);
   box-shadow: 0 0 0 2px rgba(88, 164, 246, 0.15);
+}
+
+.password-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input input {
+  padding-right: 32px;
+}
+
+.btn-toggle-password {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  color: #999;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-toggle-password:hover {
+  color: rgb(88, 164, 246);
 }
 
 .btn-cancel {
