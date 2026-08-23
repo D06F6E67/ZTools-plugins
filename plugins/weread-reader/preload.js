@@ -9,10 +9,19 @@
 
   const HOME_URL = 'https://weread.qq.com/'
   const STORAGE_KEY = 'weread_reader/lastReaderUrl'
+  const SINGLE_LINE_SNAPSHOT_KEY = 'weread_reader/singleLineSnapshot'
+  const SINGLE_LINE_SETTINGS_KEY = 'weread_reader/singleLineSettings'
+  const SINGLE_LINE_COLLAPSED_HEIGHT = 68
+  const SINGLE_LINE_EXPANDED_HEIGHT = 314
   const DEFAULT_CODE = 'weread'
   const VALID_CODES = new Set(['weread', 'weread_continue', 'weread_shelf'])
 
   let lastLaunchCode = DEFAULT_CODE
+  let singleLineWindow = null
+  let singleLineWasVisible = false
+  let singleLinePointerTimer = null
+
+  const ipcRenderer = electronIpcRenderer()
 
   function ztoolsApi() {
     return window.ztools
@@ -139,6 +148,256 @@
     return result
   }
 
+  function clampNumber(value, minimum, maximum, fallback) {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.min(maximum, Math.max(minimum, Math.round(parsed)))
+  }
+
+  function normalizeSingleLineSnapshot(rawSnapshot) {
+    if (!rawSnapshot || typeof rawSnapshot !== 'object') return null
+
+    const lines = []
+    let totalLength = 0
+    for (const rawLine of Array.isArray(rawSnapshot.lines) ? rawSnapshot.lines : []) {
+      if (typeof rawLine !== 'string') continue
+      const line = rawLine.replace(/\s+/g, ' ').trim().slice(0, 4000)
+      if (!line || line === lines[lines.length - 1]) continue
+      if (totalLength + line.length > 120000) break
+      lines.push(line)
+      totalLength += line.length
+      if (lines.length >= 2000) break
+    }
+
+    if (!lines.length) return null
+
+    return {
+      title: typeof rawSnapshot.title === 'string' ? rawSnapshot.title.trim().slice(0, 120) : '微信读书',
+      readerUrl: normalizeReaderUrl(rawSnapshot.readerUrl),
+      lines,
+      initialLine: clampNumber(rawSnapshot.initialLine, 0, lines.length - 1, 0),
+    }
+  }
+
+  function getSingleLineWidth() {
+    try {
+      const settings = ztoolsApi().dbStorage.getItem(SINGLE_LINE_SETTINGS_KEY)
+      return clampNumber(settings?.width, 420, 1400, 880)
+    } catch (error) {
+      return 880
+    }
+  }
+
+  function hasSingleLineWindow() {
+    try {
+      return Boolean(singleLineWindow && !singleLineWindow.isDestroyed())
+    } catch (error) {
+      return false
+    }
+  }
+
+  function stopSingleLinePointerTracking() {
+    if (singleLinePointerTimer) window.clearInterval(singleLinePointerTimer)
+    singleLinePointerTimer = null
+  }
+
+  function sendSingleLinePointerState() {
+    if (!hasSingleLineWindow()) {
+      stopSingleLinePointerTracking()
+      return
+    }
+
+    try {
+      const cursor = ztoolsApi().getCursorScreenPoint()
+      const bounds = singleLineWindow.getBounds()
+      const inside =
+        cursor.x >= bounds.x &&
+        cursor.x < bounds.x + bounds.width &&
+        cursor.y >= bounds.y &&
+        cursor.y < bounds.y + bounds.height
+      singleLineWindow.webContents.send('weread:single-line:pointer-state', { inside })
+    } catch (error) {}
+  }
+
+  function startSingleLinePointerTracking() {
+    stopSingleLinePointerTracking()
+    sendSingleLinePointerState()
+    singleLinePointerTimer = window.setInterval(sendSingleLinePointerState, 80)
+  }
+
+  function getSingleLineWindowPosition(width, height) {
+    const cursor = ztoolsApi().getCursorScreenPoint()
+    const display = ztoolsApi().getDisplayNearestPoint(cursor)
+    const workArea = display?.workArea || display?.bounds || { x: 0, y: 0, width, height }
+    const maxX = workArea.x + Math.max(0, workArea.width - width)
+    const maxY = workArea.y + Math.max(0, workArea.height - height)
+
+    return {
+      x: Math.round(Math.min(maxX, Math.max(workArea.x, cursor.x - width / 2))),
+      y: Math.round(Math.min(maxY, Math.max(workArea.y, cursor.y + 24))),
+    }
+  }
+
+  function showSingleLineWindow() {
+    if (!hasSingleLineWindow()) return false
+
+    try {
+      singleLineWindow.show()
+      singleLineWindow.focus()
+      singleLineWindow.setAlwaysOnTop(true)
+      startSingleLinePointerTracking()
+      return true
+    } catch (error) {
+      stopSingleLinePointerTracking()
+      return false
+    }
+  }
+
+  function resizeSingleLineWindow(rawSize) {
+    if (!hasSingleLineWindow() || !rawSize || typeof rawSize !== 'object') return
+
+    const width = clampNumber(rawSize.width, 420, 1400, getSingleLineWidth())
+    const height = rawSize.expanded ? SINGLE_LINE_EXPANDED_HEIGHT : SINGLE_LINE_COLLAPSED_HEIGHT
+
+    try {
+      const position = singleLineWindow.getPosition()
+      const display = ztoolsApi().getDisplayNearestPoint({ x: position[0], y: position[1] })
+      const workArea = display?.workArea || display?.bounds
+      const maxX = workArea ? workArea.x + Math.max(0, workArea.width - width) : position[0]
+      const maxY = workArea ? workArea.y + Math.max(0, workArea.height - height) : position[1]
+      singleLineWindow.setBounds({
+        x: Math.min(maxX, Math.max(workArea?.x ?? position[0], position[0])),
+        y: Math.min(maxY, Math.max(workArea?.y ?? position[1], position[1])),
+        width,
+        height,
+      })
+    } catch (error) {
+      try {
+        singleLineWindow.setSize(width, height)
+      } catch (resizeError) {}
+    }
+  }
+
+  function openSingleLineReader(rawSnapshot) {
+    const snapshot = normalizeSingleLineSnapshot(rawSnapshot)
+    if (!snapshot) return { ok: false, reason: '当前章节没有可读取的正文。' }
+
+    try {
+      ztoolsApi().dbStorage.setItem(SINGLE_LINE_SNAPSHOT_KEY, snapshot)
+
+      if (hasSingleLineWindow()) {
+        singleLineWindow.webContents.send('weread:single-line:snapshot', snapshot)
+        singleLineWasVisible = true
+        showSingleLineWindow()
+        return { ok: true, reused: true }
+      }
+
+      const width = getSingleLineWidth()
+      const position = getSingleLineWindowPosition(width, SINGLE_LINE_COLLAPSED_HEIGHT)
+      let createdWindow = null
+      createdWindow = ztoolsApi().createBrowserWindow(
+        'single-line.html',
+        {
+          show: false,
+          title: '微信读书',
+          x: position.x,
+          y: position.y,
+          width,
+          height: SINGLE_LINE_COLLAPSED_HEIGHT,
+          minWidth: 420,
+          maxWidth: 1400,
+          resizable: false,
+          movable: true,
+          closable: true,
+          minimizable: false,
+          maximizable: false,
+          fullscreenable: false,
+          frame: false,
+          transparent: true,
+          backgroundColor: '#00000000',
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          autoHideMenuBar: true,
+          roundedCorners: false,
+          hasShadow: false,
+          webPreferences: {
+            preload: 'single-line-preload.js',
+          },
+        },
+        function onSingleLineWindowReady() {
+          if (createdWindow !== singleLineWindow) return
+          showSingleLineWindow()
+          createdWindow.webContents.send('weread:single-line:snapshot', snapshot)
+        },
+      )
+
+      if (!createdWindow) return { ok: false, reason: 'ZTools 没有成功创建单行阅读窗口。' }
+      singleLineWindow = createdWindow
+      singleLineWasVisible = true
+      return { ok: true, reused: false }
+    } catch (error) {
+      console.warn('[WeRead] 创建单行阅读窗口失败:', error)
+      singleLineWindow = null
+      singleLineWasVisible = false
+      return { ok: false, reason: '创建单行阅读窗口失败，请确认 ZTools 已更新到最新版本。' }
+    }
+  }
+
+  function appendSingleLineReader(rawSnapshot) {
+    const snapshot = normalizeSingleLineSnapshot(rawSnapshot)
+    if (!snapshot || !hasSingleLineWindow()) return false
+
+    try {
+      ztoolsApi().dbStorage.setItem(SINGLE_LINE_SNAPSHOT_KEY, snapshot)
+      singleLineWindow.webContents.send('weread:single-line:append', snapshot)
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  function finishSingleLinePage(rawReason) {
+    if (!hasSingleLineWindow()) return false
+
+    try {
+      const reason =
+        typeof rawReason === 'string' ? rawReason.trim().slice(0, 120) : '已经读到当前内容末尾。'
+      singleLineWindow.webContents.send('weread:single-line:next-result', { ok: false, reason })
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  if (ipcRenderer) {
+    ipcRenderer.on('weread:single-line:resize', function onSingleLineResize(event, size) {
+      resizeSingleLineWindow(size)
+    })
+
+    ipcRenderer.on('weread:single-line:hide', function onSingleLineHide() {
+      if (!hasSingleLineWindow()) return
+      singleLineWasVisible = false
+      stopSingleLinePointerTracking()
+      try {
+        singleLineWindow.hide()
+      } catch (error) {}
+    })
+
+    ipcRenderer.on('weread:single-line:close', function onSingleLineClose() {
+      if (!hasSingleLineWindow()) return
+      singleLineWasVisible = false
+      stopSingleLinePointerTracking()
+      try {
+        singleLineWindow.close()
+      } catch (error) {}
+      singleLineWindow = null
+    })
+
+    ipcRenderer.on('weread:single-line:next', function onSingleLineNext() {
+      window.dispatchEvent(new CustomEvent('weread:single-line:next-request'))
+    })
+  }
+
   function emitLaunchIntent(code) {
     window.dispatchEvent(
       new CustomEvent('weread:plugin-enter', {
@@ -164,6 +423,9 @@
     normalizeWereadUrl,
     isDarkColors,
     setHostTheme,
+    openSingleLineReader,
+    appendSingleLineReader,
+    finishSingleLinePage,
 
     openInSystemBrowser(rawUrl) {
       const normalized = normalizeWereadUrl(rawUrl)
@@ -184,6 +446,16 @@
     lastLaunchCode = VALID_CODES.has(requestedCode) ? requestedCode : DEFAULT_CODE
     fitPanelHeight()
     emitLaunchIntent(lastLaunchCode)
+    if (singleLineWasVisible) showSingleLineWindow()
+  })
+
+  ztoolsApi().onPluginOut(function onPluginOut() {
+    if (!hasSingleLineWindow()) return
+    stopSingleLinePointerTracking()
+    try {
+      singleLineWasVisible = singleLineWindow.isVisible()
+      singleLineWindow.hide()
+    } catch (error) {}
   })
 
   window.addEventListener('DOMContentLoaded', fitPanelHeight, { once: true })
