@@ -4,7 +4,7 @@
   "title": "UTC 标准时间",
   "description": "实时显示 UTC 时间，支持多时区切换、自定义日期时间格式，悬浮小窗",
   "author": "lvy",
-  "version": "1.0",
+  "version": "1.0.2",
   "main": "dist/index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
