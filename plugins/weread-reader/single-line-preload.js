@@ -150,6 +150,10 @@
     requestNextPage() {
       return sendToParent('weread:single-line:next')
     },
+
+    requestPreviousPage() {
+      return sendToParent('weread:single-line:previous')
+    },
   })
 
   Object.defineProperty(window, 'singleLineBridge', {
@@ -170,6 +174,12 @@
       const snapshot = normalizeSnapshot(rawSnapshot)
       if (!snapshot) return
       window.dispatchEvent(new CustomEvent('weread:single-line:append', { detail: snapshot }))
+    })
+
+    ipcRenderer.on('weread:single-line:prepend', function prependSnapshot(event, rawSnapshot) {
+      const snapshot = normalizeSnapshot(rawSnapshot)
+      if (!snapshot) return
+      window.dispatchEvent(new CustomEvent('weread:single-line:prepend', { detail: snapshot }))
     })
 
     ipcRenderer.on('weread:single-line:next-result', function finishNextRequest(event, result) {

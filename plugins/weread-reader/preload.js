@@ -356,6 +356,19 @@
     }
   }
 
+  function prependSingleLineReader(rawSnapshot) {
+    const snapshot = normalizeSingleLineSnapshot(rawSnapshot)
+    if (!snapshot || !hasSingleLineWindow()) return false
+
+    try {
+      ztoolsApi().dbStorage.setItem(SINGLE_LINE_SNAPSHOT_KEY, snapshot)
+      singleLineWindow.webContents.send('weread:single-line:prepend', snapshot)
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
   function finishSingleLinePage(rawReason) {
     if (!hasSingleLineWindow()) return false
 
@@ -396,6 +409,10 @@
     ipcRenderer.on('weread:single-line:next', function onSingleLineNext() {
       window.dispatchEvent(new CustomEvent('weread:single-line:next-request'))
     })
+
+    ipcRenderer.on('weread:single-line:previous', function onSingleLinePrevious() {
+      window.dispatchEvent(new CustomEvent('weread:single-line:previous-request'))
+    })
   }
 
   function emitLaunchIntent(code) {
@@ -425,6 +442,7 @@
     setHostTheme,
     openSingleLineReader,
     appendSingleLineReader,
+    prependSingleLineReader,
     finishSingleLinePage,
 
     openInSystemBrowser(rawUrl) {

@@ -30,6 +30,7 @@
   let autoPlayTimer = null
   let wheelDelta = 0
   let nextPagePending = false
+  let previousPagePending = false
   let autoHideTimer = null
   let pointerInsideWindow = null
 
@@ -127,6 +128,7 @@
     if (nextIndex >= snapshot.lines.length && lineIndex === snapshot.lines.length - 1) {
       return requestNextPage()
     }
+    if (nextIndex < 0 && lineIndex === 0) return requestPreviousPage()
     const clampedIndex = Math.min(snapshot.lines.length - 1, Math.max(0, nextIndex))
     if (clampedIndex === lineIndex && characterOffset === 0) return false
     lineIndex = clampedIndex
@@ -142,6 +144,15 @@
       lineProgress.textContent = `${lineIndex + 1}/${snapshot.lines.length} · 加载中`
     }
     return nextPagePending
+  }
+
+  function requestPreviousPage() {
+    if (previousPagePending) return true
+    previousPagePending = bridge.requestPreviousPage()
+    if (previousPagePending) {
+      lineProgress.textContent = `${lineIndex + 1}/${snapshot.lines.length} · 加载中`
+    }
+    return previousPagePending
   }
 
   function moveNextCharacter() {
@@ -163,7 +174,7 @@
       renderLine()
       return true
     }
-    if (lineIndex === 0) return false
+    if (lineIndex === 0) return requestPreviousPage()
     lineIndex -= 1
     characterOffset = Math.max(0, currentLine().length - 1)
     renderLine()
@@ -305,6 +316,7 @@
     lineIndex = snapshot.initialLine || 0
     characterOffset = 0
     nextPagePending = false
+    previousPagePending = false
     pointerInsideWindow = null
     cancelAutoHide()
     readerBar.classList.remove('is-auto-hidden')
@@ -313,39 +325,24 @@
   })
 
   window.addEventListener('weread:single-line:append', function appendSnapshot(event) {
-    const nextSnapshot = event.detail
-    const previousLines = snapshot?.lines || []
-    const nextLines = nextSnapshot?.lines || []
-    let overlap = Math.min(previousLines.length, nextLines.length)
-    while (
-      overlap > 0 &&
-      previousLines.slice(previousLines.length - overlap).join('\n') !==
-        nextLines.slice(0, overlap).join('\n')
-    ) {
-      overlap -= 1
-    }
-
-    const appendedLines = nextLines.slice(overlap)
+    snapshot = event.detail
     nextPagePending = false
-    if (!appendedLines.length) {
-      lineProgress.textContent = '已经读到当前内容末尾'
-      stopAutoPlay()
-      return
-    }
-
-    const previousLength = previousLines.length
-    snapshot = {
-      ...nextSnapshot,
-      lines: previousLines.concat(appendedLines),
-      initialLine: 0,
-    }
-    lineIndex = previousLength
+    lineIndex = 0
     characterOffset = 0
+    renderLine()
+  })
+
+  window.addEventListener('weread:single-line:prepend', function prependSnapshot(event) {
+    snapshot = event.detail
+    previousPagePending = false
+    lineIndex = Math.max(0, snapshot.lines.length - 1)
+    characterOffset = Math.max(0, currentLine().length - 1)
     renderLine()
   })
 
   window.addEventListener('weread:single-line:next-result', function finishNextPage(event) {
     nextPagePending = false
+    previousPagePending = false
     stopAutoPlay()
     lineProgress.textContent = event.detail?.reason || '已经读到当前内容末尾'
   })
