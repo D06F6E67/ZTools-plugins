@@ -57,6 +57,10 @@
       title: typeof rawSnapshot.title === 'string' ? rawSnapshot.title.trim().slice(0, 120) : '微信读书',
       lines,
       initialLine: clampNumber(rawSnapshot.initialLine, 0, lines.length - 1, 0),
+      pageKey: lines.join('\n'),
+      mode: ['horizontal', 'vertical', 'dom'].includes(rawSnapshot.mode)
+        ? rawSnapshot.mode
+        : 'dom',
     }
   }
 
@@ -154,6 +158,11 @@
     requestPreviousPage() {
       return sendToParent('weread:single-line:previous')
     },
+
+    selectBufferedPage(rawSnapshot) {
+      const snapshot = normalizeSnapshot(rawSnapshot)
+      return snapshot ? sendToParent('weread:single-line:select-page', snapshot) : false
+    },
   })
 
   Object.defineProperty(window, 'singleLineBridge', {
@@ -180,6 +189,14 @@
       const snapshot = normalizeSnapshot(rawSnapshot)
       if (!snapshot) return
       window.dispatchEvent(new CustomEvent('weread:single-line:prepend', { detail: snapshot }))
+    })
+
+    ipcRenderer.on('weread:single-line:buffer-next', function bufferNextSnapshot(event, rawSnapshot) {
+      const snapshot = normalizeSnapshot(rawSnapshot)
+      if (!snapshot) return
+      window.dispatchEvent(
+        new CustomEvent('weread:single-line:buffer-next', { detail: snapshot }),
+      )
     })
 
     ipcRenderer.on('weread:single-line:next-result', function finishNextRequest(event, result) {

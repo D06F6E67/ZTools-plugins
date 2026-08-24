@@ -300,6 +300,13 @@
   let hostThemeReconcileTimer = null
   let singleLinePageKey = ''
   let singleLinePageLoading = false
+  let singleLinePages = []
+  let singleLineDisplayIndex = -1
+  let singleLineWebviewIndex = -1
+  let singleLinePrefetchPromise = null
+  let singleLineGeneration = 0
+  let singleLineReachedEnd = false
+  let singleLineNavigationAt = 0
 
   function setStatus(message) {
     statusText.textContent = message
@@ -416,31 +423,51 @@
       return Boolean(
         await webview.executeJavaScript(
           `(() => {
-            if (window.__ztoolsSingleLineCanvasCapture?.version === 1) return true
+            if (window.__ztoolsSingleLineCanvasCapture?.version === 3) return true
 
             const prototype = window.CanvasRenderingContext2D?.prototype
             const originalFillText = prototype?.fillText
-            if (!prototype || typeof originalFillText !== 'function') return false
+            const originalClearRect = prototype?.clearRect
+            if (
+              !prototype ||
+              typeof originalFillText !== 'function' ||
+              typeof originalClearRect !== 'function'
+            ) {
+              return false
+            }
 
             const entriesByCanvas = new WeakMap()
-            prototype.fillText = function captureSingleLineText(text, x, y, maxWidth) {
-              let entries = entriesByCanvas.get(this.canvas)
-              if (!entries) {
-                entries = []
-                entriesByCanvas.set(this.canvas, entries)
+            prototype.clearRect = function clearSingleLineCapture() {
+              const record = entriesByCanvas.get(this.canvas)
+              if (record) {
+                record.entries = []
+                record.positions.clear()
               }
-              entries.push({
+              return originalClearRect.apply(this, arguments)
+            }
+            prototype.fillText = function captureSingleLineText(text, x, y, maxWidth) {
+              let record = entriesByCanvas.get(this.canvas)
+              if (!record) {
+                record = { entries: [], positions: new Set() }
+                entriesByCanvas.set(this.canvas, record)
+              }
+              const positionKey = [String(this.font || ''), Number(x), Number(y)].join('\\u0000')
+              if (record.positions.has(positionKey)) {
+                record.entries = []
+                record.positions.clear()
+              }
+              record.positions.add(positionKey)
+              record.entries.push({
                 text: String(text || ''),
                 x: Number(x),
                 y: Number(y),
                 font: String(this.font || '')
               })
-              if (entries.length > 30000) entries.splice(0, entries.length - 30000)
               return originalFillText.apply(this, arguments)
             }
 
             window.__ztoolsSingleLineCanvasCapture = {
-              version: 1,
+              version: 3,
               read() {
                 const output = []
                 const canvases = Array.from(
@@ -449,11 +476,7 @@
                 canvases.forEach((canvas, canvasIndex) => {
                   const rect = canvas.getBoundingClientRect()
                   const scaleY = rect.height > 0 ? canvas.height / rect.height : 1
-                  const seen = new Set()
-                  for (const entry of entriesByCanvas.get(canvas) || []) {
-                    const key = [entry.font, entry.x, entry.y, entry.text].join('\\u0000')
-                    if (seen.has(key)) continue
-                    seen.add(key)
+                  for (const entry of entriesByCanvas.get(canvas)?.entries || []) {
                     output.push({
                       ...entry,
                       canvasIndex,
@@ -841,42 +864,14 @@
               title: normalizeText(heading?.innerText || document.title) || '微信读书',
               readerUrl: location.href,
               lines: textRows.map((row) => row.text),
-              initialLine
+              initialLine,
+              mode: 'vertical'
             }
           }
 
-          async function captureHorizontalCanvasPage() {
-            const canvas = document.querySelector('.wr_horizontalReader canvas')
-            const prototype = window.CanvasRenderingContext2D?.prototype
-            const originalFillText = prototype?.fillText
-            if (!canvas || typeof originalFillText !== 'function') return null
-
-            const entries = []
-            prototype.fillText = function captureText(text, x, y, maxWidth) {
-              entries.push({
-                text: String(text || ''),
-                x: Number(x),
-                y: Number(y),
-                font: String(this.font || '')
-              })
-              return originalFillText.apply(this, arguments)
-            }
-
-            try {
-              window.dispatchEvent(new Event('resize'))
-
-              let lastCount = -1
-              let stableChecks = 0
-              for (let elapsed = 0; elapsed < 3000 && stableChecks < 3; elapsed += 100) {
-                await new Promise((resolve) => setTimeout(resolve, 100))
-                if (entries.length && entries.length === lastCount) stableChecks += 1
-                else stableChecks = 0
-                lastCount = entries.length
-              }
-            } finally {
-              prototype.fillText = originalFillText
-            }
-
+          function captureHorizontalCanvasPage() {
+            if (!document.querySelector('.wr_horizontalReader canvas')) return null
+            const entries = window.__ztoolsSingleLineCanvasCapture?.read?.() || []
             if (!entries.length) return null
 
             const fontTotals = new Map()
@@ -915,13 +910,14 @@
               title: normalizeText(heading?.innerText || document.title) || '微信读书',
               readerUrl: location.href,
               lines: [pageText],
-              initialLine: 0
+              initialLine: 0,
+              mode: 'horizontal'
             }
           }
 
           const verticalCanvasSnapshot = captureVerticalCanvasChapter()
           if (verticalCanvasSnapshot) return verticalCanvasSnapshot
-          const canvasSnapshot = await captureHorizontalCanvasPage()
+          const canvasSnapshot = captureHorizontalCanvasPage()
           if (canvasSnapshot) return canvasSnapshot
 
           const containers = [
@@ -957,7 +953,8 @@
             title: normalizeText(heading?.innerText || document.title) || '微信读书',
             readerUrl: location.href,
             lines,
-            initialLine: visibleIndex >= 0 ? visibleIndex : 0
+            initialLine: visibleIndex >= 0 ? visibleIndex : 0,
+            mode: 'dom'
           }
         })()`,
         true,
@@ -972,6 +969,7 @@
         lines: snapshot.lines,
         initialLine: snapshot.initialLine,
         pageKey,
+        mode: snapshot.mode || 'dom',
       }
     } catch (error) {
       return null
@@ -1010,10 +1008,16 @@
           }
           if (!enabled(target)) return null
 
+          const invoked =
+            typeof window.__ztoolsSingleLineInvokeClick === 'function' &&
+            window.__ztoolsSingleLineInvokeClick(target)
+          if (invoked) return { invoked: true, x: 0, y: 0 }
+
           target.scrollIntoView({ block: 'center', inline: 'center' })
           await new Promise((resolve) => setTimeout(resolve, 160))
           const rect = target.getBoundingClientRect()
           return {
+            invoked: false,
             x: Math.round(rect.left + rect.width / 2),
             y: Math.round(rect.top + rect.height / 2)
           }
@@ -1051,12 +1055,159 @@
   }
 
   async function waitForSingleLineSnapshot(previousPageKey) {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      await wait(attempt === 0 ? 500 : 180)
+    await wait(500)
+    let candidate = null
+    let stableChecks = 0
+    for (let attempt = 0; attempt < 14; attempt += 1) {
+      await wait(180)
       const snapshot = await extractSingleLineSnapshot()
-      if (snapshot && snapshot.pageKey !== previousPageKey) return snapshot
+      if (!snapshot || snapshot.pageKey === previousPageKey) {
+        candidate = null
+        stableChecks = 0
+        continue
+      }
+      if (snapshot.pageKey === candidate?.pageKey) stableChecks += 1
+      else {
+        candidate = snapshot
+        stableChecks = 1
+      }
+      if (stableChecks >= 2) return candidate
     }
     return null
+  }
+
+  async function navigateSingleLineWebview(direction, previousPageKey) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const cooldown = 6000 - (Date.now() - singleLineNavigationAt)
+      if (cooldown > 0) await wait(cooldown)
+
+      const target = await prepareSingleLineNavigation(direction)
+      if (!target) return { boundary: true, snapshot: null }
+      if (!target.invoked && !sendSingleLineNavigationInput(target)) {
+        return { boundary: false, snapshot: null }
+      }
+      singleLineNavigationAt = Date.now()
+
+      const snapshot = await waitForSingleLineSnapshot(previousPageKey)
+      if (snapshot) return { boundary: false, snapshot }
+    }
+    return { boundary: false, snapshot: null }
+  }
+
+  function resetSingleLinePages(snapshot) {
+    singleLinePages = [snapshot]
+    singleLineDisplayIndex = 0
+    singleLineWebviewIndex = 0
+    singleLinePageKey = snapshot.pageKey
+    singleLineReachedEnd = false
+  }
+
+  function singleLinePrefetchAhead() {
+    return singleLinePages[singleLineDisplayIndex]?.mode === 'horizontal' ? 3 : 1
+  }
+
+  async function alignSingleLineWebview(targetIndex, generation) {
+    while (singleLineWebviewIndex !== targetIndex) {
+      if (generation !== singleLineGeneration) return false
+      const direction = singleLineWebviewIndex > targetIndex ? 'previous' : 'next'
+      const nextIndex = singleLineWebviewIndex + (direction === 'previous' ? -1 : 1)
+      const anchor = singleLinePages[singleLineWebviewIndex]
+      const expected = singleLinePages[nextIndex]
+      if (!anchor || !expected) return false
+
+      const result = await navigateSingleLineWebview(direction, anchor.pageKey)
+      if (
+        generation !== singleLineGeneration ||
+        !result.snapshot ||
+        result.snapshot.pageKey !== expected.pageKey
+      ) {
+        return false
+      }
+      singleLineWebviewIndex = nextIndex
+    }
+    return true
+  }
+
+  async function prefetchSingleLinePages(generation) {
+    try {
+      const lastIndex = singleLinePages.length - 1
+      if (
+        singleLineWebviewIndex !== lastIndex &&
+        !(await alignSingleLineWebview(lastIndex, generation))
+      ) {
+        return
+      }
+
+      while (
+        generation === singleLineGeneration &&
+        singleLinePages.length - singleLineDisplayIndex - 1 < singleLinePrefetchAhead()
+      ) {
+        const anchor = singleLinePages[singleLineWebviewIndex]
+        if (!anchor) return
+        const result = await navigateSingleLineWebview('next', anchor.pageKey)
+        if (generation !== singleLineGeneration) return
+        if (result.boundary) {
+          singleLineReachedEnd = true
+          return
+        }
+        const snapshot = result.snapshot
+        if (!snapshot || singleLinePages.some((page) => page.pageKey === snapshot.pageKey)) return
+
+        singleLinePages.push(snapshot)
+        singleLineWebviewIndex = singleLinePages.length - 1
+        bridge.bufferNextSingleLineReader(snapshot)
+      }
+    } catch (error) {}
+  }
+
+  function scheduleSingleLinePrefetch() {
+    if (
+      singleLinePrefetchPromise ||
+      singleLineReachedEnd ||
+      singleLineDisplayIndex < 0 ||
+      !singleLinePages.length
+    ) {
+      return singleLinePrefetchPromise
+    }
+
+    const generation = singleLineGeneration
+    const promise = prefetchSingleLinePages(generation)
+    singleLinePrefetchPromise = promise
+    promise.finally(function finishSingleLinePrefetch() {
+      if (singleLinePrefetchPromise === promise) singleLinePrefetchPromise = null
+    })
+    return promise
+  }
+
+  function deliverSingleLinePage(index, direction) {
+    const snapshot = singleLinePages[index]
+    if (!snapshot) return false
+    singleLineDisplayIndex = index
+    singleLinePageKey = snapshot.pageKey
+    const delivered =
+      direction === 'previous'
+        ? bridge.prependSingleLineReader(snapshot)
+        : bridge.appendSingleLineReader(snapshot)
+    if (delivered) scheduleSingleLinePrefetch()
+    return delivered
+  }
+
+  function selectBufferedSingleLinePage(event) {
+    const pageKey = typeof event.detail?.pageKey === 'string' ? event.detail.pageKey : ''
+    const index = singleLinePages.findIndex((page) => page.pageKey === pageKey)
+    if (index < 0) return
+    singleLineDisplayIndex = index
+    singleLinePageKey = pageKey
+    scheduleSingleLinePrefetch()
+  }
+
+  async function restoreSingleLineWebview() {
+    const currentPage = singleLinePages[singleLineDisplayIndex]
+    if (!currentPage) return
+    if (singleLinePrefetchPromise) await singleLinePrefetchPromise
+    const generation = ++singleLineGeneration
+    if (!(await alignSingleLineWebview(singleLineDisplayIndex, generation))) return
+    resetSingleLinePages(currentPage)
   }
 
   async function openSingleLineReader() {
@@ -1069,6 +1220,8 @@
     singleLineButton.disabled = true
     setStatus('正在提取当前章节…')
     try {
+      if (singleLinePrefetchPromise) await singleLinePrefetchPromise
+      singleLineGeneration += 1
       await installSingleLineCanvasCapture()
       let snapshot = null
       for (let attempt = 0; attempt < 12 && !snapshot; attempt += 1) {
@@ -1080,45 +1233,66 @@
         return
       }
 
-      singleLinePageKey = snapshot.pageKey
+      resetSingleLinePages(snapshot)
       const result = bridge.openSingleLineReader(snapshot)
       setStatus(result?.ok ? '单行阅读窗口已打开' : result?.reason || '单行阅读窗口打开失败')
+      if (result?.ok) scheduleSingleLinePrefetch()
     } finally {
       singleLineButton.disabled = false
     }
   }
 
   async function loadSingleLinePage(direction) {
-    if (singleLinePageLoading) return
+    if (singleLinePageLoading) {
+      bridge.finishSingleLinePage('正在准备相邻页面，请稍后继续滚动。')
+      return
+    }
     singleLinePageLoading = true
     const isPrevious = direction === 'previous'
     const boundaryMessage = isPrevious ? '已经到达全书开头。' : '已经到达全书末尾。'
     const failureMessage = isPrevious ? '上一页正文加载失败。' : '下一页正文加载失败。'
 
     try {
-      const target = await prepareSingleLineNavigation(direction)
-      if (!target) {
-        bridge.finishSingleLinePage(boundaryMessage)
+      const offset = isPrevious ? -1 : 1
+      let targetIndex = singleLineDisplayIndex + offset
+      if (targetIndex >= 0 && targetIndex < singleLinePages.length) {
+        if (!deliverSingleLinePage(targetIndex, direction)) bridge.finishSingleLinePage(failureMessage)
         return
       }
-      if (!sendSingleLineNavigationInput(target)) {
+
+      if (singleLinePrefetchPromise) await singleLinePrefetchPromise
+      targetIndex = singleLineDisplayIndex + offset
+      if (targetIndex >= 0 && targetIndex < singleLinePages.length) {
+        if (!deliverSingleLinePage(targetIndex, direction)) bridge.finishSingleLinePage(failureMessage)
+        return
+      }
+
+      const generation = singleLineGeneration
+      if (!(await alignSingleLineWebview(singleLineDisplayIndex, generation))) {
         bridge.finishSingleLinePage(failureMessage)
         return
       }
 
-      const snapshot = await waitForSingleLineSnapshot(singleLinePageKey)
-      if (!snapshot) {
-        bridge.finishSingleLinePage(failureMessage)
+      const anchor = singleLinePages[singleLineWebviewIndex]
+      const result = await navigateSingleLineWebview(direction, anchor?.pageKey || singleLinePageKey)
+      if (generation !== singleLineGeneration) return
+      if (!result.snapshot) {
+        bridge.finishSingleLinePage(result.boundary ? boundaryMessage : failureMessage)
         return
       }
 
-      singleLinePageKey = snapshot.pageKey
-      const delivered = isPrevious
-        ? bridge.prependSingleLineReader(snapshot)
-        : bridge.appendSingleLineReader(snapshot)
-      if (!delivered) {
-        bridge.finishSingleLinePage(failureMessage)
+      singleLineReachedEnd = false
+      if (isPrevious) {
+        singleLinePages.unshift(result.snapshot)
+        singleLineDisplayIndex += 1
+        singleLineWebviewIndex = 0
+        targetIndex = 0
+      } else {
+        singleLinePages.push(result.snapshot)
+        singleLineWebviewIndex = singleLinePages.length - 1
+        targetIndex = singleLineDisplayIndex + 1
       }
+      if (!deliverSingleLinePage(targetIndex, direction)) bridge.finishSingleLinePage(failureMessage)
     } catch (error) {
       bridge.finishSingleLinePage(failureMessage)
     } finally {
@@ -1198,6 +1372,8 @@
   singleLineButton.addEventListener('click', openSingleLineReader)
   window.addEventListener('weread:single-line:next-request', loadNextSingleLinePage)
   window.addEventListener('weread:single-line:previous-request', loadPreviousSingleLinePage)
+  window.addEventListener('weread:single-line:select-page', selectBufferedSingleLinePage)
+  window.addEventListener('weread:single-line:closed', restoreSingleLineWebview)
 
   document.getElementById('externalButton').addEventListener('click', function openExternalFromMenu() {
     setMenuOpen(false)
