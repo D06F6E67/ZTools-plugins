@@ -191,7 +191,7 @@
     }
 
     body.wr_page_reader.ztools-reader-menu-open .readerControls {
-      top: 258px !important;
+      top: var(--ztools-reader-controls-top, 305px) !important;
       right: 8px !important;
       width: 154px !important;
       height: auto !important;
@@ -283,6 +283,7 @@
   const statusText = document.getElementById('statusText')
   const backButton = document.getElementById('backButton')
   const cleanModeButton = document.getElementById('cleanModeButton')
+  const singleLineButton = document.getElementById('singleLineButton')
   const menuButton = document.getElementById('menuButton')
   const menuPanel = document.getElementById('menuPanel')
 
@@ -297,6 +298,8 @@
   let readerThemeRequestId = 0
   let readerThemeRequestInFlight = false
   let hostThemeReconcileTimer = null
+  let singleLinePageKey = ''
+  let singleLinePageLoading = false
 
   function setStatus(message) {
     statusText.textContent = message
@@ -357,8 +360,17 @@
 
   function setRemoteMenuOpen(isOpen) {
     try {
+      const menuRect = menuPanel.getBoundingClientRect()
+      const webviewRect = webview.getBoundingClientRect()
+      const remoteMenuTop = Math.max(8, Math.ceil(menuRect.bottom - webviewRect.top + 8))
       const result = webview.executeJavaScript(
-        `document.body.classList.toggle('ztools-reader-menu-open', ${Boolean(isOpen)})`,
+        `(() => {
+          document.documentElement.style.setProperty(
+            '--ztools-reader-controls-top',
+            '${remoteMenuTop}px'
+          )
+          document.body.classList.toggle('ztools-reader-menu-open', ${Boolean(isOpen)})
+        })()`,
         true,
       )
       if (result && typeof result.catch === 'function') result.catch(function ignore() {})
@@ -449,6 +461,7 @@
     document.body.classList.toggle('is-reader-mode', cleanModeActive)
     if (!cleanModeActive) setMenuOpen(false)
     cleanModeButton.hidden = !readerPage
+    singleLineButton.hidden = !readerPage
     cleanModeButton.setAttribute('aria-pressed', String(cleanModeActive))
     cleanModeButton.textContent = cleanModeActive ? '原版界面' : '纯净阅读'
     cleanModeButton.title = cleanModeActive ? '恢复微信读书原版界面' : '启用纯净阅读'
@@ -692,6 +705,197 @@
     }
   }
 
+  async function extractSingleLineSnapshot(options = {}) {
+    const advancePage = Boolean(options.advancePage)
+    try {
+      const snapshot = await webview.executeJavaScript(
+        `(async () => {
+          const normalizeText = (value) => String(value || '').replace(/\\s+/g, ' ').trim()
+          const cleanCanvasText = (value) => String(value || '').replace(/[\\u200b-\\u200d\\ufeff]/g, '')
+
+          async function captureHorizontalCanvasPage() {
+            const canvas = document.querySelector('.wr_horizontalReader canvas')
+            const prototype = window.CanvasRenderingContext2D?.prototype
+            const originalFillText = prototype?.fillText
+            if (!canvas || typeof originalFillText !== 'function') return null
+
+            const entries = []
+            prototype.fillText = function captureText(text, x, y, maxWidth) {
+              entries.push({
+                text: String(text || ''),
+                y: Number(y),
+                font: String(this.font || '')
+              })
+              return originalFillText.call(this, text, x, y, maxWidth)
+            }
+
+            try {
+              if (${advancePage ? 'true' : 'false'}) {
+                const nextButton = document.querySelector(
+                  '.renderTarget_pager_button_right:not([disabled])'
+                )
+                if (!nextButton) return { unavailable: true }
+                nextButton.click()
+              } else {
+                window.dispatchEvent(new Event('resize'))
+              }
+
+              let lastCount = -1
+              let stableChecks = 0
+              for (let elapsed = 0; elapsed < 3000 && stableChecks < 3; elapsed += 100) {
+                await new Promise((resolve) => setTimeout(resolve, 100))
+                if (entries.length && entries.length === lastCount) stableChecks += 1
+                else stableChecks = 0
+                lastCount = entries.length
+              }
+            } finally {
+              prototype.fillText = originalFillText
+            }
+
+            if (!entries.length) return null
+
+            const fontTotals = new Map()
+            for (const entry of entries) {
+              const fontSize = (Number.parseFloat(entry.font) || 0).toFixed(1)
+              fontTotals.set(fontSize, (fontTotals.get(fontSize) || 0) + entry.text.length)
+            }
+            const bodyFont = Array.from(fontTotals.entries()).sort(
+              (left, right) => right[1] - left[1]
+            )[0]?.[0]
+            if (!bodyFont) return null
+
+            const rows = []
+            for (const entry of entries) {
+              if ((Number.parseFloat(entry.font) || 0).toFixed(1) !== bodyFont) continue
+              const text = cleanCanvasText(entry.text)
+              if (!text) continue
+              let row = rows.find((item) => Math.abs(item.y - entry.y) < 1)
+              if (!row) {
+                row = { y: entry.y, text: '' }
+                rows.push(row)
+              }
+              row.text += text
+            }
+
+            const rowTexts = rows.map((row) => normalizeText(row.text)).filter(Boolean)
+            const pageText = rowTexts.reduce((text, rowText) => {
+              const separator = /[A-Za-z0-9]$/.test(text) && /^[A-Za-z0-9]/.test(rowText) ? ' ' : ''
+              return text + separator + rowText
+            }, '')
+            if (!pageText) return null
+            const heading = document.querySelector(
+              '.renderTargetPageInfo_header, .readerTopBar_title, .readerChapterContent_title'
+            )
+            return {
+              title: normalizeText(heading?.innerText || document.title) || '微信读书',
+              lines: [pageText],
+              initialLine: 0
+            }
+          }
+
+          const canvasSnapshot = await captureHorizontalCanvasPage()
+          if (canvasSnapshot) return canvasSnapshot
+          if (${advancePage ? 'true' : 'false'}) return { unavailable: true }
+
+          const containers = [
+            document.querySelector('.readerContent .app_content'),
+            document.querySelector('.app_content:not(.app_content_in_reader)'),
+            document.querySelector('.readerChapterContent:not(:has(canvas))')
+          ].filter(Boolean)
+          const container = containers.find((node) => normalizeText(node.innerText))
+          if (!container) return null
+
+          const lines = []
+          for (const rawLine of String(container.innerText || '').split(/\\n+/)) {
+            const text = normalizeText(rawLine)
+            if (!text || text === lines[lines.length - 1]) continue
+            lines.push(text)
+            if (lines.length >= 2000) break
+          }
+
+          if (!lines.length) return null
+          const blockNodes = Array.from(container.querySelectorAll('h1, h2, h3, p, blockquote, li'))
+          const visibleNode = blockNodes.find((node) => {
+            const rect = node.getBoundingClientRect()
+            return rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight
+          })
+          const visibleText = normalizeText(visibleNode?.innerText || visibleNode?.textContent)
+          const visibleIndex = visibleText
+            ? lines.findIndex((line) => line === visibleText || line.includes(visibleText) || visibleText.includes(line))
+            : -1
+          const heading = document.querySelector(
+            '.readerTopBar_title, .readerChapterContent_title, .readerContentHeader, .readerChapterContent h1'
+          )
+          return {
+            title: normalizeText(heading?.innerText || document.title) || '微信读书',
+            lines,
+            initialLine: visibleIndex >= 0 ? visibleIndex : 0
+          }
+        })()`,
+        true,
+      )
+
+      if (snapshot?.unavailable) return null
+      if (!snapshot || !Array.isArray(snapshot.lines) || !snapshot.lines.length) return null
+      const pageKey = snapshot.lines.join('\n')
+      return {
+        title: snapshot.title,
+        readerUrl: getCurrentUrl(),
+        lines: snapshot.lines,
+        initialLine: snapshot.initialLine,
+        pageKey,
+      }
+    } catch (error) {
+      return null
+    }
+  }
+
+  async function openSingleLineReader() {
+    setMenuOpen(false)
+    if (!isReaderPage(getCurrentUrl())) {
+      setStatus('请先打开一本书，再使用单行阅读')
+      return
+    }
+
+    singleLineButton.disabled = true
+    setStatus('正在提取当前章节…')
+    try {
+      const snapshot = await extractSingleLineSnapshot()
+      if (!snapshot) {
+        setStatus('当前章节没有读取到正文，请刷新后重试')
+        return
+      }
+
+      singleLinePageKey = snapshot.pageKey
+      const result = bridge.openSingleLineReader(snapshot)
+      setStatus(result?.ok ? '单行阅读窗口已打开' : result?.reason || '单行阅读窗口打开失败')
+    } finally {
+      singleLineButton.disabled = false
+    }
+  }
+
+  async function loadNextSingleLinePage() {
+    if (singleLinePageLoading) return
+    singleLinePageLoading = true
+
+    try {
+      const snapshot = await extractSingleLineSnapshot({ advancePage: true })
+      if (!snapshot || snapshot.pageKey === singleLinePageKey) {
+        bridge.finishSingleLinePage('已经读到当前内容末尾。')
+        return
+      }
+
+      singleLinePageKey = snapshot.pageKey
+      if (!bridge.appendSingleLineReader(snapshot)) {
+        bridge.finishSingleLinePage('下一页正文加载失败。')
+      }
+    } catch (error) {
+      bridge.finishSingleLinePage('下一页正文加载失败。')
+    } finally {
+      singleLinePageLoading = false
+    }
+  }
+
   menuButton.addEventListener('click', function toggleReaderMenu(event) {
     event.stopPropagation()
     const willOpen = !document.body.classList.contains('menu-open')
@@ -752,6 +956,9 @@
     cleanReaderEnabled = !cleanReaderEnabled
     applyReaderPresentation(getCurrentUrl())
   })
+
+  singleLineButton.addEventListener('click', openSingleLineReader)
+  window.addEventListener('weread:single-line:next-request', loadNextSingleLinePage)
 
   document.getElementById('externalButton').addEventListener('click', function openExternalFromMenu() {
     setMenuOpen(false)
