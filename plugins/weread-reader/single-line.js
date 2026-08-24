@@ -23,6 +23,8 @@
   const autoPlayDelayInput = document.getElementById('autoPlayDelayInput')
 
   let snapshot = bridge.getSnapshot()
+  let bufferedPages = snapshot ? [snapshot] : []
+  let bufferedPageIndex = 0
   let settings = bridge.getSettings()
   let lineIndex = snapshot?.initialLine || 0
   let characterOffset = 0
@@ -108,6 +110,18 @@
     return snapshot?.lines?.[lineIndex] || ''
   }
 
+  function renderProgress(status = '') {
+    const parts = []
+    if (snapshot?.lines?.length > 1) parts.push(`${lineIndex + 1}/${snapshot.lines.length}`)
+    const prefetchedPages = Math.max(0, bufferedPages.length - bufferedPageIndex - 1)
+    if (prefetchedPages > 0) {
+      const unit = snapshot?.mode === 'vertical' ? '章' : '页'
+      parts.push(`已预载 ${prefetchedPages} ${unit}`)
+    }
+    if (status) parts.push(status)
+    lineProgress.textContent = parts.join(' · ')
+  }
+
   function renderLine() {
     if (!snapshot?.lines?.length) {
       lineText.textContent = '没有读取到正文，请返回阅读页后重新打开单行阅读。'
@@ -119,16 +133,36 @@
     characterOffset = Math.min(Math.max(0, characterOffset), Math.max(0, line.length - 1))
     lineText.textContent = line.slice(characterOffset) || '　'
     lineText.title = line
-    lineProgress.textContent = `${lineIndex + 1}/${snapshot.lines.length}`
+    renderProgress()
     document.title = snapshot.title || '微信读书'
+  }
+
+  function switchBufferedPage(direction) {
+    const nextIndex = bufferedPageIndex + (direction === 'previous' ? -1 : 1)
+    if (nextIndex < 0 || nextIndex >= bufferedPages.length) return false
+
+    bufferedPageIndex = nextIndex
+    snapshot = bufferedPages[bufferedPageIndex]
+    lineIndex = direction === 'previous' ? Math.max(0, snapshot.lines.length - 1) : 0
+    characterOffset =
+      direction === 'previous' ? Math.max(0, currentLine().length - 1) : 0
+    nextPagePending = false
+    previousPagePending = false
+    bridge.selectBufferedPage(snapshot)
+    renderLine()
+    return true
   }
 
   function moveToLine(nextIndex) {
     if (!snapshot?.lines?.length) return false
     if (nextIndex >= snapshot.lines.length && lineIndex === snapshot.lines.length - 1) {
+      if (switchBufferedPage('next')) return true
       return requestNextPage()
     }
-    if (nextIndex < 0 && lineIndex === 0) return requestPreviousPage()
+    if (nextIndex < 0 && lineIndex === 0) {
+      if (switchBufferedPage('previous')) return true
+      return requestPreviousPage()
+    }
     const clampedIndex = Math.min(snapshot.lines.length - 1, Math.max(0, nextIndex))
     if (clampedIndex === lineIndex && characterOffset === 0) return false
     lineIndex = clampedIndex
@@ -140,18 +174,14 @@
   function requestNextPage() {
     if (nextPagePending) return true
     nextPagePending = bridge.requestNextPage()
-    if (nextPagePending) {
-      lineProgress.textContent = `${lineIndex + 1}/${snapshot.lines.length} · 加载中`
-    }
+    if (nextPagePending) renderProgress('加载中')
     return nextPagePending
   }
 
   function requestPreviousPage() {
     if (previousPagePending) return true
     previousPagePending = bridge.requestPreviousPage()
-    if (previousPagePending) {
-      lineProgress.textContent = `${lineIndex + 1}/${snapshot.lines.length} · 加载中`
-    }
+    if (previousPagePending) renderProgress('加载中')
     return previousPagePending
   }
 
@@ -164,6 +194,7 @@
       return true
     }
     if (lineIndex < snapshot.lines.length - 1) return moveToLine(lineIndex + 1)
+    if (switchBufferedPage('next')) return true
     return requestNextPage()
   }
 
@@ -174,7 +205,10 @@
       renderLine()
       return true
     }
-    if (lineIndex === 0) return requestPreviousPage()
+    if (lineIndex === 0) {
+      if (switchBufferedPage('previous')) return true
+      return requestPreviousPage()
+    }
     lineIndex -= 1
     characterOffset = Math.max(0, currentLine().length - 1)
     renderLine()
@@ -313,6 +347,8 @@
 
   window.addEventListener('weread:single-line:snapshot', function updateSnapshot(event) {
     snapshot = event.detail
+    bufferedPages = [snapshot]
+    bufferedPageIndex = 0
     lineIndex = snapshot.initialLine || 0
     characterOffset = 0
     nextPagePending = false
@@ -325,7 +361,15 @@
   })
 
   window.addEventListener('weread:single-line:append', function appendSnapshot(event) {
-    snapshot = event.detail
+    const nextSnapshot = event.detail
+    let nextIndex = bufferedPages.findIndex((page) => page.pageKey === nextSnapshot.pageKey)
+    if (nextIndex < 0) {
+      bufferedPages = bufferedPages.slice(0, bufferedPageIndex + 1)
+      bufferedPages.push(nextSnapshot)
+      nextIndex = bufferedPages.length - 1
+    }
+    bufferedPageIndex = nextIndex
+    snapshot = bufferedPages[bufferedPageIndex]
     nextPagePending = false
     lineIndex = 0
     characterOffset = 0
@@ -333,11 +377,27 @@
   })
 
   window.addEventListener('weread:single-line:prepend', function prependSnapshot(event) {
-    snapshot = event.detail
+    const previousSnapshot = event.detail
+    let previousIndex = bufferedPages.findIndex(
+      (page) => page.pageKey === previousSnapshot.pageKey,
+    )
+    if (previousIndex < 0) {
+      bufferedPages.unshift(previousSnapshot)
+      previousIndex = 0
+    }
+    bufferedPageIndex = previousIndex
+    snapshot = bufferedPages[bufferedPageIndex]
     previousPagePending = false
     lineIndex = Math.max(0, snapshot.lines.length - 1)
     characterOffset = Math.max(0, currentLine().length - 1)
     renderLine()
+  })
+
+  window.addEventListener('weread:single-line:buffer-next', function bufferNextSnapshot(event) {
+    const nextSnapshot = event.detail
+    if (bufferedPages.some((page) => page.pageKey === nextSnapshot.pageKey)) return
+    bufferedPages.push(nextSnapshot)
+    renderProgress()
   })
 
   window.addEventListener('weread:single-line:next-result', function finishNextPage(event) {

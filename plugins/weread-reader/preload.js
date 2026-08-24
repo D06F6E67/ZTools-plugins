@@ -176,6 +176,10 @@
       readerUrl: normalizeReaderUrl(rawSnapshot.readerUrl),
       lines,
       initialLine: clampNumber(rawSnapshot.initialLine, 0, lines.length - 1, 0),
+      pageKey: lines.join('\n'),
+      mode: ['horizontal', 'vertical', 'dom'].includes(rawSnapshot.mode)
+        ? rawSnapshot.mode
+        : 'dom',
     }
   }
 
@@ -369,6 +373,18 @@
     }
   }
 
+  function bufferNextSingleLineReader(rawSnapshot) {
+    const snapshot = normalizeSingleLineSnapshot(rawSnapshot)
+    if (!snapshot || !hasSingleLineWindow()) return false
+
+    try {
+      singleLineWindow.webContents.send('weread:single-line:buffer-next', snapshot)
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
   function finishSingleLinePage(rawReason) {
     if (!hasSingleLineWindow()) return false
 
@@ -400,6 +416,7 @@
       if (!hasSingleLineWindow()) return
       singleLineWasVisible = false
       stopSingleLinePointerTracking()
+      window.dispatchEvent(new CustomEvent('weread:single-line:closed'))
       try {
         singleLineWindow.close()
       } catch (error) {}
@@ -412,6 +429,17 @@
 
     ipcRenderer.on('weread:single-line:previous', function onSingleLinePrevious() {
       window.dispatchEvent(new CustomEvent('weread:single-line:previous-request'))
+    })
+
+    ipcRenderer.on('weread:single-line:select-page', function onSingleLineSelectPage(event, rawSnapshot) {
+      const snapshot = normalizeSingleLineSnapshot(rawSnapshot)
+      if (!snapshot) return
+      try {
+        ztoolsApi().dbStorage.setItem(SINGLE_LINE_SNAPSHOT_KEY, snapshot)
+      } catch (error) {}
+      window.dispatchEvent(
+        new CustomEvent('weread:single-line:select-page', { detail: snapshot }),
+      )
     })
   }
 
@@ -443,6 +471,7 @@
     openSingleLineReader,
     appendSingleLineReader,
     prependSingleLineReader,
+    bufferNextSingleLineReader,
     finishSingleLinePage,
 
     openInSystemBrowser(rawUrl) {
