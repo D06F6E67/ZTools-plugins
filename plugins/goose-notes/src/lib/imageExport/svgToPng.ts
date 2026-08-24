@@ -241,6 +241,7 @@ export async function svgMarkupToPngBlob(
     pixelRatio?: number;
     padding?: number;
     targetLongEdge?: number;
+    backgroundColor?: string;
   },
 ): Promise<Blob> {
   if (typeof document === "undefined") {
@@ -250,6 +251,7 @@ export async function svgMarkupToPngBlob(
   if (!markup) throw new Error("SVG 为空");
 
   const padding = options?.padding ?? 12;
+  const backgroundColor = options?.backgroundColor ?? "transparent";
 
   const host = document.createElement("div");
   host.setAttribute("data-goose-svg-export", "true");
@@ -260,9 +262,10 @@ export async function svgMarkupToPngBlob(
     "z-index:-1",
     "display:inline-block",
     `padding:${padding}px`,
-    "background:transparent",
+    `background:${backgroundColor}`,
     "line-height:0",
     "pointer-events:none",
+    "font-family:Inter,'PingFang SC','Hiragino Sans GB','Noto Sans SC',sans-serif",
   ].join(";");
   host.innerHTML = markup;
 
@@ -294,7 +297,7 @@ export async function svgMarkupToPngBlob(
       exportHeight,
       {
         pixelRatio: options?.pixelRatio,
-        backgroundColor: "transparent",
+        backgroundColor,
         ratios:
           options?.pixelRatio != null
             ? undefined

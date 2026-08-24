@@ -1,5 +1,5 @@
 import path from "path";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import AutoImport from "unplugin-auto-import/vite";
@@ -7,42 +7,6 @@ import { codeInspectorPlugin } from "code-inspector-plugin";
 import { debugMinify, debugSourcemap, isDebugBuild } from "./vite.debug";
 
 const hostTarget = "utools";
-
-const PDF_CJK_FONT_FILES = [
-  "NotoSansSC-Regular.ttf",
-  "NotoSansSC-Regular.otf",
-] as const;
-const PDF_CJK_FONT_URLS = [
-  "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Sans2.004/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
-  "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf",
-];
-
-async function ensurePdfCjkFont() {
-  const fontDir = path.resolve(__dirname, "public/fonts");
-  if (PDF_CJK_FONT_FILES.some((name) => existsSync(path.join(fontDir, name)))) {
-    return;
-  }
-  mkdirSync(fontDir, { recursive: true });
-  for (const url of PDF_CJK_FONT_URLS) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.byteLength < 100_000) continue;
-      writeFileSync(path.join(fontDir, "NotoSansSC-Regular.otf"), buf);
-      console.log(
-        `[pdf-font] downloaded NotoSansSC-Regular.otf (${(buf.byteLength / 1024 / 1024).toFixed(1)}MB)`,
-      );
-      return;
-    } catch (error) {
-      console.warn("[pdf-font] download failed:", url, error);
-    }
-  }
-  console.warn(
-    "[pdf-font] 未能下载 NotoSansSC，PDF 中文可能无法渲染。请手动放到 public/fonts/",
-  );
-}
-
 
 // 构建目标区分：
 // - 默认（app）：input=index.html → dist/，完整功能（plugin A 鹅的笔记）。行为与改动前一致。
@@ -61,9 +25,11 @@ const liteEmptyModule = path.resolve(__dirname, "./src/lib/vite-stubs/lite-empty
 // pi-ai provider-env 静态 require("node:fs")（仅 Bun sandbox 回退，浏览器不可达）；
 // alias 掉以免 Vite 外部化并打警告。
 const nodeFsStubModule = path.resolve(__dirname, "./src/lib/vite-stubs/node-fs-stub.ts");
-if (!existsSync(liteEmptyModule) || !existsSync(nodeFsStubModule)) {
+// 挡住 xl-pdf-exporter 动态 import 的 Inter_18pt / GeistMono TTF chunk（~1.8MB）。
+const pdfFontEmptyModule = path.resolve(__dirname, "./src/lib/vite-stubs/pdf-font-empty.ts");
+if (!existsSync(liteEmptyModule) || !existsSync(nodeFsStubModule) || !existsSync(pdfFontEmptyModule)) {
   throw new Error(
-    `[vite] 缺少构建 stub（${path.relative(__dirname, liteEmptyModule)} / ${path.relative(__dirname, nodeFsStubModule)}）。` +
+    `[vite] 缺少构建 stub（${path.relative(__dirname, liteEmptyModule)} / ${path.relative(__dirname, nodeFsStubModule)} / ${path.relative(__dirname, pdfFontEmptyModule)}）。` +
       "不要把这些文件放在名为 build 的目录里：全局 gitignore 的 build/ 会让 ztools publish 漏传，商店 Linux CI 会挂。",
   );
 }
@@ -83,7 +49,12 @@ const liteStubAliases: { find: RegExp; replacement: string }[] = isQuicknoteBuil
       { find: /^@ai-sdk\/openai-compatible$/, replacement: liteEmptyModule },
       { find: /^@ai-sdk\/anthropic$/, replacement: liteEmptyModule },
     ]
-  : [];
+  : [
+      // 必须整段匹配 specifier（含 ./），否则 Vite 8 只替换子串，变成
+      // `.//abs/path/pdf-font-empty.tsRegular-xxxx.js` 后构建失败。
+      { find: /(?:^|.*\/)Inter_18pt-[^/]+$/, replacement: pdfFontEmptyModule },
+      { find: /(?:^|.*\/)GeistMono-Regular[^/]*$/, replacement: pdfFontEmptyModule },
+    ];
 
 const logger = createLogger();
 const originalWarnOnce = logger.warnOnce.bind(logger);
@@ -242,19 +213,23 @@ export default defineConfig({
   },
   plugins: [
     {
-      name: "ensure-pdf-cjk-font",
-      async buildStart() {
-        if (!isQuicknoteBuild) await ensurePdfCjkFont();
-      },
-    },
-    {
       name: "exclude-guide-assets-from-utools",
       closeBundle() {
         const outDir = isQuicknoteBuild ? "dist-quicknote" : "dist";
         rmSync(path.resolve(__dirname, outDir, "guide"), { recursive: true, force: true });
-        // 小窗不导出 PDF，不要把 8MB CJK 字体拷进 dist-quicknote
-        if (isQuicknoteBuild) {
-          rmSync(path.resolve(__dirname, outDir, "fonts"), { recursive: true, force: true });
+        // 禁止 NotoSansSC 打进产物；其它 public/fonts（如 UI 字体）不动
+        for (const name of ["NotoSansSC-Regular.ttf", "NotoSansSC-Regular.otf"]) {
+          rmSync(path.resolve(__dirname, outDir, "fonts", name), { force: true });
+        }
+        // KaTeX CSS 相对 url(fonts/KaTeX_*)，对齐到 assets/fonts/*.woff2
+        const katexFontSrc = path.resolve(__dirname, "node_modules/katex/dist/fonts");
+        const katexFontDest = path.resolve(__dirname, outDir, "assets/fonts");
+        if (existsSync(katexFontSrc)) {
+          mkdirSync(katexFontDest, { recursive: true });
+          for (const name of readdirSync(katexFontSrc)) {
+            if (!name.endsWith(".woff2")) continue;
+            copyFileSync(path.join(katexFontSrc, name), path.join(katexFontDest, name));
+          }
         }
       },
     },
@@ -349,7 +324,7 @@ export default defineConfig({
     // 非小窗构建 liteStubAliases 为空数组，主应用解析与改动前完全一致。
     alias: [
       ...liteStubAliases,
-      // 浏览器打包：吞掉 pi-ai 对 node:fs 的静态 require（见 node-fs-stub.ts）。
+      // 浏览器打包：吞掉 pi-ai 对 node:fs 的静态 require（见 src/lib/vite-stubs/node-fs-stub.ts）。
       { find: /^node:fs$/, replacement: nodeFsStubModule },
       { find: "@host-runtime", replacement: path.resolve(__dirname, "./src/lib/host/runtime.utools.ts") },
 

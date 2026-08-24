@@ -178,13 +178,17 @@ export function normalizePageContent(
   },
 ): BlockNoteContent {
   const ensureTitle = options?.ensureFirstTitle !== false;
-  if (!content) return ensureTitle ? createEmptyBlockNoteContent() : [];
-  const sanitized = isBlockNoteContent(content)
-    ? normalizeBlockContent(content)
-    : normalizeBlockContent(childrenFromLegacy(content.content));
-  if (!ensureTitle) return sanitized;
-  if (!sanitized.length) return createEmptyBlockNoteContent();
-  return ensureBodyParagraphAfterTitle(
-    stripRedundantEmptyHeadings(ensureFirstTitleHeading(sanitized)),
-  );
+  try {
+    if (!content) return ensureTitle ? createEmptyBlockNoteContent() : [];
+    const sanitized = isBlockNoteContent(content)
+      ? normalizeBlockContent(content)
+      : normalizeBlockContent(childrenFromLegacy(content.content));
+    if (!ensureTitle) return sanitized;
+    if (!sanitized.length) return createEmptyBlockNoteContent();
+    return ensureBodyParagraphAfterTitle(
+      stripRedundantEmptyHeadings(ensureFirstTitleHeading(sanitized)),
+    );
+  } catch {
+    return ensureTitle ? createEmptyBlockNoteContent() : [];
+  }
 }

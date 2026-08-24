@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import * as echarts from "echarts";
+import type { EChartsOption } from "echarts";
 import { EDITOR_FONT_SIZE_DEFAULT, useSettings } from "@/stores/useSettings";
 import { DatavizToolbar } from "./DatavizToolbar";
 import { getPalette } from "./echarts/chartPalette";
@@ -42,16 +42,16 @@ export const EChartsBlock = React.memo(
       () => !parsedConfig && isRawEChartsOption(config),
       [config, parsedConfig],
     );
-    const option = useMemo((): echarts.EChartsOption | null => {
+    const option = useMemo((): EChartsOption | null => {
       if (parsedConfig) {
         return {
           backgroundColor: "transparent",
           color: getPalette(isDark),
           ...buildOption(parsedConfig, isDark, editorScale),
-        } satisfies echarts.EChartsOption;
+        } satisfies EChartsOption;
       }
       if (useRaw) {
-        return polishRawOption(config as echarts.EChartsOption, isDark);
+        return polishRawOption(config as EChartsOption, isDark);
       }
       return null;
     }, [config, editorScale, isDark, parsedConfig, useRaw]);

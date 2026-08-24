@@ -6,6 +6,7 @@
  */
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -53,7 +54,9 @@ import {
 } from "./NotebookAiSession";
 import type { NotebookAiImageAttachment } from "./Composer";
 import { getCurrentNotebookAiPageId } from "@/lib/notebook-ai/context";
+import { EDITOR_UI_SCALE_CHANGE_EVENT } from "@/lib/appearance";
 import { cn } from "@/lib/utils";
+import { readEditorScale } from "./artifactPanZoomScale";
 import { shouldSeedCurrentPageReference } from "./defaultComposerReference";
 import {
   clearAiPanelSurface,
@@ -102,6 +105,7 @@ export function NotebookAiPanel({
 
   const { width, onDragHandleMouseDown } = usePanelWidth();
   const panelRootRef = useRef<HTMLDivElement | null>(null);
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
   // 展示宽度：随父级 flex 行可用空间收缩，避免 minWidth=stored 把面板裁出视口
   const [effectiveWidth, setEffectiveWidth] = useState(width);
   const composerRef = useRef<ComposerHandle | null>(null);
@@ -141,6 +145,35 @@ export function NotebookAiPanel({
     ro.observe(parent);
     return () => ro.disconnect();
   }, [isFullscreen, width]);
+
+  // 输入条浮动叠在消息上：把 dock 高度换算进 zoom 坐标系，给消息区垫底。
+  useLayoutEffect(() => {
+    const dock = composerDockRef.current;
+    const panel = panelRootRef.current;
+    if (!dock || !panel) return;
+
+    const sync = () => {
+      const scale = readEditorScale(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--editor-scale",
+        ),
+      );
+      panel.style.setProperty(
+        "--ai-composer-float-pad",
+        `${dock.offsetHeight / scale}px`,
+      );
+    };
+
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(dock);
+    window.addEventListener(EDITOR_UI_SCALE_CHANGE_EVENT, sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener(EDITOR_UI_SCALE_CHANGE_EVENT, sync);
+      panel.style.removeProperty("--ai-composer-float-pad");
+    };
+  }, []);
   // 页面数据可能晚于面板挂载完成；订阅活动页和页面表，确保空会话仍能补上当前笔记。
   const activePageId = usePages((state) => state.activePageId);
   const pages = usePages((state) => state.pages);
@@ -392,74 +425,85 @@ export function NotebookAiPanel({
         </div>
       ) : null}
 
-      {unavailableReason ? (
-        <div className="flex flex-1 items-center justify-center px-6">
-          <div className="flex max-w-[260px] flex-col items-center gap-3 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--goose-interactive-hover)] text-muted-foreground">
-              <CircleAlert className="h-5 w-5" strokeWidth={1.75} />
+      <div className="notebook-ai-zoom-slot">
+        <div className="notebook-ai-zoom-surface">
+          {unavailableReason ? (
+            <div className="flex flex-1 items-center justify-center px-6 pb-[var(--ai-composer-float-pad,7.5rem)]">
+              <div className="flex max-w-[260px] flex-col items-center gap-3 text-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--goose-interactive-hover)] text-muted-foreground">
+                  <CircleAlert className="h-5 w-5" strokeWidth={1.75} />
+                </div>
+                <p className="text-sm font-medium text-foreground">AI 暂不可用</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {unavailableReason}
+                </p>
+              </div>
             </div>
-            <p className="text-sm font-medium text-foreground">AI 暂不可用</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {unavailableReason}
-            </p>
-          </div>
+          ) : (
+            <ChatMessages
+              messages={messages}
+              streamingMessageId={streamingMessageId}
+              editorRef={_editorRef}
+              layout={isFullscreen ? "fullscreen" : "side-panel"}
+              onBatchApproval={onBatchApproval}
+              onBatchUndo={onBatchUndo}
+            />
+          )}
         </div>
-      ) : (
-        <ChatMessages
-          messages={messages}
-          streamingMessageId={streamingMessageId}
-          editorRef={_editorRef}
-          layout={isFullscreen ? "fullscreen" : "side-panel"}
-          onBatchApproval={onBatchApproval}
-          onBatchUndo={onBatchUndo}
-        />
-      )}
+      </div>
 
-      {error ? (
-        <div className={cn("mb-2 w-full", isFullscreen ? "px-6" : "px-3")}>
+      <div ref={composerDockRef} className="notebook-ai-composer-dock">
+        {error ? (
           <div
             className={cn(
-              "flex items-start gap-2 rounded-[10px] border border-[var(--goose-color-danger-focus)] bg-[var(--goose-color-danger-subtle-bg)] px-3 py-2.5 text-xs",
-              isFullscreen && "mx-auto max-w-[720px]",
+              "pointer-events-auto mb-2 w-full",
+              isFullscreen ? "px-6" : "px-3",
             )}
-            role="alert"
           >
-            <CircleAlert
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--goose-color-danger-focus)]"
-              strokeWidth={1.75}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium text-[var(--goose-color-danger-focus)]">
-                本轮失败原因
-              </div>
-              <div className="mt-0.5 break-words leading-relaxed text-foreground">
-                {formatNotebookAiChatError(error)}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => clearError()}
-              className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--goose-color-danger-focus)] outline-none transition-colors hover:bg-[var(--goose-color-danger-subtle-bg)]"
-              aria-label="关闭错误提示"
+            <div
+              className={cn(
+                "flex items-start gap-2 rounded-[10px] border border-[var(--goose-color-danger-focus)] bg-[var(--goose-color-danger-subtle-bg)] px-3 py-2.5 text-xs",
+                isFullscreen && "mx-auto max-w-[720px]",
+              )}
+              role="alert"
             >
-              <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-            </button>
+              <CircleAlert
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--goose-color-danger-focus)]"
+                strokeWidth={1.75}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-[var(--goose-color-danger-focus)]">
+                  本轮失败原因
+                </div>
+                <div className="mt-0.5 break-words leading-relaxed text-foreground">
+                  {formatNotebookAiChatError(error)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => clearError()}
+                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--goose-color-danger-focus)] outline-none transition-colors hover:bg-[var(--goose-color-danger-subtle-bg)]"
+                aria-label="关闭错误提示"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      <Composer
-        ref={composerRef}
-        key={`${notebookId}-${composerRevision}`}
-        notebookId={notebookId}
-        onSend={handleSend}
-        isStreaming={isBusy}
-        disabled={!!unavailableReason}
-        placeholder={composerPlaceholder}
-        searchPages={searchPages}
-        onEscape={onClose}
-        layout={isFullscreen ? "fullscreen" : "side-panel"}
-      />
+        <Composer
+          ref={composerRef}
+          key={`${notebookId}-${composerRevision}`}
+          notebookId={notebookId}
+          onSend={handleSend}
+          isStreaming={isBusy}
+          disabled={!!unavailableReason}
+          placeholder={composerPlaceholder}
+          searchPages={searchPages}
+          onEscape={onClose}
+          layout={isFullscreen ? "fullscreen" : "side-panel"}
+        />
+      </div>
     </ChatChrome>
   );
 }

@@ -22,6 +22,51 @@ function headingBlock(title: string): PartialBlock {
   };
 }
 
+function padTableCells(cells: string[], columns: number): string[] {
+  const next = cells.slice(0, columns).map((cell) => String(cell ?? ""));
+  while (next.length < columns) next.push("");
+  return next;
+}
+
+function escapeMarkdownCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+export function tableToMarkdown(columns: string[], rows: string[][]): string {
+  const cols = columns.map((column) => String(column ?? ""));
+  if (cols.length === 0) return "";
+  const header = `| ${cols.map(escapeMarkdownCell).join(" | ")} |`;
+  const sep = `| ${cols.map(() => "---").join(" | ")} |`;
+  const body = rows.map(
+    (row) =>
+      `| ${padTableCells(row, cols.length).map(escapeMarkdownCell).join(" | ")} |`,
+  );
+  return [header, sep, ...body].join("\n");
+}
+
+export function createTableArtifactBlocks(
+  title: string | undefined,
+  columns: string[],
+  rows: string[][],
+): PartialBlock[] {
+  const cols = columns.map((column) => String(column ?? ""));
+  if (cols.length === 0) return [];
+  const blocks: PartialBlock[] = [];
+  const trimmedTitle = title?.trim();
+  if (trimmedTitle) blocks.push(headingBlock(trimmedTitle));
+  blocks.push({
+    type: "table",
+    content: {
+      type: "tableContent",
+      rows: [
+        { cells: cols },
+        ...rows.map((row) => ({ cells: padTableCells(row, cols.length) })),
+      ],
+    },
+  });
+  return blocks;
+}
+
 export function createMermaidArtifactBlocks(
   title: string | undefined,
   source: string,
@@ -37,24 +82,32 @@ export function createMermaidArtifactBlocks(
   return blocks;
 }
 
-export function createSvgArtifactBlocks(
+export function createImageArtifactBlocks(
   title: string | undefined,
-  sanitizedSvg: string,
+  dataUrl: string,
+  caption = "图片",
 ): PartialBlock[] {
-  if (!sanitizedSvg.trim()) return [];
-
+  if (!dataUrl.trim()) return [];
   const blocks: PartialBlock[] = [];
   const trimmedTitle = title?.trim();
   if (trimmedTitle) blocks.push(headingBlock(trimmedTitle));
   blocks.push({
     type: "image",
     props: {
-      url: svgToDataUrl(sanitizedSvg),
-      caption: trimmedTitle || "SVG",
+      url: dataUrl,
+      caption: trimmedTitle || caption,
       textAlignment: "center",
     },
   });
   return blocks;
+}
+
+export function createSvgArtifactBlocks(
+  title: string | undefined,
+  sanitizedSvg: string,
+): PartialBlock[] {
+  if (!sanitizedSvg.trim()) return [];
+  return createImageArtifactBlocks(title, svgToDataUrl(sanitizedSvg), "图片");
 }
 
 function isEmptyInlineBlock(block: unknown): boolean {

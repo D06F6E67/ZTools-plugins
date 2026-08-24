@@ -1,4 +1,5 @@
 import { formatNotebookAiError } from "@/lib/notebook-ai/errors";
+import { isDefaultChatSkillPart } from "./toolProgressVisibility";
 
 export interface ToolProgressPart {
   type: string;
@@ -322,9 +323,16 @@ export function getToolProgressStepText(
   }
 
   if (part.type === "tool-showSvg") {
+    const done = part.output !== undefined;
     return {
-      label: "展示 SVG",
-      detail: title ? `已生成 SVG《${truncate(title)}》` : "已生成 SVG",
+      label: "展示图片",
+      detail: done
+        ? title
+          ? `已生成图片《${truncate(title)}》`
+          : "已生成图片"
+        : title
+          ? `正在生成《${truncate(title)}》`
+          : "正在生成图片",
     };
   }
 
@@ -338,10 +346,12 @@ export function buildToolProgressSteps(
   parts: ToolProgressPart[],
   isMessageStreaming?: boolean,
 ): ProgressStep[] {
-  return parts.map((part) => ({
-    ...getToolProgressStepText(part),
-    status: getToolProgressStepStatus(part, isMessageStreaming),
-  }));
+  return parts
+    .filter((part) => !isDefaultChatSkillPart(part))
+    .map((part) => ({
+      ...getToolProgressStepText(part),
+      status: getToolProgressStepStatus(part, isMessageStreaming),
+    }));
 }
 
 function buildSummary(steps: ProgressStep[]) {

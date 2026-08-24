@@ -9,6 +9,14 @@ import { useResolvedTheme } from "@/hooks/useResolvedTheme";
 const MIN_HEIGHT = 60;
 const DEFAULT_HEIGHT = 200;
 
+function buildWidgetPreviewDocument(html: string, isDark: boolean): string {
+  if (/^\s*<!doctype html/i.test(html) || /^\s*<html[\s>]/i.test(html)) {
+    return html;
+  }
+  const colorScheme = isDark ? "dark" : "light";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="${colorScheme}"><style>${HOST_FONTS_CSS}</style><style>${buildDesignSystemCss(isDark)}</style></head><body>${html}</body></html>`;
+}
+
 /** iframe→host 合法消息类型白名单（sandbox srcdoc，origin 为 opaque 'null'，靠 source+type 双重校验） */
 const ALLOWED_IFRAME_MSG_TYPES = new Set([
   "iframe-height",
@@ -167,7 +175,14 @@ export const HtmlWidgetBlock = React.memo(
 
       return (
         <div ref={ref} className="group relative">
-          <DatavizToolbar onCapture={handleCapture} />
+          <DatavizToolbar
+            onCapture={handleCapture}
+            onPreview={async () => ({
+              kind: "html",
+              html: buildWidgetPreviewDocument(html, isDark),
+              fileName: "widget.html",
+            })}
+          />
           <iframe
             key={iframeKey}
             ref={iframeRef}

@@ -8,6 +8,55 @@
  * 自绘任务勾选框（与编辑器 checkListItem 同风格）。
  */
 
+/*
+ * Cmd+= 只改 --editor-scale。消息区用 CSS zoom 而非 transform: scale——zoom 同时
+ * 缩放布局盒，正文按新宽度重排（同 Chrome 页面缩放、速记小窗）。百分比宽高已在
+ * 缩放坐标系里换算，禁止再除 --editor-scale 反比补偿：那是 transform 才需要的，
+ * 加了就是缩两次，内容变窄贴左。输入条不进来：模型选择是 Portal，会被算歪定位。
+ */
+.notebook-ai-zoom-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.notebook-ai-zoom-surface {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  zoom: var(--editor-scale, 1);
+}
+
+/*
+ * 输入条浮动在面板底部，消息从底下穿过。
+ * --ai-composer-float-pad 由面板按 dock 高度 / --editor-scale 写入，
+ * 已是 zoom 坐标系里的垫高，消息区直接用，不要再除一次。
+ */
+.notebook-ai-composer-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.notebook-ai-composer-dock::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 36px;
+  pointer-events: none;
+  background: linear-gradient(to top, hsl(var(--goose-editor-bg)), transparent);
+}
+
 /* ── AI 行内 chip：与 caret 同一行盒 ──────────────────────
  * contenteditable 光标高度 ≈ 行高，不是 chip 内容高。
  * 先前 chip 比行高矮 → 光标比 tag 高一截、看起来没垂直对齐。
@@ -378,11 +427,12 @@
   user-select: text;
 }
 
+/* 图形 SVG 文字可选中复制；放大平移时由 .is-zoomed 关回 none */
 .notebook-ai-messages .notebook-ai-artifact-svg,
 .notebook-ai-messages .notebook-ai-artifact-svg * {
-  cursor: inherit;
-  -webkit-user-select: none;
-  user-select: none;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 工具栏 / 可点控件：覆盖消息区默认 text 光标 */
@@ -404,15 +454,12 @@
   cursor: default;
 }
 
-/* 图形视口：默认不拦截页面滚动；仅放大后才进入拖拽/平移 */
-.notebook-ai-messages .notebook-ai-artifact-panzoom {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
+/* 图形视口：默认不拦截页面滚动、文字可选中；仅放大后进入拖拽/平移并禁止选中 */
 .notebook-ai-messages .notebook-ai-artifact-panzoom.is-zoomed {
   cursor: grab;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .notebook-ai-messages .notebook-ai-artifact-panzoom.is-dragging,
@@ -425,10 +472,6 @@
 .notebook-ai-messages .notebook-ai-artifact-panzoom.is-dragging [role="button"],
 .notebook-ai-messages .notebook-ai-artifact-panzoom.is-zoomed button,
 .notebook-ai-messages .notebook-ai-artifact-panzoom.is-zoomed [role="button"] {
-  cursor: pointer;
-}
-
-.notebook-ai-messages .notebook-ai-progress-toggle {
   cursor: pointer;
 }
 
@@ -565,14 +608,67 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* ── 代码 ────────────────────────────────────────────── */
-
-.ai-md [data-streamdown="code-block"] {
+/* ── 代码 / mermaid：单层壳 ─────────────────────────────
+ * Streamdown 默认是「外框 p-2 + 内层再 border/圆角/底色」，再叠助手气泡
+ * 和自定义 CodeBlock 就会变成 4 层框。这里压成：一条边框、一种底、顶栏贴齐。
+ */
+.notebook-ai-messages .ai-md [data-streamdown="code-block"],
+.notebook-ai-messages .ai-md [data-streamdown="mermaid-block"] {
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--goose-block-subtle-border, #e4e4e8);
   border-radius: 8px;
+  background: var(--goose-interactive-hover);
+  overflow: hidden;
 }
 
-.ai-md [data-streamdown="code-block"] pre {
-  background: var(--goose-interactive-hover);
+.notebook-ai-messages .ai-md [data-streamdown="code-block-header"],
+.notebook-ai-messages .ai-md [data-streamdown="mermaid-block"] > div:first-child {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--goose-block-subtle-border, #e4e4e8);
+  background: transparent;
+}
+
+/* Streamdown 用 sticky -mt-10 把复制钮叠到顶栏；padding 归零后改对齐顶栏 */
+.notebook-ai-messages .ai-md [data-streamdown="code-block"] > .sticky,
+.notebook-ai-messages .ai-md [data-streamdown="mermaid-block"] > .sticky {
+  top: 0;
+  margin-top: -32px;
+  padding-right: 6px;
+}
+
+.notebook-ai-messages .ai-md [data-streamdown="code-block-actions"],
+.notebook-ai-messages .ai-md [data-streamdown="mermaid-block-actions"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+}
+
+.notebook-ai-messages .ai-md [data-streamdown="code-block-body"] {
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.notebook-ai-messages .ai-md [data-streamdown="code-block"] pre,
+.notebook-ai-messages .ai-md [data-streamdown="code-block-body"] pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.notebook-ai-messages .ai-md [data-streamdown="mermaid-block"] > div:last-child {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .ai-md [data-streamdown="inline-code"] {
@@ -598,55 +694,138 @@
   color: var(--goose-accent-link-hover);
 }
 
-/* ── AI 图表卡片（showChart）─────────────────────────────────────── */
+/* ── AI 图表卡片（showChart，外壳与画布卡共用 canvas-card）──────── */
 
-.notebook-ai-chart-card {
-  border: 1px solid rgba(31, 30, 29, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  /* 避免 uTools 旧内核 hsl(var)/alpha 退化 */
+.notebook-ai-chart-card-canvas {
+  min-height: 200px;
+  padding-bottom: 4px;
 }
 
-.notebook-ai-chart-card:hover {
+/* ── AI 画布卡片（showSvg / xml·svg 围栏）───────────────────────── */
+
+.notebook-ai-canvas-card {
+  border: 1px solid rgba(31, 30, 29, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 宽表走单层横向滚动：外层不能 hidden，否则旧内核会裁切而不出滚动条 */
+.notebook-ai-canvas-card--scroll {
+  overflow: visible;
+}
+
+.notebook-ai-canvas-card:hover {
   border-color: rgba(79, 70, 229, 0.18);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
 }
 
-.dark .notebook-ai-chart-card,
-:root.dark .notebook-ai-chart-card,
-[data-theme="dark"] .notebook-ai-chart-card {
+.dark .notebook-ai-canvas-card,
+:root.dark .notebook-ai-canvas-card,
+[data-theme="dark"] .notebook-ai-canvas-card {
   border-color: rgba(222, 220, 209, 0.1);
   background: rgba(255, 255, 255, 0.03);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.dark .notebook-ai-chart-card:hover,
-:root.dark .notebook-ai-chart-card:hover,
-[data-theme="dark"] .notebook-ai-chart-card:hover {
+.dark .notebook-ai-canvas-card:hover,
+:root.dark .notebook-ai-canvas-card:hover,
+[data-theme="dark"] .notebook-ai-canvas-card:hover {
   border-color: rgba(129, 140, 248, 0.28);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
 }
 
-.notebook-ai-chart-card-title {
-  padding: 12px 14px 0;
+.notebook-ai-canvas-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px 14px;
+}
+
+.notebook-ai-canvas-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--foreground, #141413);
   line-height: 1.3;
+  color: var(--foreground, #141413);
 }
 
-.dark .notebook-ai-chart-card-title,
-:root.dark .notebook-ai-chart-card-title,
-[data-theme="dark"] .notebook-ai-chart-card-title {
+.dark .notebook-ai-canvas-card-title,
+:root.dark .notebook-ai-canvas-card-title,
+[data-theme="dark"] .notebook-ai-canvas-card-title {
   color: #faf9f5;
 }
 
-.notebook-ai-chart-card-canvas {
-  min-height: 200px;
-  padding-bottom: 4px;
+.notebook-ai-canvas-card-download {
+  flex: none;
+  cursor: pointer;
+}
+
+.notebook-ai-canvas-card-scroll {
+  display: block;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.notebook-ai-canvas-card-scroll table {
+  width: auto;
+  min-width: 100%;
+  max-width: none;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--foreground, #141413);
+}
+
+.notebook-ai-canvas-card-scroll th,
+.notebook-ai-canvas-card-scroll td {
+  white-space: nowrap;
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--goose-block-subtle-border, #e6e4dc);
+}
+
+.notebook-ai-canvas-card-scroll th {
+  font-weight: 600;
+  color: var(--muted-foreground, #5a5956);
+  background: var(--goose-interactive-hover);
+}
+
+.notebook-ai-canvas-card-scroll tr:last-child td {
+  border-bottom: 0;
+}
+
+.notebook-ai-canvas-card-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 24px 16px 28px;
+  font-size: 13px;
+  color: rgba(90, 89, 86, 0.72);
+}
+
+.dark .notebook-ai-canvas-card-loading,
+:root.dark .notebook-ai-canvas-card-loading,
+[data-theme="dark"] .notebook-ai-canvas-card-loading {
+  color: rgba(250, 249, 245, 0.62);
 }
 
 /* ── 可视化 artifact：pan/zoom 视口内按原始尺寸渲染，由容器缩放适配 ── */
@@ -686,6 +865,50 @@
   max-height: none;
   overflow: visible;
   pointer-events: none;
+}
+
+/*
+ * 图节点 hover 底色。SVG 保持 none，避免挡视口拖拽/滚轮；
+ * 节点单独 auto，:hover 才能命中。fill 用实色 token，避开 hsl(var)/alpha。
+ */
+.notebook-ai-artifact-svg .node,
+.notebook-ai-artifact-svg .actor,
+.notebook-ai-artifact-svg .statediagram-state,
+.notebook-ai-artifact-svg .classGroup,
+.notebook-ai-artifact-svg .er.entityBox,
+.notebook-ai-artifact-svg .mindmap-node,
+.notebook-ai-artifact-svg .pieCircle,
+.notebook-ai-artifact-svg .box,
+.notebook-ai-artifact-svg .quadrant {
+  pointer-events: auto;
+}
+
+.notebook-ai-artifact-svg .node:hover .label-container,
+.notebook-ai-artifact-svg .node:hover rect,
+.notebook-ai-artifact-svg .node:hover polygon,
+.notebook-ai-artifact-svg .node:hover circle,
+.notebook-ai-artifact-svg .node:hover ellipse,
+.notebook-ai-artifact-svg .node:hover path[fill]:not([fill="none"]),
+.notebook-ai-artifact-svg .actor:hover rect,
+.notebook-ai-artifact-svg .actor:hover polygon,
+.notebook-ai-artifact-svg .statediagram-state:hover rect,
+.notebook-ai-artifact-svg .classGroup:hover rect,
+.notebook-ai-artifact-svg .er.entityBox:hover,
+.notebook-ai-artifact-svg .mindmap-node:hover rect,
+.notebook-ai-artifact-svg .mindmap-node:hover circle,
+.notebook-ai-artifact-svg .mindmap-node:hover path[fill]:not([fill="none"]),
+.notebook-ai-artifact-svg .pieCircle:hover,
+.notebook-ai-artifact-svg .box:hover,
+.notebook-ai-artifact-svg .node:hover .box {
+  fill: var(--goose-control-hover-bg) !important;
+}
+
+.notebook-ai-artifact-svg .node:hover .nodeLabel,
+.notebook-ai-artifact-svg .node:hover .nodeLabel p,
+.notebook-ai-artifact-svg .node:hover foreignObject div,
+.notebook-ai-artifact-svg .actor:hover foreignObject div,
+.notebook-ai-artifact-svg .mindmap-node:hover .nodeLabel {
+  background-color: var(--goose-control-hover-bg) !important;
 }
 
 .notebook-ai-artifact-panzoom-controls {

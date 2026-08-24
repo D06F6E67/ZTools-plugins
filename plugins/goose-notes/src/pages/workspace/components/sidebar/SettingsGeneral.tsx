@@ -30,8 +30,6 @@ interface SettingsGeneralProps {
   removeCustomSearchProvider: (id: string) => void;
   openSearchInUtools: boolean;
   setOpenSearchInUtools: (enabled: boolean) => void;
-  useInternalImageViewer: boolean;
-  setUseInternalImageViewer: (enabled: boolean) => void;
   windowHeight: number;
   setWindowHeight: (height: number) => void;
   autoOpenLastNote: boolean;
@@ -70,8 +68,6 @@ export function SettingsGeneral({
   removeCustomSearchProvider,
   openSearchInUtools,
   setOpenSearchInUtools,
-  useInternalImageViewer,
-  setUseInternalImageViewer,
   windowHeight,
   setWindowHeight,
   autoOpenLastNote,
@@ -297,33 +293,6 @@ export function SettingsGeneral({
             id="open-in-utools"
             checked={openSearchInUtools ?? false}
             onCheckedChange={setOpenSearchInUtools}
-            className={SETTINGS_SWITCH_CLASS}
-          />
-        </div>
-        <div
-          className={`mt-2 flex items-center justify-between gap-4 p-4 ${SETTINGS_OPTION_ROW_CLASS}`}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <LucideIcons.Image
-                className="h-4 w-4 shrink-0 text-muted-foreground"
-                strokeWidth={1.75}
-              />
-              <Label
-                htmlFor="use-internal-image-viewer"
-                className="cursor-pointer"
-              >
-                图片使用内置预览
-              </Label>
-            </div>
-            <p className="mt-1 pl-7 text-xs text-muted-foreground">
-              默认关闭，由系统图片查看器打开；开启后使用鹅笔记内置灯箱。
-            </p>
-          </div>
-          <Switch
-            id="use-internal-image-viewer"
-            checked={useInternalImageViewer}
-            onCheckedChange={setUseInternalImageViewer}
             className={SETTINGS_SWITCH_CLASS}
           />
         </div>

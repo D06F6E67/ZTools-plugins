@@ -83,13 +83,19 @@ export const StreamingHtmlWidgetSegment = React.memo(function StreamingHtmlWidge
 });
 
 /** 图表/组件生成中的 loading 占位 — sticky 固定在顶部不随内容移动 */
-export function DatavizLoadingPlaceholder({ type }: { type: "echarts" | "html" | "json-render" }) {
+export function DatavizLoadingPlaceholder({
+  type,
+}: {
+  type: "echarts" | "html" | "json-render" | "svg";
+}) {
   const label =
     type === "echarts"
       ? "正在生成图表…"
       : type === "html"
         ? "正在生成交互组件…"
-        : "正在生成界面组件…";
+        : type === "svg"
+          ? "正在生成图片…"
+          : "正在生成界面组件…";
   return (
     <div className="sticky top-0 z-10 -mx-1 flex items-center gap-2 rounded-lg bg-background/90 px-3 py-2 text-sm text-muted-foreground backdrop-blur-sm">
       <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -149,6 +155,9 @@ export const DatavizSegmentList = React.memo(function DatavizSegmentList({
         }
         if (seg.type === "json-render") {
           return <JsonRenderSegment key={key} content={seg.content} />;
+        }
+        if (seg.type === "svg") {
+          return <HtmlWidgetSegment key={key} content={seg.content} />;
         }
         return <MarkdownSegmentModule key={key} content={seg.content} />;
       })}

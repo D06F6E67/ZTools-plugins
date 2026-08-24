@@ -1,20 +1,58 @@
 import type { CustomFonts } from "@/stores/useSettings";
 
 export const DEFAULT_FONT_NAMES = {
-  default: "Inter",
+  default: "ui-sans-serif",
   serif: "仓耳今楷",
   mono: "DM Mono",
 } as const;
 
-const REMOTE_FONT_SOURCES = {
-  "HarmonyOS Sans SC":
-    "https://cdn.jsdelivr.net/gh/eachann1024/Resources@d6dc229cd882dc0983dc5ce7cf28fb85047a4a76/%E9%B8%BF%E8%92%99%E9%BB%91%E4%BD%93-HarmonyOS%20Sans%20SC.woff2",
+const HARMONYOS_SPLIT_CSS = {
+  primary:
+    "https://cdn.jsdelivr.net/npm/harmonyos-sans-webfont-splitted@1.2.1/dist/HarmonyOS_Sans_SC/Regular/Regular.css",
+  fallback:
+    "https://unpkg.com/harmonyos-sans-webfont-splitted@1.2.1/dist/HarmonyOS_Sans_SC/Regular/Regular.css",
+} as const;
+
+const PERSISTENT_WOFF2_SOURCES = {
   仓耳今楷:
     "https://cdn.jsdelivr.net/gh/eachann1024/Resources@d6dc229cd882dc0983dc5ce7cf28fb85047a4a76/%E4%BB%93%E8%80%B3%E4%BB%8A%E6%A5%B703W04.woff2",
 } as const;
 
+/** 鸿蒙走分包 CSS（unicode-range 按需拉 woff2）；仓耳今楷仍走单文件 Cache + FontFace。 */
+export const REMOTE_FONT_SOURCES = {
+  "HarmonyOS Sans SC": HARMONYOS_SPLIT_CSS,
+  ...PERSISTENT_WOFF2_SOURCES,
+} as const;
+
+const UI_SANS_FALLBACKS = [
+  "-apple-system",
+  "BlinkMacSystemFont",
+  "Segoe UI",
+  "Helvetica Neue",
+  "Arial",
+  "HarmonyOS Sans SC",
+  "PingFang SC",
+  "Hiragino Sans GB",
+  "Microsoft YaHei",
+  "Noto Sans SC",
+];
+
+const UI_MONO_FALLBACKS = [
+  "ui-monospace",
+  "Menlo",
+  "Consolas",
+  "HarmonyOS Sans SC",
+  "PingFang SC",
+  "Hiragino Sans GB",
+  "Microsoft YaHei",
+  "Noto Sans SC",
+];
+
+type PersistentWoff2Family = keyof typeof PERSISTENT_WOFF2_SOURCES;
+
 const FONT_CACHE_NAME = "goose-note-fonts-v1";
 const persistentFontLoads = new Map<string, Promise<boolean>>();
+let harmonyOSCssEnsured = false;
 
 const trimFontName = (font: string) =>
   font.trim().replace(/^["']+|["']+$/g, "");
@@ -47,6 +85,10 @@ const formatFontFamily = (family: string) => {
   if (GENERIC_FAMILIES.has(trimmed)) return trimmed;
   return `"${trimmed}"`;
 };
+
+/** 生成可写入 CSS font-family 的单项（泛型族不加引号）。 */
+export const toCssFontFamily = (family: string) =>
+  formatFontFamily(family) ?? family;
 
 const normalizeFontList = (families: string[]) =>
   Array.from(
@@ -81,44 +123,54 @@ const getPlatformFallbacks = () => {
 
   if (isMac) {
     return {
-      ui: ["-apple-system", "BlinkMacSystemFont", '"Helvetica Neue"', "Arial"],
       serif: ["Georgia", "Times"],
-      mono: ["Menlo", "Monaco"],
     };
   }
 
   if (isWin) {
     return {
-      ui: ['"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial"],
       serif: ['"Times New Roman"', "Georgia", "Times"],
-      mono: ["Consolas", '"Liberation Mono"', '"Courier New"'],
     };
   }
 
   return {
-    ui: ["Roboto", '"Helvetica Neue"', "Arial"],
     serif: ["Georgia", "Times"],
-    mono: ['"Liberation Mono"', '"Courier New"'],
   };
 };
 
 const joinFonts = (fonts: string[]) => fonts.filter(Boolean).join(", ");
 
+const injectStylesheet = (href: string, onError?: () => void) => {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = href;
+  link.crossOrigin = "anonymous";
+  if (onError) link.onerror = onError;
+  document.head.appendChild(link);
+};
+
+/** 主 CDN 的 CSS 已由 fonts.css @import；这里探测失败时改挂 unpkg，不预拉 4MB 整包。 */
+const ensureHarmonyOSSplitCss = () => {
+  if (harmonyOSCssEnsured || typeof document === "undefined") return;
+  harmonyOSCssEnsured = true;
+
+  const { primary, fallback } = REMOTE_FONT_SOURCES["HarmonyOS Sans SC"];
+  injectStylesheet(primary, () => {
+    console.warn("[fontLoader] HarmonyOS Sans SC 主 CDN 失败，改用 unpkg");
+    injectStylesheet(fallback, () => {
+      console.warn(
+        "[fontLoader] HarmonyOS Sans SC 远程字体均失败，回退系统中文字体",
+      );
+    });
+  });
+};
+
 /**
- * 应用启动时调用，后台静默预加载远程字体
- * 浏览器会自动缓存，下次访问秒加载
+ * 应用启动时调用。鸿蒙交给 CSS unicode-range 按需分包；仓耳今楷走持久缓存。
  */
 export function preloadFonts() {
   if (typeof document === "undefined") return;
-  const link = document.createElement("link");
-  link.rel = "preload";
-  link.as = "font";
-  link.type = "font/woff2";
-  link.href = REMOTE_FONT_SOURCES["HarmonyOS Sans SC"];
-  link.crossOrigin = "anonymous";
-  document.head.appendChild(link);
-
-  // 大体积仓耳今楷不走 link preload，否则每次打开都会再触发一次 CDN 匹配。
+  ensureHarmonyOSSplitCss();
   void ensurePersistentRemoteFont(DEFAULT_FONT_NAMES.serif);
 }
 
@@ -154,7 +206,7 @@ const fetchFontResponse = async (url: string, bypassCache = false) => {
 };
 
 const installRemoteFont = async (
-  family: keyof typeof REMOTE_FONT_SOURCES,
+  family: PersistentWoff2Family,
   url: string,
   bypassCache = false,
 ) => {
@@ -184,9 +236,7 @@ const installRemoteFont = async (
  * 将大体积远程字体写入 Cache Storage，再从持久字节安装 FontFace。
  * 同一进程内并发请求会复用同一 Promise，不会重复下载或解码。
  */
-export function ensurePersistentRemoteFont(
-  family: keyof typeof REMOTE_FONT_SOURCES,
-) {
+export function ensurePersistentRemoteFont(family: PersistentWoff2Family) {
   if (
     typeof document === "undefined" ||
     typeof FontFace === "undefined" ||
@@ -198,7 +248,7 @@ export function ensurePersistentRemoteFont(
   const existing = persistentFontLoads.get(family);
   if (existing) return existing;
 
-  const load = installRemoteFont(family, REMOTE_FONT_SOURCES[family]).catch(
+  const load = installRemoteFont(family, PERSISTENT_WOFF2_SOURCES[family]).catch(
     (error) => {
       // 系统本地 @font-face 仍作为最后兜底：缓存 API 或 CDN 异常不应阻止工作区打开。
       console.warn(`[fontLoader] ${family} 持久加载失败`, error);
@@ -232,6 +282,7 @@ export async function ensureEditorFontAvailable(
 
 export function applyFontVariables(customFonts: CustomFonts) {
   if (typeof document === "undefined") return;
+  ensureHarmonyOSSplitCss();
   const fallbacks = getPlatformFallbacks();
   const root = document.documentElement;
   const customDefaultList = splitFontList(customFonts.default.font);
@@ -243,8 +294,8 @@ export function applyFontVariables(customFonts: CustomFonts) {
     buildFontStack(
       customDefaultList,
       DEFAULT_FONT_NAMES.default,
-      ["Inter", "HarmonyOS Sans SC"],
-      fallbacks.ui,
+      UI_SANS_FALLBACKS,
+      [],
       "sans-serif",
     ),
   );
@@ -263,8 +314,8 @@ export function applyFontVariables(customFonts: CustomFonts) {
     buildFontStack(
       customMonoList,
       DEFAULT_FONT_NAMES.mono,
-      ["DM Mono"],
-      fallbacks.mono,
+      UI_MONO_FALLBACKS,
+      [],
       "monospace",
     ),
   );
@@ -281,9 +332,9 @@ export function getEditorFontFamilies(
     mono: customFonts.mono.font || DEFAULT_FONT_NAMES.mono,
   };
   const fallbackMap = {
-    default: ["Inter", "HarmonyOS Sans SC"],
+    default: UI_SANS_FALLBACKS,
     serif: ["仓耳今楷"],
-    mono: ["DM Mono"],
+    mono: UI_MONO_FALLBACKS,
   };
 
   const families = [

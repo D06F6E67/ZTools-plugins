@@ -43,6 +43,8 @@ import {
   ImageDedupTracker,
 } from "./imageDedup";
 import { warmLocalSkillsCache } from "@/lib/notebook-ai/localContext";
+import { FullscreenPreview } from "@/components/preview/FullscreenPreview";
+import type { PreviewContent } from "@/lib/preview/previewAction";
 import { extractClipboardImageFiles } from "@/components/editor/utils/pasteClipboardImage";
 
 /**
@@ -907,6 +909,8 @@ export const AiComposerInput = forwardRef<
     const activePreviewChipRef = useRef<HTMLElement | null>(null);
 
     const [isEmpty, setIsEmpty] = useState(true);
+    const [imagePreviewContent, setImagePreviewContent] =
+      useState<PreviewContent | null>(null);
 
     /** 占位符只用 DOM 显隐，避免 IME 中途 setState 触发 React 重渲染 */
     const setPlaceholderVisible = useCallback((visible: boolean) => {
@@ -1825,6 +1829,24 @@ export const AiComposerInput = forwardRef<
           removeImageChip(removeBtn.dataset.aiImageRemove!);
           return;
         }
+        const imageChip = getPreviewableImageChip(target);
+        if (imageChip?.dataset.aiImagePreviewable === "true") {
+          event.preventDefault();
+          const attrs = parseImageChipAttrs(imageChip);
+          const entry = attrs
+            ? imageRegistryRef.current.get(attrs.imageId)
+            : null;
+          if (attrs && entry) {
+            // 悬停浮层与全屏同时在场会互相遮挡
+            hideImagePreview();
+            setImagePreviewContent({
+              kind: "image",
+              data: entry.file,
+              fileName: attrs.fileName,
+            });
+          }
+          return;
+        }
         const mentionChip = target.closest<HTMLElement>("[data-ai-mention-id]");
         const mentionId = mentionChip?.dataset.aiMentionId;
         if (mentionId) {
@@ -2117,6 +2139,13 @@ export const AiComposerInput = forwardRef<
             onSelect={insertCommand}
           />
         ) : null}
+
+        <FullscreenPreview
+          open={Boolean(imagePreviewContent)}
+          content={imagePreviewContent}
+          title={imagePreviewContent?.fileName}
+          onClose={() => setImagePreviewContent(null)}
+        />
       </div>
     );
   },

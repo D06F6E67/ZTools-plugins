@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { useFormatCode } from "@/components/editor/hooks/useFormatCode";
 import { useEditorPlatform } from "@/components/editor/platform/context";
 import {
+  PREVIEW_ACTION_TOOLTIP,
+  previewPointerHandlers,
+} from "@/lib/preview/previewAction";
+import {
   FORMAT_SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_NAMES,
   POPULAR_LANGUAGES,
@@ -35,6 +39,7 @@ interface CodeBlockToolbarProps {
   previewMode?: "code" | "preview";
   onPreviewModeChange?: (mode: "code" | "preview") => void;
   onOpenPreview?: () => void;
+  onSystemPreview?: () => void;
   onDownloadPreview?: () => void;
   /** 复制渲染后的预览图（Mermaid / Math），未提供时退回复制源码 */
   onCopyPreview?: () => void | Promise<void>;
@@ -52,6 +57,7 @@ export function CodeBlockToolbar({
   previewMode = "code",
   onPreviewModeChange,
   onOpenPreview,
+  onSystemPreview,
   onDownloadPreview,
   onCopyPreview,
   canPreview = false,
@@ -242,15 +248,18 @@ export function CodeBlockToolbar({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    aria-label="放大预览"
-                    onClick={onOpenPreview}
                     disabled={!canPreview}
                     className={cn("h-7 w-7 p-0", chipClass)}
+                    {...previewPointerHandlers({
+                      disabled: !canPreview,
+                      onInternal: () => onOpenPreview?.(),
+                      onSystem: () => onSystemPreview?.(),
+                    })}
                   >
                     <LucideIcons.Maximize2 className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>放大预览</TooltipContent>
+                <TooltipContent>{PREVIEW_ACTION_TOOLTIP}</TooltipContent>
               </Tooltip>
 
               <Tooltip>

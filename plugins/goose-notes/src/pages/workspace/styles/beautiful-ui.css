@@ -160,6 +160,18 @@
   border-radius: 999px;
 }
 
+.bui-composer-send .bui-loader-grid {
+  grid-template-columns: repeat(3, 4px);
+  gap: 2.5px;
+}
+
+.bui-composer-send .bui-loader-cell {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 .bui-loader-cell--on {
   animation: bui-pixel-on var(--bui-pixel-dur, 650ms) ease-in-out
     var(--bui-pixel-delay, 0ms) infinite;
@@ -287,23 +299,41 @@
   contain: layout;
 }
 
-.bui-prompt-bar--streaming::after {
-  content: "";
+@keyframes bui-beam-orbit {
+  to {
+    stroke-dashoffset: -1;
+  }
+}
+
+.bui-prompt-bar-beam {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  top: 0;
-  height: 2px;
-  border-radius: 2px;
+  inset: 1px;
+  display: block;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  overflow: visible;
   pointer-events: none;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    #58d7b8,
-    transparent
-  );
-  background-size: 200% 100%;
-  animation: bui-shimmer 1.4s linear infinite;
+  z-index: 2;
+}
+
+.bui-prompt-bar-beam rect {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: bui-beam-orbit 2s linear infinite;
+}
+
+.bui-prompt-bar-beam-glow {
+  stroke: #58d7b8;
+  stroke-width: 4;
+  stroke-dasharray: 0.2 0.8;
+  opacity: 0.28;
+}
+
+.bui-prompt-bar-beam-core {
+  stroke: #7eebd0;
+  stroke-width: 2;
+  stroke-dasharray: 0.1 0.9;
 }
 
 .bui-chips,
@@ -520,16 +550,6 @@
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
 }
 
-.notebook-ai-messages .ai-md [data-streamdown="code-block"],
-.notebook-ai-messages .ai-md [data-streamdown="code-block-body"] {
-  border-radius: 8px;
-}
-
-.notebook-ai-messages .ai-md [data-streamdown="code-block"] {
-  border: 1px solid var(--goose-block-subtle-border, #e4e4e8);
-  background: var(--goose-interactive-hover);
-}
-
 .goose-ai-prompt-menu.bui-selection-actions,
 .goose-ai-prompt-menu {
   /* 行内 AI 浮层沿用现有 editor-ai-menu；此处只加 shimmer 忙碌态 */
@@ -544,7 +564,7 @@
   .bui-loader-label,
   .bui-stream-caret,
   .bui-think-spinner,
-  .bui-prompt-bar--streaming::after {
+  .bui-prompt-bar-beam rect {
     animation: none !important;
   }
 
@@ -563,10 +583,14 @@
     opacity: 1;
   }
 
-  .bui-prompt-bar--streaming::after {
-    background: #58d7b8;
-    background-size: auto;
-    opacity: 0.55;
+  .bui-prompt-bar-beam-glow {
+    display: none;
+  }
+
+  .bui-prompt-bar-beam-core {
+    stroke: #58d7b8;
+    stroke-dasharray: none;
+    opacity: 0.45;
   }
 
   .bui-think-rows,

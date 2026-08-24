@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Tooltip,
   TooltipContent,
@@ -15,10 +15,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  computeArtifactFitScale,
+  getArtifactScaleRange,
+  readEditorScale,
+  shouldSnapToFitOnResize,
+} from "./artifactPanZoomScale";
+import {
+  clampPreviewZoomPercent,
+  PREVIEW_ZOOM_STEP_PERCENT,
+} from "@/lib/preview/previewAction";
 
-/** 相对适配比例的最大放大倍数 */
-const MAX_ZOOM_FACTOR = 5;
-const ZOOM_STEP = 1.2;
+function editorScaleNow(): number {
+  if (typeof document === "undefined") return 1;
+  return readEditorScale(
+    document.documentElement.style.getPropertyValue("--editor-scale") ||
+      getComputedStyle(document.documentElement).getPropertyValue("--editor-scale"),
+  );
+}
 
 interface ArtifactPanZoomProps {
   children: ReactNode;
@@ -112,8 +126,7 @@ export function ArtifactPanZoom({
   const isZoomedIn = scale > fitScale + 0.001;
 
   const applyTransform = useCallback((next: { scale: number; x: number; y: number }) => {
-    const minScale = fitScaleRef.current;
-    const maxScale = minScale * MAX_ZOOM_FACTOR;
+    const { minScale, maxScale } = getArtifactScaleRange(fitScaleRef.current);
     const normalized = {
       scale: Math.min(maxScale, Math.max(minScale, next.scale)),
       x: roundTransform(next.x),
@@ -174,14 +187,12 @@ export function ArtifactPanZoom({
 
     // 优先按宽度适应视口，保障横向完整展示与居中；
     // 当高度巨大时设置下限阈值（0.55），防止长图/复杂架构图被过度微缩成不可读的细线条
-    const widthFit = (viewportWidth - 24) / measured.width;
-    const heightFit = (viewportHeight - 24) / measured.height;
-    let nextFit = Math.min(1, widthFit);
-    if (heightFit < nextFit) {
-      nextFit = Math.max(0.55, Math.min(nextFit, heightFit));
-    }
-
-    const safeFit = Number.isFinite(nextFit) && nextFit > 0 ? nextFit : 1;
+    const safeFit = computeArtifactFitScale({
+      viewportWidth,
+      viewportHeight,
+      contentWidth: measured.width,
+      contentHeight: measured.height,
+    });
     fitScaleRef.current = safeFit;
     setFitScale(safeFit);
     centerAtScale(safeFit);
@@ -224,10 +235,29 @@ export function ArtifactPanZoom({
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && viewport) {
       ro = new ResizeObserver(() => {
-        // 视口变宽/变窄时重新适配；用户已放大时不强制拉回
-        if (transformRef.current.scale <= fitScaleRef.current + 0.001) {
+        const box = viewportRef.current;
+        const node = contentRef.current;
+        if (!box || !node) return;
+        const measured = measureArtifactContentSize(node);
+        const nextFit = computeArtifactFitScale({
+          viewportWidth: box.clientWidth,
+          viewportHeight: box.clientHeight,
+          contentWidth: measured.width,
+          contentHeight: measured.height,
+        });
+        const previousFit = fitScaleRef.current;
+        if (
+          shouldSnapToFitOnResize({
+            currentScale: transformRef.current.scale,
+            previousFit,
+            nextFit,
+          })
+        ) {
           fitToViewport();
+          return;
         }
+        fitScaleRef.current = nextFit;
+        setFitScale(nextFit);
       });
       ro.observe(viewport);
       if (content) ro.observe(content);
@@ -244,14 +274,14 @@ export function ArtifactPanZoom({
     (nextScale: number) => {
       const viewport = viewportRef.current;
       const prev = transformRef.current;
-      const minScale = fitScaleRef.current;
-      const maxScale = minScale * MAX_ZOOM_FACTOR;
+      const fitScale = fitScaleRef.current;
+      const { minScale, maxScale } = getArtifactScaleRange(fitScale);
       const clamped = Math.min(maxScale, Math.max(minScale, nextScale));
       if (Math.abs(clamped - prev.scale) < 0.0001) return;
 
-      // 回到适配比例时重新居中，避免偏移残留
-      if (clamped <= minScale + 0.0001) {
-        centerAtScale(minScale);
+      // 适配比例及以下重新居中，避免缩小后偏移残留
+      if (clamped <= fitScale + 0.0001) {
+        centerAtScale(clamped);
         return;
       }
 
@@ -260,9 +290,8 @@ export function ArtifactPanZoom({
         return;
       }
 
-      const rect = viewport.getBoundingClientRect();
-      const pivotX = rect.width / 2;
-      const pivotY = rect.height / 2;
+      const pivotX = viewport.clientWidth / 2;
+      const pivotY = viewport.clientHeight / 2;
       const contentX = (pivotX - prev.x) / prev.scale;
       const contentY = (pivotY - prev.y) / prev.scale;
 
@@ -277,8 +306,14 @@ export function ArtifactPanZoom({
 
   const zoomByStep = useCallback(
     (direction: 1 | -1) => {
-      const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-      zoomAtCenter(transformRef.current.scale * factor);
+      const fit = fitScaleRef.current;
+      const currentPercent = Math.round(
+        (transformRef.current.scale / Math.max(fit, 0.0001)) * 100,
+      );
+      const nextPercent = clampPreviewZoomPercent(
+        currentPercent + direction * PREVIEW_ZOOM_STEP_PERCENT,
+      );
+      zoomAtCenter(fit * (nextPercent / 100));
     },
     [zoomAtCenter],
   );
@@ -292,10 +327,11 @@ export function ArtifactPanZoom({
       event.preventDefault();
       event.stopPropagation();
       const prev = transformRef.current;
+      const zoom = editorScaleNow();
       applyTransform({
         scale: prev.scale,
-        x: prev.x - event.deltaX,
-        y: prev.y - event.deltaY,
+        x: prev.x - event.deltaX / zoom,
+        y: prev.y - event.deltaY / zoom,
       });
     };
 
@@ -327,10 +363,11 @@ export function ArtifactPanZoom({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
 
+    const zoom = editorScaleNow();
     applyTransform({
       scale: transformRef.current.scale,
-      x: drag.originX + (event.clientX - drag.startX),
-      y: drag.originY + (event.clientY - drag.startY),
+      x: drag.originX + (event.clientX - drag.startX) / zoom,
+      y: drag.originY + (event.clientY - drag.startY) / zoom,
     });
   };
 
@@ -345,8 +382,10 @@ export function ArtifactPanZoom({
   };
 
   const percent = Math.round((scale / Math.max(fitScale, 0.0001)) * 100);
-  const atMinZoom = scale <= fitScale + 0.001;
-  const atMaxZoom = scale >= fitScale * MAX_ZOOM_FACTOR - 0.001;
+  const { minScale, maxScale } = getArtifactScaleRange(fitScale);
+  const atMinZoom = scale <= minScale + 0.001;
+  const atMaxZoom = scale >= maxScale - 0.001;
+  const atFitZoom = Math.abs(scale - fitScale) <= 0.001;
 
   return (
     <div
@@ -380,17 +419,17 @@ export function ArtifactPanZoom({
         <div className="notebook-ai-artifact-panzoom-controls pointer-events-none absolute bottom-2 right-2 z-10 flex items-center gap-0.5 rounded-[8px] bg-background/95 p-0.5 shadow-[0_8px_22px_rgba(15,23,42,0.08)]">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
+              <IconButton
                 type="button"
-                variant="ghost"
-                size="icon"
-                className="pointer-events-auto h-7 w-7 cursor-pointer rounded-[7px] text-muted-foreground hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground dark:hover:bg-[var(--goose-interactive-hover)]"
+                tone="muted"
+                size="sm"
+                className="pointer-events-auto cursor-pointer hover:bg-[var(--goose-control-hover-bg)] dark:hover:bg-[var(--goose-control-hover-bg)]"
                 aria-label="缩小"
                 disabled={atMinZoom}
                 onClick={() => zoomByStep(-1)}
               >
                 <Minus className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </Button>
+              </IconButton>
             </TooltipTrigger>
             <TooltipContent>缩小</TooltipContent>
           </Tooltip>
@@ -401,34 +440,34 @@ export function ArtifactPanZoom({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
+              <IconButton
                 type="button"
-                variant="ghost"
-                size="icon"
-                className="pointer-events-auto h-7 w-7 cursor-pointer rounded-[7px] text-muted-foreground hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground dark:hover:bg-[var(--goose-interactive-hover)]"
+                tone="muted"
+                size="sm"
+                className="pointer-events-auto cursor-pointer hover:bg-[var(--goose-control-hover-bg)] dark:hover:bg-[var(--goose-control-hover-bg)]"
                 aria-label="放大"
                 disabled={atMaxZoom}
                 onClick={() => zoomByStep(1)}
               >
                 <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </Button>
+              </IconButton>
             </TooltipTrigger>
             <TooltipContent>放大后可拖动/滚轮平移</TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
+              <IconButton
                 type="button"
-                variant="ghost"
-                size="icon"
-                className="pointer-events-auto h-7 w-7 cursor-pointer rounded-[7px] text-muted-foreground hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground dark:hover:bg-[var(--goose-interactive-hover)]"
+                tone="muted"
+                size="sm"
+                className="pointer-events-auto cursor-pointer hover:bg-[var(--goose-control-hover-bg)] dark:hover:bg-[var(--goose-control-hover-bg)]"
                 aria-label="适配窗口"
-                disabled={atMinZoom}
+                disabled={atFitZoom}
                 onClick={() => fitToViewport()}
               >
                 <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </Button>
+              </IconButton>
             </TooltipTrigger>
             <TooltipContent>适配窗口</TooltipContent>
           </Tooltip>

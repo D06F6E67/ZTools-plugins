@@ -1,8 +1,13 @@
 import type { BlockNoteContent } from "@/components/editor/utils/blocknote-content";
 import type { CardTheme } from "./themes";
+import {
+  MERMAID_FONT,
+  getMermaidInitConfig,
+  stripMermaidInitDirectives,
+} from "./mermaidTheme";
+import { tryRenderMermaidTimeline } from "./timelineSvg";
 
-export const MERMAID_EXPORT_FONT =
-  '"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif';
+export const MERMAID_EXPORT_FONT = MERMAID_FONT;
 
 type MermaidExportMode = "light" | "dark";
 
@@ -21,7 +26,7 @@ function getCodeBlockText(block: any): string {
   return content == null ? "" : String(content);
 }
 
-function expandViewBox(svg: string, padding = 12): string {
+function expandViewBox(svg: string, padding = 20): string {
   const match = svg.match(/\sviewBox="([^"]+)"/);
   if (!match) return svg;
 
@@ -79,26 +84,21 @@ export async function renderMermaidSvgForExport(
   source: string,
   mode: MermaidExportMode,
 ): Promise<string> {
+  const timeline = tryRenderMermaidTimeline(source, mode);
+  if (timeline) return timeline;
+
   const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: mode === "dark" ? "dark" : "default",
-    securityLevel: "loose",
-    fontFamily: MERMAID_EXPORT_FONT,
-    themeVariables: {
-      fontFamily: MERMAID_EXPORT_FONT,
-    },
-    flowchart: {
-      // 导出/预览都按内容固有尺寸，避免 useMaxWidth 把大图压扁后栅格发糊
+  mermaid.initialize(
+    getMermaidInitConfig({
+      mode,
+      securityLevel: "loose",
+      fontFamily: MERMAID_FONT,
       useMaxWidth: false,
-      htmlLabels: true,
-      padding: 16,
-    },
-    suppressErrorRendering: true,
-  });
+    }),
+  );
 
   const id = `mermaid-export-${Math.random().toString(36).slice(2, 11)}`;
-  const { svg } = await mermaid.render(id, source);
+  const { svg } = await mermaid.render(id, stripMermaidInitDirectives(source));
   return hardenMermaidSvg(svg);
 }
 

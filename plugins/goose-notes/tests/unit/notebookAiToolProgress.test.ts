@@ -50,6 +50,27 @@ test("处理进度按发生顺序实时保留已完成步骤和当前步骤", ()
   ).not.toContain("已查看 0 个页面");
 });
 
+test("默认对话能力不出现在处理进度摘要里", () => {
+  expect(
+    getToolProgressSummary(
+      [
+        {
+          type: "tool-loadSkill",
+          state: "output-available",
+          input: { skill: "chat" },
+          output: { supported: true },
+        },
+        {
+          type: "tool-readPage",
+          state: "output-available",
+          output: { title: "Pi SDK" },
+        },
+      ],
+      false,
+    ),
+  ).toBe("已读取《Pi SDK》");
+});
+
 test("错误步骤优先占用摘要，不继续显示处理中", () => {
   const summary = getToolProgressSummary(
     [

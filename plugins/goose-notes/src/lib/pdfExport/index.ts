@@ -2,17 +2,24 @@
  * PDF 导出入口。
  *
  * - dynamic import @blocknote/xl-pdf-exporter + @react-pdf/renderer，避免拖慢首屏
- * - 默认 A4 + 中文 NotoSansSC（先读成 data URL 再注册；缺失时保留 Inter，不注册 404 路径）
+ * - 默认 A4；按笔记 fontFamily + customFonts 远程拉单文件字体，读成 data URL 再注册；失败降级 Noto/Helvetica，不打进包
  * - 通过 saveBlobAndReveal 走 uTools 保存通道，浏览器端回退到 a[download]
  * - 导出前统一整理 content（含本地文件夹 doc 对象 / 空 inline）
  */
 
 import type { Page } from "@/types";
+import type { CustomFonts } from "@/stores/useSettings";
 import { getPageTitle } from "@/components/editor/utils/page-title";
 import { saveBlobAndReveal } from "@/lib/export/fileSave";
 import { prepareExportBlocks } from "@/lib/export/prepareExportBlocks";
-import { registerPdfFonts, PDF_FONT_FAMILY } from "./fontConfig";
+import { registerPdfFonts } from "./fontConfig";
 import { createPdfBlockMappings } from "./blockMappings";
+
+/** 薄 getter：避免 fontConfig 静态绑 zustand。 */
+async function readExportCustomFonts(): Promise<CustomFonts> {
+  const { useSettings } = await import("@/stores/useSettings");
+  return useSettings.getState().customFonts;
+}
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_") || "untitled";
@@ -43,11 +50,18 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   }
 }
 
-export async function exportToPDF(page: Page): Promise<void> {
+export async function exportToPDF(
+  page: Page,
+  customFonts?: CustomFonts,
+): Promise<void> {
   const title = getPageTitle(page) || "untitled";
   const filename = `${sanitizeFileName(title)}.pdf`;
 
-  const cjkReady = await registerPdfFonts();
+  const fonts = customFonts ?? (await readExportCustomFonts());
+  const registered = await registerPdfFonts({
+    fontFamily: page.fontFamily ?? "default",
+    customFonts: fonts,
+  });
 
   const [{ PDFExporter }, ReactPDF, { editorSchema }, { pdfDefaultSchemaMappings }] =
     await Promise.all([
@@ -72,10 +86,14 @@ export async function exportToPDF(page: Page): Promise<void> {
     emojiSource: false,
     resolveFileUrl: async (url: string) => url,
   });
-  if (cjkReady) {
+  // 跳过默认 registerFonts：运行时不要再 import 那 4 套 Inter/Geist 字体。
+  // 构建期靠 vite alias 把 Inter_18pt / GeistMono 指到 pdf-font-empty，避免打进 dist。
+  // 拉丁/CJK 由 registerPdfFonts 按笔记字体覆盖；失败则 Helvetica，中文可能方块。
+  (exporter as unknown as { fontsRegistered: boolean }).fontsRegistered = true;
+  if (registered.ready) {
     (exporter.styles as any).page = {
       ...(exporter.styles as any).page,
-      fontFamily: PDF_FONT_FAMILY,
+      fontFamily: registered.pageFontFamily,
     };
   }
 

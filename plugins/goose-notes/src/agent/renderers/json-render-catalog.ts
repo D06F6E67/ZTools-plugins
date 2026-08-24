@@ -183,53 +183,30 @@ export const jsonRenderCatalog = defineCatalog(schema, {
  */
 export function getJsonRenderPromptFragment(): string {
   return `
-### JSON Render UI 组件（轻量交互界面）
+# json-render
 
-当用户要求生成界面、仪表盘、数据面板、表单、卡片布局等**结构化 UI** 时，优先使用 \`\`\`json-render\`\`\` 代码围栏输出 JSON Spec，而不是输出完整的 HTML 页面。
+用户要求界面、仪表盘、表单或卡片布局时，用 \`\`\`json-render\`\`\` 输出 Spec，不要输出完整 HTML。
 
-json-render 比 HTML 更轻量、渲染更快，且使用项目内置的 design system 组件。
-
-#### 可用组件
+可用组件：
 ${jsonRenderCatalog.componentNames.map((name) => `- ${name}`).join("\n")}
 
-#### Spec 格式
 \`\`\`json-render
 {
   "root": "card-1",
   "elements": {
-    "card-1": {
-      "type": "Card",
-      "children": ["header-1", "content-1"]
-    },
-    "header-1": {
-      "type": "CardHeader",
-      "children": ["title-1"]
-    },
-    "title-1": {
-      "type": "CardTitle",
-      "props": { "text": "标题" }
-    },
-    "content-1": {
-      "type": "CardContent",
-      "children": ["text-1"]
-    },
-    "text-1": {
-      "type": "Text",
-      "props": { "content": "内容文本" }
-    }
+    "card-1": { "type": "Card", "children": ["header-1", "content-1"] },
+    "header-1": { "type": "CardHeader", "children": ["title-1"] },
+    "title-1": { "type": "CardTitle", "props": { "text": "标题" } },
+    "content-1": { "type": "CardContent", "children": ["text-1"] },
+    "text-1": { "type": "Text", "props": { "content": "内容文本" } }
   }
 }
 \`\`\`
 
-#### 设计原则
-- 用 Card 作为顶层容器，CardHeader + CardTitle + CardDescription 做标题区，CardContent 放主体内容
-- 用 FlexRow 横向排列按钮/标签，FlexCol 纵向堆叠内容
-- 用 Grid 做等宽卡片/指标网格（2-4 列）；在 Grid 内放 Stat 组件展示多个指标
-- 用 Separator 做分隔线
-- 表格数据优先用 DataTable（传 columns + rows 二维数组），而非手写 HTML 表格
-- 进度/完成度用 Progress（value 0-100），状态/分类标签用 Badge（FlexRow 内并排多个）
-- 每个元素必须有唯一 key（如 card-1, header-1），children 用 key 数组引用子元素
-- 不要在 props 中写 className 来控制布局，优先使用 FlexRow/FlexCol/Grid 等布局组件
-- 整体风格保持简洁，不要过度嵌套
+- 顶层用 Card；标题区用 CardHeader、CardTitle、CardDescription；主体用 CardContent。
+- 横向用 FlexRow，纵向用 FlexCol，等宽网格用 Grid（2-4 列），指标用 Stat。
+- 表格用 DataTable（columns + rows）；进度用 Progress（0-100）；标签用 Badge。
+- 每个元素要有唯一 key，children 用 key 数组引用。
+- 不用 className 控制布局。
 `.trim();
 }

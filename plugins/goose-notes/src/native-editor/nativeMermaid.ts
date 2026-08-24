@@ -1,19 +1,25 @@
-const MERMAID_FONT =
-  '"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif';
+import {
+  getMermaidInitConfig,
+  stripMermaidInitDirectives,
+} from "@/lib/imageExport/mermaidTheme";
+import { tryRenderMermaidTimeline } from "@/lib/imageExport/timelineSvg";
 
 export async function renderMermaidSvgForExport(
   source: string,
   mode: "light" | "dark",
 ) {
+  const timeline = tryRenderMermaidTimeline(source, mode);
+  if (timeline) return timeline;
+
   const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: mode === "dark" ? "dark" : "default",
-    securityLevel: "strict",
-    fontFamily: MERMAID_FONT,
-    suppressErrorRendering: true,
-  });
+  mermaid.initialize(
+    getMermaidInitConfig({
+      mode,
+      securityLevel: "strict",
+      useMaxWidth: false,
+    }),
+  );
   const id = `mermaid-native-${crypto.randomUUID()}`;
-  const { svg } = await mermaid.render(id, source);
+  const { svg } = await mermaid.render(id, stripMermaidInitDirectives(source));
   return svg;
 }

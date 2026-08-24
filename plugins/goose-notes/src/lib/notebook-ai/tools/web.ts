@@ -400,7 +400,7 @@ async function readDirectly(url: string, signal?: AbortSignal) {
 
 export const searchWeb = tool({
   description:
-    "联网搜索最新或外部信息，返回标题、摘要和来源链接。只有用户明确要求联网、问题依赖当前信息，或任务缺少外部资料时调用。",
+    "联网搜索，返回标题、摘要和来源链接。仅在用户本轮明确要求联网，或本轮问题明确需要外部事实且已有上下文不够时调用。",
   inputSchema: z.object({
     query: z.string().min(1).describe("用自然语言描述希望找到的网页或信息"),
     maxResults: z.number().int().min(1).max(8).optional().default(5),

@@ -44,6 +44,7 @@ interface ImageToolbarProps {
   selectedImage: SelectedImageState;
   applyImageAlignment: (alignment: ImageAlignment) => void;
   handleSelectedImageZoom: () => void;
+  handleSelectedImageSystemPreview?: () => void;
   handleSelectedImageCopy: () => void;
   handleSelectedImageDownload: () => void;
   openImageLabel: string;
@@ -58,6 +59,7 @@ function ImageToolButton({
   className,
   pressed,
   onClick,
+  onContextMenu,
   tooltipSideOffset,
   children,
 }: {
@@ -65,6 +67,7 @@ function ImageToolButton({
   className?: string;
   pressed?: boolean;
   onClick: MouseEventHandler<HTMLButtonElement>;
+  onContextMenu?: MouseEventHandler<HTMLButtonElement>;
   tooltipSideOffset: number;
   children: ReactNode;
 }) {
@@ -76,6 +79,7 @@ function ImageToolButton({
           aria-label={label}
           aria-pressed={pressed}
           onClick={onClick}
+          onContextMenu={onContextMenu}
           className={cn(imageToolButtonClass, className)}
         >
           {children}
@@ -92,6 +96,7 @@ export function ImageToolbar({
   selectedImage,
   applyImageAlignment,
   handleSelectedImageZoom,
+  handleSelectedImageSystemPreview,
   handleSelectedImageCopy,
   handleSelectedImageDownload,
   openImageLabel,
@@ -193,6 +198,11 @@ export function ImageToolbar({
             label={openImageLabel}
             tooltipSideOffset={getScaledEditorUiPx(8, editorUiScale)}
             onClick={handleSelectedImageZoom}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleSelectedImageSystemPreview?.();
+            }}
           >
             <Maximize2 className="h-[15px] w-[15px]" />
           </ImageToolButton>

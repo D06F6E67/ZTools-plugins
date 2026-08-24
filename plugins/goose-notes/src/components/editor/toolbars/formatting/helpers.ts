@@ -378,6 +378,57 @@ function selectionTouchesTable(selection: {
 }
 
 /**
+ * 选区真正落在内容上的 blockContainer id。
+ * 有内联内容的块要求与选区有非空交集；空段落 / 媒体块要求被选区完整覆盖。
+ */
+function collectSelectedContentBlockIds(
+  editor: BlockNoteEditor<any, any, any>,
+): Set<string> {
+  const ids = new Set<string>();
+  const { selection, doc } = editor.prosemirrorState;
+  doc.nodesBetween(selection.from, selection.to, (node: any, pos: number) => {
+    if (node.type?.name !== "blockContainer") return true;
+    const id = node.attrs?.id;
+    if (typeof id !== "string") return true;
+    const content = node.firstChild;
+    if (!content) return true;
+
+    const contentFrom = pos + 2;
+    const contentSize = content.content.size;
+    const covered =
+      contentSize > 0
+        ? Math.min(selection.to, contentFrom + contentSize) >
+          Math.max(selection.from, contentFrom)
+        : selection.from <= pos && selection.to >= pos + node.nodeSize;
+    if (covered) ids.add(id);
+    return true;
+  });
+  return ids;
+}
+
+/**
+ * 剔除选区端点恰好停在块边界、实际一个字都没选中的块。
+ * BlockNote getSelection() 按位置区间取块，从上一段末尾起拖选会把上一段一起带上。
+ */
+function dropBlocksWithoutSelectedContent(
+  editor: BlockNoteEditor<any, any, any>,
+  blocks: any[],
+): any[] {
+  if (blocks.length <= 1) return blocks;
+
+  let covered: Set<string>;
+  try {
+    covered = collectSelectedContentBlockIds(editor);
+  } catch {
+    return blocks;
+  }
+  if (covered.size === 0) return blocks;
+
+  const filtered = blocks.filter((block: any) => covered.has(block?.id));
+  return filtered.length > 0 ? filtered : blocks;
+}
+
+/**
  * Safe selected-blocks lookup. Table / CellSelection 下 getSelection 可能抛错。
  */
 export function getSelectedBlocksSafe(
@@ -385,7 +436,9 @@ export function getSelectedBlocksSafe(
 ): any[] {
   try {
     const selected = editor.getSelection()?.blocks;
-    if (selected && selected.length > 0) return selected;
+    if (selected && selected.length > 0) {
+      return dropBlocksWithoutSelectedContent(editor, selected);
+    }
   } catch {
     /* table cell selection */
   }
@@ -423,7 +476,10 @@ export function getSelectedBlocksSafe(
       }
     }
     if (ids.size === 0) return [];
-    return editor.document.filter((block: any) => ids.has(block.id));
+    return dropBlocksWithoutSelectedContent(
+      editor,
+      editor.document.filter((block: any) => ids.has(block.id)),
+    );
   } catch {
     return [];
   }
@@ -587,7 +643,10 @@ export function getFormattingSelectionMode(
 
   let blockCount = 0;
   try {
-    blockCount = editor.getSelection()?.blocks?.length ?? 0;
+    blockCount = dropBlocksWithoutSelectedContent(
+      editor,
+      editor.getSelection()?.blocks ?? [],
+    ).length;
   } catch {
     blockCount = 0;
   }
@@ -597,18 +656,10 @@ export function getFormattingSelectionMode(
     blockCount = Math.max(blockCount, safeCount);
   }
   if (blockCount <= 1) {
-    const { selection, doc } = editor.prosemirrorState;
-    const ids = new Set<string>();
-    doc.nodesBetween(selection.from, selection.to, (node: any) => {
-      if (
-        node.type?.name === "blockContainer" &&
-        typeof node.attrs?.id === "string"
-      ) {
-        ids.add(node.attrs.id);
-      }
-      return true;
-    });
-    blockCount = Math.max(blockCount, ids.size);
+    blockCount = Math.max(
+      blockCount,
+      collectSelectedContentBlockIds(editor).size,
+    );
   }
 
   if (blockCount > 1) return "multiBlock";
@@ -730,9 +781,9 @@ export function getFormattingToolbarCapabilities(
 function applyAlignmentToSelection(
   editor: BlockNoteEditor<any, any, any>,
   alignment: FormattingTextAlignment,
+  blocks: any[],
+  cellSelection: CellSelectionInfo | undefined,
 ): void {
-  const blocks = getSelectedBlocksSafe(editor);
-
   for (const block of blocks) {
     if (
       blockHasType(block, editor, block.type, {
@@ -750,7 +801,6 @@ function applyAlignmentToSelection(
 
     if (block.type !== "table") continue;
 
-    const cellSelection = getCellSelectionSafe(editor);
     if (!cellSelection?.cells?.length) continue;
 
     const content = block.content as TableContent<any, any>;
@@ -789,13 +839,16 @@ export function applySelectionTextAlignment(
   editor: BlockNoteEditor<any, any, any>,
   alignment: FormattingTextAlignment,
 ): void {
+  // transact 回调内读 prosemirrorState 会抛错，选区解析必须先于事务完成
+  const blocks = getSelectedBlocksSafe(editor);
+  const cellSelection = getCellSelectionSafe(editor);
   try {
     editor.focus();
   } catch {
     /* ignore */
   }
   editor.transact(() => {
-    applyAlignmentToSelection(editor, alignment);
+    applyAlignmentToSelection(editor, alignment, blocks, cellSelection);
   });
 }
 
@@ -805,6 +858,8 @@ export function applySelectionTextAlignment(
 export function clearSelectionFormatting(
   editor: BlockNoteEditor<any, any, any>,
 ): void {
+  const blocks = getSelectedBlocksSafe(editor);
+  const cellSelection = getCellSelectionSafe(editor);
   try {
     editor.focus();
   } catch {
@@ -824,6 +879,6 @@ export function clearSelectionFormatting(
     } catch {
       /* ignore */
     }
-    applyAlignmentToSelection(editor, "left");
+    applyAlignmentToSelection(editor, "left", blocks, cellSelection);
   });
 }

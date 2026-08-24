@@ -15,7 +15,7 @@ const skillIdSchema = z.enum([
 
 export const loadSkill = tool({
   description:
-    "按需加载一个能力说明。执行任何笔记、搜索、网页研究、对话或可视化任务前必须先调用，并选择与用户需求最匹配的 Skill。",
+    "有明确任务时加载最匹配的 Skill。短确认或无新需求时不要调用。",
   inputSchema: z.object({
     skill: skillIdSchema.describe("要加载的 Skill"),
   }),

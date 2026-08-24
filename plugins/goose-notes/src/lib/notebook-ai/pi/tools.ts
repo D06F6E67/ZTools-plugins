@@ -24,7 +24,7 @@ const TOOL_LABELS: Record<keyof typeof notebookAiTools, string> = {
   showTable: "表格",
   showChart: "图表",
   showDiagram: "流程图",
-  showSvg: "SVG",
+  showSvg: "图片",
 };
 
 /** 与 AI SDK 工具描述对齐的 TypeBox 参数（给模型看）。 */
@@ -113,8 +113,10 @@ const TOOL_PARAMETERS: Record<keyof typeof notebookAiTools, TSchema> = {
     source: Type.String(),
   }),
   showSvg: Type.Object({
-    title: Type.Optional(Type.String()),
-    svg: Type.String(),
+    title: Type.Optional(Type.String({ description: "图片标题" })),
+    svg: Type.String({
+      description: "完整 SVG 标记，从 <svg> 开始到 </svg> 结束。不要写进正文或代码块。",
+    }),
   }),
 };
 
