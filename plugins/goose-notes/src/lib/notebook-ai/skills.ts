@@ -44,7 +44,7 @@ export const NOTEBOOK_SKILLS = {
     tools: ["readPage"],
   },
   visual: {
-    description: "生成表格、图表、流程图或 SVG",
+    description: "生成表格、图表、流程图或图片",
     content: visualSkill.trim(),
     tools: ["showTable", "showChart", "showDiagram", "showSvg"],
   },

@@ -1,4 +1,5 @@
-import * as echarts from "echarts";
+import type { EChartsOption, SeriesOption } from "echarts";
+import { echarts } from "./registerEcharts";
 import {
   getPalette,
   getSeriesColor,
@@ -116,14 +117,21 @@ function barGradient(hex: string, isDark: boolean): echarts.graphic.LinearGradie
   return verticalGradient(hex, hexToRgba(hex, 0.82));
 }
 
+export function hasRenderableChartSeries(
+  series: unknown,
+): series is { name: string; data: unknown[] }[] {
+  return Array.isArray(series) && series.length > 0;
+}
+
 export function buildOption(
   cfg: SimplifiedConfig,
   isDark: boolean,
   scale: number,
-): echarts.EChartsOption {
+): EChartsOption {
+  const series = Array.isArray(cfg.series) ? cfg.series : [];
   const t = isDark ? TM.dark : TM.light;
   const palette = getPalette(isDark);
-  const multiSeries = cfg.series.length > 1;
+  const multiSeries = series.length > 1;
   const isCartesian = cfg.type !== "pie";
   const actualType = cfg.type === "area" ? "line" : cfg.type;
   const inset = Math.round(16 * scale);
@@ -136,7 +144,7 @@ export function buildOption(
   const isLineLike = cfg.type === "line" || cfg.type === "area";
 
   /* ── base ──────────────────────────────────────────────────────── */
-  const option: echarts.EChartsOption = {
+  const option: EChartsOption = {
     backgroundColor: "transparent",
     color: palette,
     textStyle: {
@@ -309,7 +317,7 @@ export function buildOption(
     let vmMax = cfg.visualMap?.max ?? 100;
     if (cfg.visualMap?.min == null || cfg.visualMap?.max == null) {
       const allValues: number[] = [];
-      for (const s of cfg.series) {
+      for (const s of series) {
         for (const d of s.data) {
           const val = Array.isArray(d)
             ? (d as number[])[2]
@@ -342,7 +350,7 @@ export function buildOption(
   }
 
   /* ── series ────────────────────────────────────────────────────── */
-  option.series = cfg.series.map((s, i) => {
+  option.series = series.map((s, i) => {
     const color = getSeriesColor(i, isDark);
     const base: Record<string, unknown> = {
       name: s.name,
@@ -504,7 +512,7 @@ export function buildOption(
       };
     }
 
-    return base as echarts.SeriesOption;
+    return base as SeriesOption;
   });
 
   return option;
@@ -514,9 +522,9 @@ export function buildOption(
  * 给原生 ECharts option 注入统一主题色与基础 tooltip（不破坏用户自定义 series）。
  */
 export function polishRawOption(
-  raw: echarts.EChartsOption,
+  raw: EChartsOption,
   isDark: boolean,
-): echarts.EChartsOption {
+): EChartsOption {
   const t = isDark ? TM.dark : TM.light;
   const palette = getPalette(isDark);
   const rawTooltip =
@@ -542,7 +550,7 @@ export function polishRawOption(
       extraCssText: `border-radius:10px;box-shadow:${t.tooltipShadow};backdrop-filter:blur(10px);`,
       ...rawTooltip,
     },
-  } as echarts.EChartsOption;
+  } as EChartsOption;
 }
 
 export function getPreferredChartHeight(

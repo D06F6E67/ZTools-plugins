@@ -8,6 +8,7 @@ import {
   memo,
   useContext,
   useMemo,
+  useState,
   type ComponentProps,
   type ReactElement,
   type ReactNode,
@@ -41,10 +42,16 @@ import {
   type BatchUndoResult,
 } from "./ApprovalPlanCard";
 import { TableCard } from "./TableCard";
-import { ChartCard } from "./ChartCard";
+import { ChartCard, ChartIncompleteNotice } from "./ChartCard";
 import { DiagramCard } from "./DiagramCard";
-import { SvgArtifactCard } from "./SvgArtifactCard";
+import { CanvasLoadingCard, SvgArtifactCard } from "./SvgArtifactCard";
 import {
+  extractSvgMarkup,
+  looksLikeCanvasSource,
+  parseCanvasAwareSegments,
+} from "@/lib/notebook-ai/canvasSegments";
+import {
+  isDefaultChatSkillPart,
   shouldShowToolProgress,
   type ToolDisplayPart,
 } from "./toolProgressVisibility";
@@ -56,6 +63,8 @@ import {
 } from "@/lib/notebook-ai/messageTime";
 import type { NotebookAiMessage } from "@/lib/notebook-ai/types";
 import { buildUserMessageSegments } from "@/lib/notebook-ai/userMessageSegments";
+import { FullscreenPreview } from "@/components/preview/FullscreenPreview";
+import type { PreviewContent } from "@/lib/preview/previewAction";
 import { cn } from "@/lib/utils";
 import { useEditorPageContext } from "@/components/editor/platform/hostContext";
 import { AssistantUiThreadViewport } from "./AssistantUiThreadViewport";
@@ -69,6 +78,9 @@ import { StreamingText } from "./beautiful-ui/StreamingText";
 import { navigateNotebookAiReference } from "@/lib/notebook-ai/navigateReference";
 import { ThinkingState } from "./beautiful-ui/ThinkingState";
 import { resolveLoaderHold } from "./beautifulUiMap";
+import { useSettings } from "@/stores/useSettings";
+import { useResolvedTheme } from "@/hooks/useResolvedTheme";
+import { getMermaidInitConfig } from "@/lib/imageExport/mermaidTheme";
 
 /** 供测试/外部复用；实现见 userMessageSegments */
 export { buildUserMessageSegments } from "@/lib/notebook-ai/userMessageSegments";
@@ -217,6 +229,17 @@ function MdTd({
   );
 }
 
+/** 工具 / 正文 part 共享的每消息上下文（组件函数本身保持模块级稳定） */
+interface AssistantToolRenderContextValue {
+  isStreaming: boolean;
+  editorRef?: RefObject<EditorRef | null>;
+  onBatchApproval: (response: BatchApprovalResponse) => Promise<void> | void;
+  onBatchUndo: (toolCallId: string, runId: string) => Promise<BatchUndoResult>;
+}
+
+const AssistantToolRenderContext =
+  createContext<AssistantToolRenderContextValue | null>(null);
+
 function languageFromCodeChild(children: ReactNode): string | undefined {
   if (!isValidElement(children)) return undefined;
   const className =
@@ -225,11 +248,37 @@ function languageFromCodeChild(children: ReactNode): string | undefined {
   return match?.[1];
 }
 
-/** 只包一层 catalog CodeBlock，不替换 Streamdown 高亮。 */
+function reactNodeToText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(reactNodeToText).join("");
+  if (isValidElement(node)) {
+    return reactNodeToText(
+      (node.props as { children?: ReactNode }).children,
+    );
+  }
+  return "";
+}
+
+/** 只包一层 catalog CodeBlock，不替换 Streamdown 高亮。可视化源码走画布卡片。 */
 function MdPre({
   children,
 }: ComponentProps<"pre"> & { node?: unknown }) {
+  const ctx = useContext(AssistantToolRenderContext);
   const language = languageFromCodeChild(children);
+  const source = reactNodeToText(children);
+  if (looksLikeCanvasSource(language, source)) {
+    const svg = extractSvgMarkup(source);
+    if (svg) {
+      return <SvgArtifactCard svg={svg} editorRef={ctx?.editorRef} />;
+    }
+    if (ctx?.isStreaming) return <CanvasLoadingCard />;
+    return null;
+  }
+  // 流式期间沿用 Streamdown：每个 token 都重画 Mermaid 会疯狂闪烁
+  if (!ctx?.isStreaming && language?.toLowerCase() === "mermaid") {
+    return <DiagramCard source={source} editorRef={ctx?.editorRef} />;
+  }
   const marked = isValidElement(children)
     ? cloneElement(
         children as ReactElement<{ "data-block"?: string }>,
@@ -249,11 +298,35 @@ const MD_COMPONENTS = {
   pre: MdPre,
 };
 
-/** 关掉 Streamdown 表格工具条，避免默认 wrapper/utility 依赖 */
-const STREAMDOWN_CONTROLS = { table: false, code: true, mermaid: true } as const;
+/**
+ * 关掉 Streamdown 表格工具条，避免默认 wrapper/utility 依赖。
+ * mermaid 只在流式期间由 Streamdown 渲染，生成完即换成 DiagramCard，
+ * 这段过渡态不需要任何控件。
+ */
+const STREAMDOWN_CONTROLS = {
+  table: false,
+  code: true,
+  mermaid: false,
+} as const;
 
 /** 模块级稳定引用：禁止 plugins={{ cjk }} 内联，避免 Streamdown 每帧当新插件树 */
 const STREAMDOWN_PLUGINS = { cjk };
+
+const STREAMDOWN_MERMAID_LIGHT = {
+  config: getMermaidInitConfig({
+    mode: "light",
+    securityLevel: "loose",
+    useMaxWidth: true,
+  }),
+} as const;
+
+const STREAMDOWN_MERMAID_DARK = {
+  config: getMermaidInitConfig({
+    mode: "dark",
+    securityLevel: "loose",
+    useMaxWidth: true,
+  }),
+} as const;
 
 /**
  * 助手正文：模块级 memo，禁止在 renderAssistantMessage 内定义 TextPart，
@@ -262,24 +335,72 @@ const STREAMDOWN_PLUGINS = { cjk };
 const AssistantStreamdownText = memo(function AssistantStreamdownText({
   text,
   isStreaming,
+  editorRef,
 }: {
   text: string;
   isStreaming: boolean;
+  editorRef?: RefObject<EditorRef | null>;
 }) {
+  const theme = useSettings((state) => state.theme);
+  const resolvedTheme = useResolvedTheme(theme);
+  const mermaid = resolvedTheme === "dark" ? STREAMDOWN_MERMAID_DARK : STREAMDOWN_MERMAID_LIGHT;
+  const segments = useMemo(
+    () => parseCanvasAwareSegments(text, isStreaming),
+    [isStreaming, text],
+  );
+  const hasCanvas = segments.some(
+    (segment) => segment.type === "svg" || segment.type === "pending",
+  );
+
   if (!text?.trim()) return null;
+
   return (
     <StreamingText streaming={isStreaming}>
       <div className="ai-md notebook-ai-message-text min-w-0 max-w-full select-text text-sm text-foreground">
-        <Streamdown
-          className="min-w-0 max-w-full space-y-2"
-          mode={isStreaming ? "streaming" : "static"}
-          components={MD_COMPONENTS}
-          plugins={STREAMDOWN_PLUGINS}
-          controls={STREAMDOWN_CONTROLS}
-          parseIncompleteMarkdown={isStreaming}
-        >
-          {text}
-        </Streamdown>
+        {hasCanvas ? (
+          <div className="min-w-0 max-w-full space-y-2">
+            {segments.map((segment, index) => {
+              if (segment.type === "pending") {
+                return <CanvasLoadingCard key={`canvas-pending-${index}`} />;
+              }
+              if (segment.type === "svg") {
+                return (
+                  <SvgArtifactCard
+                    key={`canvas-svg-${index}`}
+                    svg={segment.content}
+                    editorRef={editorRef}
+                  />
+                );
+              }
+              return (
+                <Streamdown
+                  key={`canvas-md-${index}`}
+                  className="min-w-0 max-w-full space-y-2"
+                  mode={isStreaming ? "streaming" : "static"}
+                  components={MD_COMPONENTS}
+                  plugins={STREAMDOWN_PLUGINS}
+                  controls={STREAMDOWN_CONTROLS}
+                  mermaid={mermaid}
+                  parseIncompleteMarkdown={isStreaming && index === segments.length - 1}
+                >
+                  {segment.content}
+                </Streamdown>
+              );
+            })}
+          </div>
+        ) : (
+          <Streamdown
+            className="min-w-0 max-w-full space-y-2"
+            mode={isStreaming ? "streaming" : "static"}
+            components={MD_COMPONENTS}
+            plugins={STREAMDOWN_PLUGINS}
+            controls={STREAMDOWN_CONTROLS}
+            mermaid={mermaid}
+            parseIncompleteMarkdown={isStreaming}
+          >
+            {text}
+          </Streamdown>
+        )}
       </div>
     </StreamingText>
   );
@@ -289,22 +410,18 @@ function EmptyReasoningPart() {
   return null;
 }
 
-/** 工具 / 正文 part 共享的每消息上下文（组件函数本身保持模块级稳定） */
-interface AssistantToolRenderContextValue {
-  isStreaming: boolean;
-  editorRef?: RefObject<EditorRef | null>;
-  onBatchApproval: (response: BatchApprovalResponse) => Promise<void> | void;
-  onBatchUndo: (toolCallId: string, runId: string) => Promise<BatchUndoResult>;
-}
-
-const AssistantToolRenderContext =
-  createContext<AssistantToolRenderContextValue | null>(null);
-
 /** 从 context 读 isStreaming，避免 stream 结束时换 Text 组件类型导致整段 remount */
-function AssistantTextPart({ text }: TextMessagePartProps) {
+function AssistantTextPart({ text, status }: TextMessagePartProps) {
   const ctx = useContext(AssistantToolRenderContext);
+  // 多轮工具调用会留下多段正文；只有当前仍在输出的 part 才是 running
+  const isPartStreaming =
+    Boolean(ctx?.isStreaming) && status.type === "running";
   return (
-    <AssistantStreamdownText text={text} isStreaming={ctx?.isStreaming ?? false} />
+    <AssistantStreamdownText
+      text={text}
+      isStreaming={isPartStreaming}
+      editorRef={ctx?.editorRef}
+    />
   );
 }
 
@@ -331,7 +448,7 @@ function AssistantToolPart({ artifact }: ToolCallMessagePartProps) {
       />
     );
   }
-  return renderToolVisual(part, part.toolCallId ?? part.type, editorRef);
+  return renderToolVisual(part, part.toolCallId ?? part.type, editorRef, isStreaming);
 }
 
 /** MessagePrimitive.Parts 的 components 必须模块级常量，避免 identity 抖动 */
@@ -433,6 +550,7 @@ function shouldShowToolPart(
   part: ToolDisplayPart,
   isMessageStreaming: boolean,
 ) {
+  if (isDefaultChatSkillPart(part)) return false;
   const state = part.state ?? "";
   if (
     part.type === "tool-executeBatchPlan" &&
@@ -456,6 +574,7 @@ function renderToolVisual(
   part: ToolDisplayPart,
   key: string | number,
   editorRef: RefObject<EditorRef | null> | undefined,
+  isStreaming: boolean,
 ) {
   if (
     part.type === "tool-showTable" &&
@@ -473,6 +592,7 @@ function renderToolVisual(
         title={tableData.title}
         columns={tableData.columns}
         rows={tableData.rows}
+        editorRef={editorRef}
       />
     );
   }
@@ -488,6 +608,11 @@ function renderToolVisual(
       categories?: string[];
       series: Array<{ name: string; data: number[] }>;
     };
+    if (!Array.isArray(chartData.series) || chartData.series.length === 0) {
+      return (
+        <ChartIncompleteNotice key={key} title={chartData.title} />
+      );
+    }
     return (
       <ChartCard
         key={key}
@@ -495,6 +620,7 @@ function renderToolVisual(
         title={chartData.title}
         categories={chartData.categories}
         series={chartData.series}
+        editorRef={editorRef}
       />
     );
   }
@@ -519,23 +645,25 @@ function renderToolVisual(
     );
   }
 
-  if (
-    part.type === "tool-showSvg" &&
-    part.state === "output-available" &&
-    part.output
-  ) {
-    const svgData = part.output as {
-      title?: string;
-      svg: string;
-    };
-    return (
-      <SvgArtifactCard
-        key={key}
-        title={svgData.title}
-        svg={svgData.svg}
-        editorRef={editorRef}
-      />
-    );
+  if (part.type === "tool-showSvg") {
+    if (part.state === "output-available" && part.output) {
+      const svgData = part.output as {
+        title?: string;
+        svg: string;
+      };
+      return (
+        <SvgArtifactCard
+          key={key}
+          title={svgData.title}
+          svg={svgData.svg}
+          editorRef={editorRef}
+        />
+      );
+    }
+    if (isStreaming && part.state !== "output-error") {
+      const input = part.input as { title?: string } | undefined;
+      return <CanvasLoadingCard key={key} title={input?.title} />;
+    }
   }
 
   return null;
@@ -551,6 +679,9 @@ export function ChatMessages({
 }: ChatMessagesProps) {
   const { onOpenPage } = useEditorPageContext();
   const isFullscreen = layout === "fullscreen";
+  const [previewContent, setPreviewContent] = useState<PreviewContent | null>(
+    null,
+  );
   const messageById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages],
@@ -645,7 +776,14 @@ export function ChatMessages({
                       <img
                         src={imagePart.image}
                         alt={attachment.name}
-                        className="h-20 w-20 rounded-[8px] object-cover"
+                        className="h-20 w-20 cursor-zoom-in rounded-[8px] object-cover"
+                        onClick={() =>
+                          setPreviewContent({
+                            kind: "image",
+                            data: imagePart.image,
+                            fileName: attachment.name,
+                          })
+                        }
                       />
                     ) : null}
                     <span className="sr-only">
@@ -781,8 +919,10 @@ export function ChatMessages({
       className={cn(
         // min-w-0：flex 子项可收缩；横向溢出由消息内表格滚动，这里只负责纵向
         "notebook-ai-messages min-w-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-width:thin]",
-        messages.length === 0 ? "flex items-center justify-center" : undefined,
-        isFullscreen ? "px-6 py-5" : "px-3 py-3",
+        messages.length === 0
+          ? "flex items-center justify-center pb-[var(--ai-composer-float-pad,7.5rem)]"
+          : undefined,
+        isFullscreen ? "px-6 pt-5" : "px-3 pt-3",
       )}
     >
       {messages.length === 0 ? (
@@ -856,7 +996,7 @@ export function ChatMessages({
               );
             }}
           </ThreadPrimitive.Messages>
-          <ThreadPrimitive.ViewportFooter className="sticky bottom-2 flex justify-center">
+          <ThreadPrimitive.ViewportFooter className="sticky bottom-[calc(var(--ai-composer-float-pad,7.5rem)+8px)] flex justify-center">
             <ThreadPrimitive.ScrollToBottom
               className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground dark:hover:bg-[var(--goose-interactive-hover)] disabled:hidden"
               aria-label="滚动到底部"
@@ -865,9 +1005,19 @@ export function ChatMessages({
               <ArrowDown className="h-4 w-4" strokeWidth={1.75} />
             </ThreadPrimitive.ScrollToBottom>
           </ThreadPrimitive.ViewportFooter>
+          <div
+            className="pointer-events-none h-[var(--ai-composer-float-pad,7.5rem)] shrink-0"
+            aria-hidden
+          />
         </div>
       )}
     </AssistantUiThreadViewport>
+    <FullscreenPreview
+      open={Boolean(previewContent)}
+      content={previewContent}
+      title={previewContent?.fileName}
+      onClose={() => setPreviewContent(null)}
+    />
     </ChatChrome>
   );
 }

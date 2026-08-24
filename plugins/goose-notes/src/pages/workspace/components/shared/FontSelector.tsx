@@ -2,6 +2,7 @@ import type { Page } from "@/types";
 import {
   DEFAULT_FONT_NAMES,
   ensureEditorFontAvailable,
+  toCssFontFamily,
 } from "@/lib/fontLoader";
 
 interface FontSelectorProps {
@@ -70,11 +71,14 @@ export function FontSelector({
                 "leading-none",
                 compact ? "mb-0.5 text-xl" : "mb-1 text-2xl",
               )}
-              style={{ fontFamily: `"${fontName}"` }}
+              style={{ fontFamily: toCssFontFamily(fontName) }}
             >
               Ag
             </span>
-            <span className="text-xs" style={{ fontFamily: `"${fontName}"` }}>
+            <span
+              className="text-xs"
+              style={{ fontFamily: toCssFontFamily(fontName) }}
+            >
               {label}
             </span>
           </button>

@@ -1,9 +1,6 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { mapTableCell } from "@blocknote/core";
-import {
-  AllSelection,
-  TextSelection,
-} from "@tiptap/pm/state";
+import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import { expect, test } from "playwright/test";
 import { editorSchema } from "../../src/components/editor/core/schema";
 import {
@@ -22,10 +19,7 @@ function createEditor(content: Array<Record<string, unknown>>) {
   });
 }
 
-function findTextRange(
-  editor: ReturnType<typeof createEditor>,
-  text: string,
-) {
+function findTextRange(editor: ReturnType<typeof createEditor>, text: string) {
   let result: { from: number; to: number } | null = null;
   editor.prosemirrorState.doc.descendants((node, pos) => {
     if (node.isText && node.text === text) {
@@ -152,6 +146,71 @@ test("段落对齐 applySelectionTextAlignment 生效", () => {
   expect(caps.mode).toBe("singleBlock");
   expect(caps.textAlignment).toBe("center");
   expect(caps.showLink).toBe(true);
+});
+
+test("选区起点停在上一段末尾时，上一段不被对齐", () => {
+  const editor = createEditor([
+    { id: "p1", type: "paragraph", content: "上一段落文字" },
+    { id: "p2", type: "paragraph", content: "价目表" },
+  ]);
+
+  const prev = findTextRange(editor, "上一段落文字");
+  const target = findTextRange(editor, "价目表");
+  editor.transact((tr) => {
+    tr.setSelection(TextSelection.create(tr.doc, prev.to, target.to));
+  });
+
+  expect(getFormattingSelectionMode(editor)).toBe("singleBlock");
+
+  applySelectionTextAlignment(editor, "center");
+
+  const p1 = editor.document.find((b: any) => b.id === "p1") as any;
+  const p2 = editor.document.find((b: any) => b.id === "p2") as any;
+  expect(p1?.props?.textAlignment).toBe("left");
+  expect(p2?.props?.textAlignment).toBe("center");
+});
+
+test("选区终点停在下一段开头时，下一段不被对齐", () => {
+  const editor = createEditor([
+    { id: "p1", type: "paragraph", content: "第一段文字" },
+    { id: "p2", type: "paragraph", content: "第二段文字" },
+  ]);
+
+  const first = findTextRange(editor, "第一段文字");
+  const next = findTextRange(editor, "第二段文字");
+  editor.transact((tr) => {
+    tr.setSelection(TextSelection.create(tr.doc, first.from, next.from));
+  });
+
+  applySelectionTextAlignment(editor, "center");
+
+  const p1 = editor.document.find((b: any) => b.id === "p1") as any;
+  const p2 = editor.document.find((b: any) => b.id === "p2") as any;
+  expect(p1?.props?.textAlignment).toBe("center");
+  expect(p2?.props?.textAlignment).toBe("left");
+});
+
+test("真正跨段选区仍对齐全部块（含中间空段）", () => {
+  const editor = createEditor([
+    { id: "p1", type: "paragraph", content: "第一段文字" },
+    { id: "gap", type: "paragraph" },
+    { id: "p2", type: "paragraph", content: "第二段文字" },
+  ]);
+
+  const first = findTextRange(editor, "第一段文字");
+  const next = findTextRange(editor, "第二段文字");
+  editor.transact((tr) => {
+    tr.setSelection(TextSelection.create(tr.doc, first.from + 1, next.to - 1));
+  });
+
+  expect(getFormattingSelectionMode(editor)).toBe("multiBlock");
+
+  applySelectionTextAlignment(editor, "center");
+
+  for (const id of ["p1", "gap", "p2"]) {
+    const block = editor.document.find((b: any) => b.id === id) as any;
+    expect(block?.props?.textAlignment).toBe("center");
+  }
 });
 
 test("表格单元格对齐 applySelectionTextAlignment 写入 cell props", () => {

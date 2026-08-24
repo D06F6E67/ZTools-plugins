@@ -194,7 +194,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     utools,
     ai,
     setOpenSearchInUtools,
-    setUseInternalImageViewer,
     setAIEnabled,
     setAIReadGlobalPrompt,
     setAIReadLocalSkills,
@@ -256,7 +255,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       utools: s.utools,
       ai: s.ai,
       setOpenSearchInUtools: s.setOpenSearchInUtools,
-      setUseInternalImageViewer: s.setUseInternalImageViewer,
       setAIEnabled: s.setAIEnabled,
       setAIReadGlobalPrompt: s.setAIReadGlobalPrompt,
       setAIReadLocalSkills: s.setAIReadLocalSkills,
@@ -781,8 +779,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 removeCustomSearchProvider={removeCustomSearchProvider}
                 openSearchInUtools={utools.openSearchInUtools}
                 setOpenSearchInUtools={setOpenSearchInUtools}
-                useInternalImageViewer={utools.useInternalImageViewer}
-                setUseInternalImageViewer={setUseInternalImageViewer}
                 windowHeight={utools.windowHeight ?? 600}
                 setWindowHeight={setUToolsWindowHeight}
                 autoOpenLastNote={privacy.autoOpenLastNote}

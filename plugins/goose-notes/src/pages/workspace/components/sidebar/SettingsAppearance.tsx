@@ -605,6 +605,10 @@ export function SettingsAppearance({
           ))}
         </div>
       </SettingsSectionCard>
+
+      <p className="text-xs text-muted-foreground">
+        界面中文使用了 HarmonyOS Sans（华为字体许可）。
+      </p>
     </div>
   );
 }

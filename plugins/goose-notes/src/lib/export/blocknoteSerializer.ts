@@ -9,6 +9,7 @@ import rehypeStringify from "rehype-stringify";
 
 import { jsonContentToMarkdown } from "./markdown/serialize";
 import type { BlockNoteContent } from "@/components/editor/utils/blocknote-content";
+import { getMermaidInitConfig } from "@/lib/imageExport/mermaidTheme";
 
 /**
  * 把 <pre><code class="language-mermaid">...</code></pre> 转成
@@ -84,7 +85,14 @@ export const EXPORT_HTML_BODY_SCRIPTS = `
 <script type="module">
   try {
     const mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs")).default;
-    mermaid.initialize({ startOnLoad: true, theme: "default", securityLevel: "loose" });
+    mermaid.initialize(${JSON.stringify({
+      ...getMermaidInitConfig({
+        mode: "light",
+        securityLevel: "loose",
+        useMaxWidth: true,
+      }),
+      startOnLoad: true,
+    })});
   } catch (e) { console.warn("[export] mermaid 加载失败:", e); }
 </script>
 `.trim();

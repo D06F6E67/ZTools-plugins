@@ -1,10 +1,15 @@
-/* Inter Font Family */
+/* HarmonyOS Sans SC：分包 unicode-range 由远程 CSS 提供，相对路径相对该 CSS URL 解析到 CDN。 */
+@import url("https://cdn.jsdelivr.net/npm/harmonyos-sans-webfont-splitted@1.2.1/dist/HarmonyOS_Sans_SC/Regular/Regular.css");
+
+/* 已安装系统鸿蒙时优先本地，避免再拉远程分包。 */
 @font-face {
-  font-family: "Inter";
+  font-family: "HarmonyOS Sans SC";
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 400;
   font-display: swap;
-  src: url("./assets/fonts/Inter-Variable.woff2") format("woff2");
+  src:
+    local("HarmonyOS Sans SC"),
+    local("HarmonyOS Sans");
 }
 
 /* DM Mono Font Family
@@ -20,18 +25,6 @@
   src:
     local("DM Mono"),
     url("https://cdn.jsdelivr.net/npm/@fontsource/dm-mono@5.1.0/files/dm-mono-latin-400-normal.woff2")
-      format("woff2");
-}
-
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src:
-    local("HarmonyOS Sans SC"),
-    local("HarmonyOS Sans"),
-    url("https://cdn.jsdelivr.net/gh/eachann1024/Resources@d6dc229cd882dc0983dc5ce7cf28fb85047a4a76/%E9%B8%BF%E8%92%99%E9%BB%91%E4%BD%93-HarmonyOS%20Sans%20SC.woff2")
       format("woff2");
 }
 

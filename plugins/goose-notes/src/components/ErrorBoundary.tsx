@@ -22,6 +22,13 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary] render failed", error, info);
+    try {
+      window.__gooseNoteReportError?.(error, {
+        componentStack: info.componentStack,
+      });
+    } catch {
+      // 上报失败不能再炸业务
+    }
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {

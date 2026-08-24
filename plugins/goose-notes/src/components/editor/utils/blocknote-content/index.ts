@@ -106,11 +106,15 @@ export function extractPlainText(content: PageContent | undefined): string {
 export function extractBlockNoteTitle(
   content: PageContent | undefined,
 ): string {
-  const blocks = normalizePageContent(content);
-  const first = blocks[0] as any;
-  if (first?.type === "heading") {
-    const text = extractPlainText([first] as BlockNoteContent);
-    if (text) return text;
+  try {
+    const blocks = normalizePageContent(content);
+    const first = blocks[0] as any;
+    if (first?.type === "heading") {
+      const text = extractPlainText([first] as BlockNoteContent);
+      if (text) return text;
+    }
+    return "无标题";
+  } catch {
+    return "无标题";
   }
-  return "无标题";
 }

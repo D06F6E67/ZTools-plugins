@@ -1,8 +1,15 @@
 import React, { useCallback, useState } from "react";
-import { Copy, Download, Loader2 } from "lucide-react";
+import { Copy, Download, Loader2, Maximize2 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { toast } from "@/components/ui/sonner";
+import { FullscreenPreview } from "@/components/preview/FullscreenPreview";
 import { calculateContentAwarePixelRatio } from "@/lib/imageExport/svgToPng";
+import {
+  PREVIEW_ACTION_TOOLTIP,
+  openPreviewInSystem,
+  previewPointerHandlers,
+  type PreviewContent,
+} from "@/lib/preview/previewAction";
 import { shell } from "@/lib/utools/shell";
 import { dialogs } from "@/lib/utools/dialogs";
 import { fs } from "@/lib/utools/fs";
@@ -12,6 +19,8 @@ export interface DatavizToolbarProps {
   blockType?: "echarts" | "html";
   /** 自定义截图函数，传入时优先使用，不再依赖 targetRef + blockType */
   onCapture?: () => Promise<string>;
+  /** 自定义预览内容；HTML 组件走原文档，避免 html-to-image 空白 */
+  onPreview?: () => Promise<PreviewContent>;
 }
 
 /** 优先用 ECharts 原生 getDataURL，HTML 组件回退到 html-to-image */
@@ -24,7 +33,7 @@ async function captureImage(
   const pixelRatio = calculateContentAwarePixelRatio(width, height);
 
   if (blockType === "echarts") {
-    const echarts = await import("echarts");
+    const { echarts } = await import("@/agent/renderers/echarts/registerEcharts");
     const instance = echarts.getInstanceByDom(el);
     if (instance) {
       return instance.getDataURL({
@@ -38,9 +47,13 @@ async function captureImage(
 }
 
 export const DatavizToolbar: React.FC<DatavizToolbarProps> = React.memo(
-  ({ targetRef, blockType, onCapture }) => {
+  ({ targetRef, blockType, onCapture, onPreview }) => {
     const [copyLoading, setCopyLoading] = useState(false);
     const [downloadLoading, setDownloadLoading] = useState(false);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewContent, setPreviewContent] = useState<PreviewContent | null>(
+      null,
+    );
 
     const capture = useCallback(async () => {
       if (onCapture) return onCapture();
@@ -104,8 +117,62 @@ export const DatavizToolbar: React.FC<DatavizToolbarProps> = React.memo(
       }
     }, [capture, onCapture, targetRef]);
 
+    const canCapture = Boolean(onCapture || targetRef?.current);
+    const canPreview = Boolean(onPreview || canCapture);
+
+    const resolvePreview = useCallback(async (): Promise<PreviewContent> => {
+      if (onPreview) return onPreview();
+      return { kind: "image", data: await capture(), fileName: "chart.png" };
+    }, [onPreview, capture]);
+
+    const handleInternalPreview = useCallback(async () => {
+      if (!canPreview) return;
+      setPreviewLoading(true);
+      try {
+        setPreviewContent(await resolvePreview());
+      } catch (err) {
+        toast.error(
+          `预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+        );
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, [canPreview, resolvePreview]);
+
+    const handleSystemPreview = useCallback(async () => {
+      if (!canPreview) return;
+      setPreviewLoading(true);
+      try {
+        await openPreviewInSystem(await resolvePreview());
+      } catch (err) {
+        toast.error(
+          `系统预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+        );
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, [canPreview, resolvePreview]);
+
     return (
+      <>
       <div className="goose-editor-inline-context-ui absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-[9999] pointer-events-none">
+        <button
+          type="button"
+          disabled={previewLoading}
+          title={PREVIEW_ACTION_TOOLTIP}
+          className="pointer-events-auto flex items-center justify-center w-7 h-7 rounded-lg border border-border/50 shadow-sm backdrop-blur-sm transition-colors cursor-pointer bg-background/80 hover:bg-background/95"
+          {...previewPointerHandlers({
+            disabled: previewLoading,
+            onInternal: handleInternalPreview,
+            onSystem: handleSystemPreview,
+          })}
+        >
+          {previewLoading ? (
+            <Loader2 className="animate-spin" size={14} />
+          ) : (
+            <Maximize2 size={14} />
+          )}
+        </button>
         <button
           type="button"
           onClick={handleCopy}
@@ -133,6 +200,12 @@ export const DatavizToolbar: React.FC<DatavizToolbarProps> = React.memo(
           )}
         </button>
       </div>
+      <FullscreenPreview
+        open={Boolean(previewContent)}
+        content={previewContent}
+        onClose={() => setPreviewContent(null)}
+      />
+      </>
     );
   },
 );

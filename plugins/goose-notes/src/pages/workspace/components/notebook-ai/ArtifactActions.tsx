@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Download, FilePlus2, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Copy, Download, FilePlus2, Image as ImageIcon, Loader2, Maximize2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,7 +8,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { FullscreenPreview } from "@/components/preview/FullscreenPreview";
 import { saveBlobAndReveal } from "@/lib/export/fileSave";
+import {
+  PREVIEW_ACTION_TOOLTIP,
+  openPreviewInSystem,
+  previewPointerHandlers,
+  type PreviewContent,
+} from "@/lib/preview/previewAction";
 import { shell } from "@/lib/utools/shell";
 import type { ArtifactInsertResult } from "./insertArtifact";
 
@@ -24,6 +31,11 @@ interface ArtifactActionsProps {
   /** 下载渲染图为 PNG */
   onDownloadImage?: () => Promise<Blob>;
   downloadImageFilename?: string;
+  /** 生成预览内容；左键全屏、右键系统。优先于 onPreviewImage */
+  onPreview?: () => Promise<PreviewContent>;
+  /** 生成预览图（data URL 或 Blob）；没有 onPreview 时作为图片预览 */
+  onPreviewImage?: () => Promise<string | Blob>;
+  previewFilename?: string;
   onInsert?: () => Promise<ArtifactInsertResult> | ArtifactInsertResult;
 }
 
@@ -90,23 +102,50 @@ export function ArtifactActions({
   onCopyImage,
   onDownloadImage,
   downloadImageFilename = "artifact.png",
+  onPreview,
+  onPreviewImage,
+  previewFilename = "preview.png",
   onInsert,
 }: ArtifactActionsProps) {
   const [copyingImage, setCopyingImage] = useState(false);
   const [downloadingImage, setDownloadingImage] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewContent, setPreviewContent] = useState<PreviewContent | null>(
+    null,
+  );
 
   const hasSourceCopy = Boolean(copySource?.trim());
   const hasImageCopy = Boolean(onCopyImage);
   const hasImageDownload = Boolean(onDownloadImage);
   const hasSourceDownload = Boolean(downloadSource?.trim()) && !hasImageDownload;
+  const hasPreview = Boolean(onPreview || onPreviewImage);
 
-  if (!hasSourceCopy && !hasImageCopy && !hasImageDownload && !hasSourceDownload && !onInsert) {
+  if (
+    !hasSourceCopy &&
+    !hasImageCopy &&
+    !hasImageDownload &&
+    !hasSourceDownload &&
+    !hasPreview &&
+    !onInsert
+  ) {
     return null;
   }
 
+  const resolvePreview = async (): Promise<PreviewContent> => {
+    if (onPreview) return onPreview();
+    if (onPreviewImage) {
+      return {
+        kind: "image",
+        data: await onPreviewImage(),
+        fileName: previewFilename,
+      };
+    }
+    throw new Error("预览不可用");
+  };
+
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="notebook-ai-artifact-actions pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1 rounded-[8px] bg-background/95 p-1 opacity-0 shadow-[0_8px_22px_rgba(15,23,42,0.08)] transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+      <div className="notebook-ai-artifact-actions flex shrink-0 items-center gap-0.5">
         {hasImageCopy ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -163,63 +202,6 @@ export function ArtifactActions({
           </Tooltip>
         ) : null}
 
-        {hasImageDownload ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={iconBtnClass}
-                aria-label="下载图片"
-                disabled={downloadingImage}
-                onClick={() => {
-                  if (!onDownloadImage || downloadingImage) return;
-                  setDownloadingImage(true);
-                  void (async () => {
-                    try {
-                      const blob = await onDownloadImage();
-                      await saveBlobAndReveal(blob, downloadImageFilename);
-                      toast.success("已保存");
-                    } catch (err) {
-                      toast.error(
-                        `下载失败: ${err instanceof Error ? err.message : "未知错误"}`,
-                      );
-                    } finally {
-                      setDownloadingImage(false);
-                    }
-                  })();
-                }}
-              >
-                {downloadingImage ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
-                ) : (
-                  <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>下载图片</TooltipContent>
-          </Tooltip>
-        ) : hasSourceDownload ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={iconBtnClass}
-                aria-label="下载"
-                onClick={() =>
-                  void downloadText(downloadSource!, filename, mimeType)
-                }
-              >
-                <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>下载</TooltipContent>
-          </Tooltip>
-        ) : null}
-
         {onInsert ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -242,7 +224,115 @@ export function ArtifactActions({
             <TooltipContent>插入当前笔记</TooltipContent>
           </Tooltip>
         ) : null}
+
+        {hasPreview ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={iconBtnClass}
+                disabled={previewing}
+                {...previewPointerHandlers({
+                  disabled: previewing,
+                  onInternal: () => {
+                    if (previewing) return;
+                    setPreviewing(true);
+                    void (async () => {
+                      try {
+                        setPreviewContent(await resolvePreview());
+                      } catch (err) {
+                        toast.error(
+                          `预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+                        );
+                      } finally {
+                        setPreviewing(false);
+                      }
+                    })();
+                  },
+                  onSystem: () => {
+                    if (previewing) return;
+                    setPreviewing(true);
+                    void (async () => {
+                      try {
+                        await openPreviewInSystem(await resolvePreview());
+                      } catch (err) {
+                        toast.error(
+                          `系统预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+                        );
+                      } finally {
+                        setPreviewing(false);
+                      }
+                    })();
+                  },
+                })}
+              >
+                {previewing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{PREVIEW_ACTION_TOOLTIP}</TooltipContent>
+          </Tooltip>
+        ) : null}
+
+        {hasImageDownload ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="notebook-ai-canvas-card-download h-7 gap-1 rounded-[7px] px-2 text-xs text-muted-foreground hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground"
+            aria-label="下载图片"
+            disabled={downloadingImage}
+            onClick={() => {
+              if (!onDownloadImage || downloadingImage) return;
+              setDownloadingImage(true);
+              void (async () => {
+                try {
+                  const blob = await onDownloadImage();
+                  await saveBlobAndReveal(blob, downloadImageFilename);
+                  toast.success("已保存");
+                } catch (err) {
+                  toast.error(
+                    `下载失败: ${err instanceof Error ? err.message : "未知错误"}`,
+                  );
+                } finally {
+                  setDownloadingImage(false);
+                }
+              })();
+            }}
+          >
+            {downloadingImage ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+            ) : (
+              <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+            )}
+            下载
+          </Button>
+        ) : hasSourceDownload ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="notebook-ai-canvas-card-download h-7 gap-1 rounded-[7px] px-2 text-xs text-muted-foreground hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground"
+            aria-label="下载"
+            onClick={() =>
+              void downloadText(downloadSource!, filename, mimeType)
+            }
+          >
+            <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+            下载
+          </Button>
+        ) : null}
       </div>
+      <FullscreenPreview
+        open={Boolean(previewContent)}
+        content={previewContent}
+        onClose={() => setPreviewContent(null)}
+      />
     </TooltipProvider>
   );
 }

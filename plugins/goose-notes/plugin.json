@@ -2,7 +2,8 @@
   "pluginName": "鹅的笔记",
   "description": "本地化的Notion风格笔记",
   "author": "Antigravity",
-  "version": "0.0.1",
+  "homepage": "https://github.com/eachann1024/goose-notes",
+  "version": "9.0.1",
   "logo": "public/logo.png",
   "pluginSetting": {
     "single": true,

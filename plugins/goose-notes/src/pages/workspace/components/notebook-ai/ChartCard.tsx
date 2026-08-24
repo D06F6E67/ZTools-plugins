@@ -2,17 +2,23 @@
  * showChart 工具的输出渲染卡片
  * 与编辑器 EChartsBlock 共用 chartTheme / chartPalette，保证视觉一致
  */
-import { useCallback, useEffect, useMemo, useRef, useId } from "react";
+import { useCallback, useEffect, useMemo, useRef, useId, type RefObject } from "react";
 import { useSettings } from "@/stores/useSettings";
 import { useResolvedTheme } from "@/hooks/useResolvedTheme";
+import type { EditorRef } from "@/components/editor/core/Editor";
 import {
   buildOption,
+  hasRenderableChartSeries,
   type SimplifiedConfig,
   type ChartType,
 } from "@/agent/renderers/echarts/chartTheme";
 import { getPalette } from "@/agent/renderers/echarts/chartPalette";
 import { calculateContentAwarePixelRatio } from "@/lib/imageExport/svgToPng";
 import { ArtifactActions } from "./ArtifactActions";
+import {
+  createImageArtifactBlocks,
+  insertArtifactBlocks,
+} from "./insertArtifact";
 
 interface ChartSeries {
   name: string;
@@ -24,6 +30,7 @@ interface ChartCardProps {
   title?: string;
   categories?: string[];
   series: ChartSeries[];
+  editorRef?: RefObject<EditorRef | null>;
 }
 
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
@@ -32,6 +39,33 @@ async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   const blob = await response.blob();
   if (!blob.size) throw new Error("图表导出为空");
   return blob;
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("图片编码失败"));
+    };
+    reader.onerror = () => reject(new Error("图片编码失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export function ChartIncompleteNotice({ title }: { title?: string }) {
+  return (
+    <div className="notebook-ai-canvas-card my-2 overflow-hidden">
+      {title ? (
+        <div className="notebook-ai-canvas-card-header">
+          <div className="notebook-ai-canvas-card-title">{title}</div>
+        </div>
+      ) : null}
+      <div className="px-3.5 py-6 text-sm text-muted-foreground">
+        图表数据不完整
+      </div>
+    </div>
+  );
 }
 
 export function ChartCard(props: ChartCardProps) {
@@ -53,7 +87,10 @@ export function ChartCard(props: ChartCardProps) {
   } | null>(null);
   const uid = useId();
 
+  const hasSeries = hasRenderableChartSeries(props.series);
+
   const option = useMemo(() => {
+    if (!hasRenderableChartSeries(props.series)) return null;
     // 标题由卡片外层 DOM 展示，option 内不再重复画 title
     const cfg: SimplifiedConfig = {
       type: props.type as ChartType,
@@ -73,14 +110,14 @@ export function ChartCard(props: ChartCardProps) {
     let chart: typeof chartRef.current = null;
 
     const init = async () => {
-      if (!containerRef.current) return;
-      const echarts = await import("echarts");
+      if (!hasSeries || !containerRef.current) return;
+      const { echarts } = await import("@/agent/renderers/echarts/registerEcharts");
       if (disposed || !containerRef.current) return;
       chart = echarts.init(containerRef.current, undefined, {
         renderer: "svg",
       }) as typeof chartRef.current;
       chartRef.current = chart;
-      chart?.setOption(option, { notMerge: true });
+      if (option) chart?.setOption(option, { notMerge: true });
     };
 
     void init();
@@ -109,6 +146,7 @@ export function ChartCard(props: ChartCardProps) {
 
   // 配置 / 主题变化时重绘
   useEffect(() => {
+    if (!option) return;
     chartRef.current?.setOption(option, { notMerge: true });
   }, [option]);
 
@@ -133,16 +171,29 @@ export function ChartCard(props: ChartCardProps) {
     return dataUrlToBlob(await capturePngDataUrl());
   }, [capturePngDataUrl]);
 
+  if (!hasSeries) {
+    return <ChartIncompleteNotice title={props.title} />;
+  }
+
   return (
-    <div className="notebook-ai-chart-card group relative my-2 overflow-hidden">
-      <ArtifactActions
-        onCopyImage={capturePngDataUrl}
-        onDownloadImage={capturePngBlob}
-        downloadImageFilename="chart.png"
-      />
-      {props.title ? (
-        <div className="notebook-ai-chart-card-title">{props.title}</div>
-      ) : null}
+    <div className="notebook-ai-canvas-card my-2 overflow-hidden">
+      <div className="notebook-ai-canvas-card-header">
+        <div className="notebook-ai-canvas-card-title">{props.title?.trim() || "图表"}</div>
+        <ArtifactActions
+          onCopyImage={capturePngDataUrl}
+          onDownloadImage={capturePngBlob}
+          downloadImageFilename="chart.png"
+          onPreviewImage={capturePngDataUrl}
+          previewFilename="chart.png"
+          onInsert={async () => {
+            const dataUrl = await blobToDataUrl(await capturePngBlob());
+            return insertArtifactBlocks(
+              props.editorRef,
+              createImageArtifactBlocks(props.title, dataUrl, "图表"),
+            );
+          }}
+        />
+      </div>
       <div
         ref={containerRef}
         className="notebook-ai-chart-card-canvas"

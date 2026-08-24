@@ -47,9 +47,7 @@ ${globalPrompt ? `# 用户全局提示词\n\n${globalPrompt}\n` : ""}
 
 - 当前笔记本：${notebookName}
 - 当前笔记本 id：${notebookId}
-- 当前打开页面：${activePageLine}
-
-先判断本轮需求是否在路由能力内。然后调用 loadSkill 加载最匹配的 Skill，再执行。`;
+- 当前打开页面：${activePageLine}`;
 }
 
 export type BuildPiAgentResult =

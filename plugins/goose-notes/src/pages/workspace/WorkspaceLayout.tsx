@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type ComponentProps, type RefObject, useEffect, useRef } from "react";
 import * as LucideIcons from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,28 @@ import {
 } from "./components/notebook-ai/useNotebookAiPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { subscribePageTitleFocus } from "@/lib/page-title-focus";
+
+function GuardedNotebookAiPanel(props: ComponentProps<typeof NotebookAiPanel>) {
+  return (
+    <ErrorBoundary
+      resetKey={props.notebookId}
+      fallback={(_, reset) => (
+        <div className="flex min-h-[260px] min-w-[240px] flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
+          <p>AI 面板渲染失败，已阻止整窗白屏。</p>
+          <button
+            type="button"
+            onClick={reset}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-[var(--goose-interactive-hover)]"
+          >
+            重试
+          </button>
+        </div>
+      )}
+    >
+      <NotebookAiPanel {...props} />
+    </ErrorBoundary>
+  );
+}
 
 interface WorkspaceLayoutProps {
   isDragging: boolean;
@@ -429,7 +451,7 @@ function NotebookAiWorkspaceBody({
                     </div>
                     {showSideAiPanel && aiNotebookId ? (
                       <NotebookAiHostScope notebookId={aiNotebookId}>
-                        <NotebookAiPanel
+                        <GuardedNotebookAiPanel
                           key={`welcome-${aiNotebookId}`}
                           notebookId={aiNotebookId}
                           onClose={closeAiPanel}
@@ -483,7 +505,7 @@ function NotebookAiWorkspaceBody({
                         <FolderHomePage page={page} />
                       </div>
                       {showSideAiPanel && aiNotebookId ? (
-                        <NotebookAiPanel
+                        <GuardedNotebookAiPanel
                           key={`folder-${aiNotebookId}`}
                           notebookId={aiNotebookId}
                           onClose={closeAiPanel}
@@ -557,7 +579,7 @@ function NotebookAiWorkspaceBody({
                       </div>
                       {/* 侧栏并排 AI 面板 */}
                       {showSideAiPanel && aiNotebookId ? (
-                        <NotebookAiPanel
+                        <GuardedNotebookAiPanel
                           key={aiNotebookId}
                           notebookId={aiNotebookId}
                           onClose={closeAiPanel}
@@ -607,7 +629,7 @@ function NotebookAiWorkspaceBody({
                 />
                 <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[hsl(var(--goose-editor-bg))]">
                   <NotebookAiHostScope notebookId={aiNotebookId}>
-                    <NotebookAiPanel
+                    <GuardedNotebookAiPanel
                       key={`fullscreen-${aiNotebookId}`}
                       notebookId={aiNotebookId}
                       onClose={closeAiPanel}

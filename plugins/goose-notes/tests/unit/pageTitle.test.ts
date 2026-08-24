@@ -63,3 +63,28 @@ test("空顶栏名称持久化为未命名", () => {
   });
   expect(merged[1]?.content).toBe("正文");
 });
+
+test("坏 content 不抛并回退未命名", () => {
+  expect(
+    getPageTitle({
+      ...pageBase,
+      content: undefined as unknown as Page["content"],
+    }),
+  ).toBe(UNTITLED_PAGE_TITLE);
+
+  expect(() =>
+    getPageTitle({
+      ...pageBase,
+      content: { foo: 1 } as unknown as Page["content"],
+    }),
+  ).not.toThrow();
+  expect(
+    getPageTitle({
+      ...pageBase,
+      content: { foo: 1 } as unknown as Page["content"],
+    }),
+  ).toBe(UNTITLED_PAGE_TITLE);
+
+  expect(() => getPageTitle(null as unknown as Page)).not.toThrow();
+  expect(getPageTitle(null as unknown as Page)).toBe(UNTITLED_PAGE_TITLE);
+});

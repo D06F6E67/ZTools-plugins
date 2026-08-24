@@ -129,6 +129,7 @@ declare global {
   const QUICKNOTE_ZOOM_MAX: typeof import('./stores/useQuickNote').QUICKNOTE_ZOOM_MAX
   const QUICKNOTE_ZOOM_MIN: typeof import('./stores/useQuickNote').QUICKNOTE_ZOOM_MIN
   const QUICKNOTE_ZOOM_STEP: typeof import('./stores/useQuickNote').QUICKNOTE_ZOOM_STEP
+  const REMOTE_FONT_SOURCES: typeof import('./lib/fontLoader').REMOTE_FONT_SOURCES
   const REMOVED_APP_SHORTCUT_IDS: typeof import('./lib/fixed-app-shortcuts').REMOVED_APP_SHORTCUT_IDS
   const ScrollArea: typeof import('./components/ui/scroll-area').ScrollArea
   const ScrollBar: typeof import('./components/ui/scroll-area').ScrollBar
@@ -493,6 +494,7 @@ declare global {
   const syncAccentColorCssVars: typeof import('./lib/accentColor').syncAccentColorCssVars
   const testWebdavConnection: typeof import('./lib/webdavSync').testWebdavConnection
   const titleHeadingBlock: typeof import('./components/editor/utils/blocknote-content/index').titleHeadingBlock
+  const toCssFontFamily: typeof import('./lib/fontLoader').toCssFontFamily
   const toRelativePath: typeof import('./lib/local-page-idmap').toRelativePath
   const toast: typeof import('./components/ui/sonner').toast
   const toggleVariants: typeof import('./components/ui/toggle').toggleVariants

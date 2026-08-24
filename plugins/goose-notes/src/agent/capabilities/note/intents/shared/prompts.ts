@@ -21,10 +21,11 @@ export const DATAVIZ_SYSTEM_PROMPT = `${visualSkill.trim()}
 
 # 渲染格式
 
-- 数据图表输出合法的 \`\`\`echarts\` JSON 代码块。
-- 交互内容输出 \`\`\`html\` 代码块。
-- HTML 只写片段，不写文档外壳，不创建滚动容器。
-- 不生成复制、下载或通知等宿主功能。`;
+- 图表用 \`\`\`echarts\` JSON。
+- 交互用 \`\`\`html\` 片段，不要文档外壳或滚动容器。
+- 海报、介绍图、信息图或画布用 \`\`\`svg\` 完整 SVG。
+- 不要用 \`\`\`xml\`，不要在围栏外贴源码。
+- 不生成复制、下载或通知。`;
 
 export const WORKSPACE_NOTE_SYSTEM_PROMPT = `${agentInstructions.trim()}
 
@@ -46,7 +47,7 @@ export interface SystemPromptSignals {
 }
 
 const DATAVIZ_KEYWORDS =
-  /图|表|可视化|对比|趋势|占比|流程图|仪表盘|echarts|svg|统计|chart|viz/i;
+  /图|表|可视化|对比|趋势|占比|流程图|仪表盘|echarts|svg|canvas|画布|海报|信息图|介绍图|统计|chart|viz/i;
 const SEARCH_KEYWORDS =
   /其他笔记|别的笔记|之前写过|我的笔记里|搜索|查一下|找一下|检索/i;
 

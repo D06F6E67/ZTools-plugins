@@ -51,24 +51,34 @@ export function DiagramCard({ title, source, editorRef }: DiagramCardProps) {
   }, [resolvedTheme, source, svg]);
 
   return (
-    <div className="group relative my-2 overflow-hidden rounded-[8px] bg-[var(--goose-interactive-hover)]">
-      <ArtifactActions
-        copySource={source}
-        onCopyImage={async () => capturePng()}
-        onDownloadImage={capturePng}
-        downloadImageFilename="diagram.png"
-        onInsert={() =>
-          insertArtifactBlocks(
-            editorRef,
-            createMermaidArtifactBlocks(title, source),
-          )
-        }
-      />
-      {title ? (
-        <div className="px-3 py-2 text-xs font-medium text-foreground">
-          {title}
-        </div>
-      ) : null}
+    <div className="notebook-ai-canvas-card my-2 overflow-hidden">
+      <div className="notebook-ai-canvas-card-header">
+        <div className="notebook-ai-canvas-card-title">{title?.trim() || "图形"}</div>
+        <ArtifactActions
+          copySource={source}
+          onCopyImage={async () => capturePng()}
+          onDownloadImage={capturePng}
+          downloadImageFilename="diagram.png"
+          onPreview={async () => {
+            const markup =
+              svg ||
+              (await renderMermaidSvgForExport(source, resolvedTheme));
+            if (!markup.trim()) throw new Error("图形尚未就绪");
+            return {
+              kind: "svg",
+              markup,
+              fileName: "diagram.svg",
+              background: resolvedTheme === "dark" ? "#1F1E1C" : "#ffffff",
+            };
+          }}
+          onInsert={() =>
+            insertArtifactBlocks(
+              editorRef,
+              createMermaidArtifactBlocks(title, source),
+            )
+          }
+        />
+      </div>
       {svg ? (
         <ArtifactPanZoom contentKey={`${resolvedTheme}:${source}`} minHeight={280}>
           <div

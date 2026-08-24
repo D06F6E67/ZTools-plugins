@@ -149,6 +149,20 @@ export function SidebarContextMenu({
     if (!ok) toast.error("打开失败，请检查终端设置");
   };
 
+  const handleCopyFilePath = async () => {
+    const targetPath = page.localFilePath;
+    if (!targetPath) return;
+    try {
+      shell.copyText(targetPath);
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(targetPath);
+      }
+      toast.success(page.isFolder ? "已复制文件夹路径" : "已复制文件路径");
+    } catch {
+      toast.error("复制失败");
+    }
+  };
+
   return (
     <>
       <ContextMenu>
@@ -214,6 +228,12 @@ export function SidebarContextMenu({
             <ContextMenuItem onSelect={() => void handleOpenInTerminal()}>
               <LucideIcons.Terminal className="h-4 w-4" />
               <span>{getTerminalLabel(localFolderTerminal)}</span>
+            </ContextMenuItem>
+          )}
+          {isLocalFolder && !isTrashed && page.localFilePath && (
+            <ContextMenuItem onSelect={() => void handleCopyFilePath()}>
+              <LucideIcons.ClipboardCopy className="h-4 w-4" />
+              <span>{page.isFolder ? "复制文件夹路径" : "复制文件路径"}</span>
             </ContextMenuItem>
           )}
           {!isTrashed && !isLocalFolder && (

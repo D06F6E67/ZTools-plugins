@@ -10,8 +10,10 @@ import { convertImageBlobToPng } from "@/lib/imageProcessor";
 import { useEditorPlatform } from "@/components/editor/platform/context";
 import {
   useEditorPageContext,
-  useEditorSettings,
 } from "@/components/editor/platform/hostContext";
+import {
+  PREVIEW_ACTION_TOOLTIP,
+} from "@/lib/preview/previewAction";
 import { openResourceExternally } from "@/components/editor/utils/openResourceExternally";
 import {
   resolveImageSrc,
@@ -53,7 +55,6 @@ export function ImageLightbox({
   const selectedImageRef = useRef<SelectedImageState | null>(null);
   const platform = useEditorPlatform();
   const { getActivePageLocalFilePath } = useEditorPageContext();
-  const { useInternalImageViewer } = useEditorSettings();
 
   const cleanupObjectUrls = useCallback(() => {
     objectUrlsRef.current.forEach((url) => {
@@ -128,19 +129,8 @@ export function ImageLightbox({
     [editorContainerRef, buildSlides],
   );
 
-  const openImageAtElement = useCallback(
+  const openImageInSystemViewer = useCallback(
     async (img: HTMLImageElement) => {
-      // 速记小窗：双击始终交给系统查看器，不走内置灯箱回退（小窗无完整 gooseFs
-      // 时会误弹「已改用内置预览」；preload 已补最小 writeTempFile）。
-      const preferSystemViewer =
-        (typeof __GOOSE_LITE__ !== "undefined" && __GOOSE_LITE__) ||
-        !useInternalImageViewer;
-
-      if (!preferSystemViewer) {
-        await openLightboxAtImage(img);
-        return;
-      }
-
       const container = editorContainerRef.current;
       if (!container) return;
       const imageIndex = getImageElements(container).indexOf(img);
@@ -163,27 +153,15 @@ export function ImageLightbox({
         loadInternalResource: (source) => platform.imageStorage.load(source),
       });
       if (result.ok) return;
-
-      // 小窗：只报失败，不改用内置预览，避免「明明想系统打开却弹出灯箱」。
-      if (typeof __GOOSE_LITE__ !== "undefined" && __GOOSE_LITE__) {
-        toast.error("系统图片查看器打开失败", {
-          description: result.error || "未知错误",
-        });
-        return;
-      }
-
       toast.error("系统图片查看器打开失败", {
-        description: `${result.error || "未知错误"}，已改用内置预览`,
+        description: result.error || "未知错误",
       });
-      await openLightboxAtImage(img);
     },
     [
       editor,
       editorContainerRef,
       getActivePageLocalFilePath,
-      openLightboxAtImage,
       platform,
-      useInternalImageViewer,
     ],
   );
 
@@ -198,9 +176,9 @@ export function ImageLightbox({
       event.preventDefault();
       event.stopPropagation();
 
-      await openImageAtElement(img);
+      await openLightboxAtImage(img);
     },
-    [openImageAtElement],
+    [openLightboxAtImage],
   );
 
   useEffect(() => {
@@ -417,8 +395,16 @@ export function ImageLightbox({
     if (!container || !selectedImage) return;
     const img = getImageElements(container)[selectedImage.index];
     if (!img) return;
-    await openImageAtElement(img);
-  }, [editorContainerRef, openImageAtElement, selectedImage]);
+    await openLightboxAtImage(img);
+  }, [editorContainerRef, openLightboxAtImage, selectedImage]);
+
+  const handleSelectedImageSystemPreview = useCallback(async () => {
+    const container = editorContainerRef.current;
+    if (!container || !selectedImage) return;
+    const img = getImageElements(container)[selectedImage.index];
+    if (!img) return;
+    await openImageInSystemViewer(img);
+  }, [editorContainerRef, openImageInSystemViewer, selectedImage]);
 
   const getSelectedImageRect = useCallback(() => {
     const container = editorContainerRef.current;
@@ -447,14 +433,10 @@ export function ImageLightbox({
           selectedImage={selectedImage}
           applyImageAlignment={applyImageAlignment}
           handleSelectedImageZoom={handleSelectedImageZoom}
+          handleSelectedImageSystemPreview={handleSelectedImageSystemPreview}
           handleSelectedImageCopy={handleSelectedImageCopy}
           handleSelectedImageDownload={handleSelectedImageDownload}
-          openImageLabel={
-            (typeof __GOOSE_LITE__ !== "undefined" && __GOOSE_LITE__) ||
-            !useInternalImageViewer
-              ? "使用系统打开图片"
-              : "放大图片"
-          }
+          openImageLabel={PREVIEW_ACTION_TOOLTIP}
           floatingBoundary={
             !__GOOSE_EDITOR_COMPACT__ ? editorContainerRef.current : undefined
           }
@@ -492,6 +474,11 @@ export function ImageLightbox({
           className="goose-image-lightbox"
           toolbar={{
             buttons: [
+              <div key="title" className="goose-image-lightbox-title">
+                {currentSlide?.alt || "图片预览"}
+              </div>,
+              // Zoom 插件默认把按钮前置插入工具条；用占位符锁定它在右侧操作组的位置
+              "zoom",
               <button
                 key="download"
                 type="button"
@@ -536,9 +523,6 @@ export function ImageLightbox({
             ),
             buttonPrev: slides.length <= 1 ? () => null : undefined,
             buttonNext: slides.length <= 1 ? () => null : undefined,
-          }}
-          styles={{
-            container: { backgroundColor: "transparent" },
           }}
           on={{ view: ({ index: newIndex }) => setIndex(newIndex) }}
         />

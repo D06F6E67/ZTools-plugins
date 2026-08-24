@@ -53,10 +53,16 @@ skills-lock.json
 tasks/
 scripts/*
 !scripts/utools-build.js
+!scripts/check-utools-size.js
+!scripts/utools-size-baseline.json
+!scripts/audit-native-editor.mjs
+!scripts/serve-native-editor.mjs
 # stray verification screenshots in repo root
 /*.png
+!cover.png
+!series-features.png
 
-app/
+# app/ 是 ZTools 入口（plugin.json main=app/index.html），发布必须带上
 未命名/
 
 # PDF CJK font (downloaded at build; not committed)

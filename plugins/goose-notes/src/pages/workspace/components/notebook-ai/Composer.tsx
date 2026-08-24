@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ImagePlus, Send, Square } from "lucide-react";
+import { ArrowUp, Plus } from "lucide-react";
 import { ComposerPrimitive } from "@assistant-ui/react";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
@@ -265,11 +265,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
           event.preventDefault();
           handleSubmit();
         }}
-        className={cn("shrink-0", isFullscreen ? "px-6 py-3" : "px-3 py-2.5")}
+        className={cn(
+          "pointer-events-none",
+          isFullscreen ? "px-6 pb-5" : "px-3 pb-3",
+        )}
       >
         <div
           className={cn(
-            "mx-auto w-full",
+            "pointer-events-auto mx-auto w-full",
             isFullscreen ? "max-w-[720px]" : "max-w-none",
           )}
         >
@@ -277,7 +280,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
             <div
               className={cn(
                 "bui-root flex flex-col rounded-[16px] bg-[var(--goose-interactive-hover)] px-3 py-2.5",
-                "shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.22)]",
+                "shadow-[0_10px_28px_rgba(15,23,42,0.12),0_0_0_1px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_28px_rgba(0,0,0,0.38),0_0_0_1px_rgba(255,255,255,0.06)]",
                 "transition-colors duration-150",
                 dropActive &&
                   "ring-2 ring-[var(--goose-interactive-selected)] ring-offset-1 ring-offset-background",
@@ -308,9 +311,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
               />
 
               <div className="mt-1.5 flex items-center gap-1">
-                <ModelSelectorPopover disabled={disabled} />
-                <div className="flex-1" />
-
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -324,49 +324,52 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={disabled || isStreaming}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:bg-[var(--goose-icon-chip-on-selected)] hover:text-foreground dark:hover:bg-[var(--goose-interactive-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                    "text-[#3f3f46] transition-colors duration-150",
+                    "bg-[#e8e8ec] hover:bg-[#dcdce2] hover:text-[#18181b]",
+                    "dark:bg-[#3f3f46] dark:text-[#e4e4e7] dark:hover:bg-[#52525b] dark:hover:text-[#fafafa]",
+                    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
+                    "disabled:cursor-not-allowed disabled:opacity-40",
+                    isStreaming && "invisible pointer-events-none",
+                  )}
+                  aria-hidden={isStreaming}
+                  tabIndex={isStreaming ? -1 : undefined}
                   aria-label="上传图片"
                   title="上传图片"
                 >
-                  <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
+                  <Plus className="h-[22px] w-[22px]" strokeWidth={1.75} />
                 </button>
 
+                <ModelSelectorPopover disabled={disabled} />
+                <div className="flex-1" />
+
                 {isStreaming ? (
-                  <>
+                  <ComposerPrimitive.Cancel
+                    className="bui-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#171717] text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:bg-[#f4f4f5] dark:text-[#171717]"
+                    aria-label="停止生成"
+                    title="停止生成"
+                  >
                     <LoadingState
                       variant="Dots"
                       compact
                       label=""
                       showElapsed={false}
                     />
-                    <ComposerPrimitive.Cancel
-                      className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px]",
-                        "bg-[var(--goose-interactive-selected)] text-[var(--goose-interactive-selected-fg)]",
-                        "transition-colors duration-150",
-                      )}
-                      aria-label="停止生成"
-                      title="停止生成"
-                    >
-                      <Square className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    </ComposerPrimitive.Cancel>
-                  </>
+                  </ComposerPrimitive.Cancel>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSubmit}
                     disabled={!canClickSend}
                     className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px]",
-                      "transition-colors duration-150",
-                      sendLooksReady
-                        ? "bg-[#58d7b8]/15 text-[#58d7b8] hover:brightness-110"
-                        : "cursor-not-allowed text-muted-foreground opacity-50",
+                      "bui-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#171717] text-white dark:bg-[#f4f4f5] dark:text-[#171717]",
+                      !sendLooksReady && "cursor-not-allowed opacity-35",
                     )}
                     aria-label="发送消息"
                     title="发送消息"
                   >
-                    <Send className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    <ArrowUp className="h-[22px] w-[22px]" strokeWidth={2.25} />
                   </button>
                 )}
               </div>

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useEditorSettings } from "@/components/editor/platform/hostContext";
 import { useResolvedTheme } from "@/hooks/useResolvedTheme";
+import {
+  getMermaidInitConfig,
+  stripMermaidInitDirectives,
+} from "@/lib/imageExport/mermaidTheme";
+import { tryRenderMermaidTimeline } from "@/lib/imageExport/timelineSvg";
 
 interface MermaidViewProps {
   value: string;
@@ -21,17 +26,26 @@ export const MermaidView: React.FC<MermaidViewProps> = ({ value }) => {
         return;
       }
       try {
+        const timeline = tryRenderMermaidTimeline(
+          value,
+          isDark ? "dark" : "light",
+        );
+        if (timeline) {
+          if (active) setSvg(timeline);
+          return;
+        }
         const { default: mermaid } = await import("mermaid");
         if (!active) return;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: isDark ? "dark" : "default",
-          securityLevel: features.mermaidUnsafeHTML ? "loose" : "strict",
-          fontFamily: "inherit",
-          suppressErrorRendering: true,
-        });
+        mermaid.initialize(
+          getMermaidInitConfig({
+            mode: isDark ? "dark" : "light",
+            securityLevel: features.mermaidUnsafeHTML ? "loose" : "strict",
+            fontFamily: "inherit",
+            useMaxWidth: true,
+          }),
+        );
         const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
-        const { svg } = await mermaid.render(id, value);
+        const { svg } = await mermaid.render(id, stripMermaidInitDirectives(value));
         if (!active) return;
         setSvg(svg);
       } catch {

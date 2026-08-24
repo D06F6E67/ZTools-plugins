@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { createPortal } from "react-dom";
 import { createReactBlockSpec } from "@blocknote/react";
 import { createExtension, defaultProps } from "@blocknote/core";
 import {
@@ -30,6 +29,11 @@ import {
   convertImageBlobToPng,
 } from "@/lib/imageProcessor";
 import { toast } from "@/components/ui/sonner";
+import { FullscreenPreview } from "@/components/preview/FullscreenPreview";
+import {
+  openPreviewInSystem,
+  type PreviewContent,
+} from "@/lib/preview/previewAction";
 import { indentCodeSelection } from "./codeBlockIndent";
 
 // 所有宿主均以 highlight.js common（~37 种常用语言）作为代码高亮基线，
@@ -553,68 +557,6 @@ function applyCodeBlockIndentTransaction(tr: any, outdent: boolean) {
   return true;
 }
 
-function CodeBlockPreviewLightbox({
-  open,
-  language,
-  value,
-  onClose,
-}: {
-  open: boolean;
-  language: string;
-  value: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  const title = language === "math" ? "公式预览" : "Mermaid";
-
-  return createPortal(
-    <div
-      className="goose-code-preview-lightbox"
-      contentEditable={false}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="goose-code-preview-lightbox-panel">
-        <div className="goose-code-preview-lightbox-header">
-          <div className="goose-code-preview-lightbox-title">{title}</div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="关闭预览"
-            onClick={onClose}
-            className="goose-code-preview-lightbox-close h-7 w-7 p-0"
-          >
-            <LucideIcons.X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="goose-code-preview-lightbox-body">
-          {language === "math" ? (
-            <MathView value={value} displayMode={true} />
-          ) : (
-            <MermaidView value={value} />
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 function CodeBlockComponent({
   block,
   contentRef,
@@ -640,7 +582,9 @@ function CodeBlockComponent({
   const previewRef = useRef<HTMLDivElement>(null);
   const [showLatexHint, setShowLatexHint] = useState(false);
   const [previewMode, setPreviewMode] = useState<CodePreviewMode>("code");
-  const [isPreviewLightboxOpen, setIsPreviewLightboxOpen] = useState(false);
+  const [previewContent, setPreviewContent] = useState<PreviewContent | null>(
+    null,
+  );
 
   const getCodeContent = useCallback(() => {
     const content = block.content;
@@ -933,6 +877,78 @@ function CodeBlockComponent({
     }
   }, [platform, resolvePreviewPngBlob]);
 
+  const handleSystemPreview = useCallback(async () => {
+    try {
+      const text = getCodeContent().trim();
+      if (!text) throw new Error("无可预览内容");
+
+      if (language === "mermaid") {
+        const svg = await renderMermaidSvgForExport(
+          text,
+          isDarkTheme(theme) ? "dark" : "light",
+        );
+        await openPreviewInSystem({
+          kind: "svg",
+          markup: svg,
+          fileName: "mermaid.svg",
+          background: isDarkTheme(theme) ? "#1F1E1C" : "#ffffff",
+        });
+        return;
+      }
+
+      if (language === "math") {
+        await openPreviewInSystem({
+          kind: "math",
+          source: text,
+          fileName: "formula.html",
+        });
+        return;
+      }
+
+      throw new Error("当前代码块不支持系统预览");
+    } catch (err) {
+      toast.error(
+        `系统预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+      );
+    }
+  }, [getCodeContent, language, theme]);
+
+  const handleInternalPreview = useCallback(async () => {
+    try {
+      const text = getCodeContent().trim();
+      if (!text) throw new Error("无可预览内容");
+
+      if (language === "mermaid") {
+        const svg = await renderMermaidSvgForExport(
+          text,
+          isDarkTheme(theme) ? "dark" : "light",
+        );
+        setPreviewContent({
+          kind: "svg",
+          markup: svg,
+          fileName: "mermaid.svg",
+          background: isDarkTheme(theme) ? "#1F1E1C" : "#ffffff",
+        });
+        return;
+      }
+
+      if (language === "math") {
+        setPreviewContent({
+          kind: "math",
+          source: text,
+          fileName: "formula.html",
+        });
+        return;
+      }
+
+      throw new Error("当前代码块不支持预览");
+    } catch (err) {
+      toast.error(
+        `预览失败: ${err instanceof Error ? err.message : "未知错误"}`,
+      );
+    }
+  }, [getCodeContent, language, theme]);
+
   const textContent = getCodeContent();
   const lineCount = textContent.split("\n").length;
   // 紧凑编辑器构建不渲染 math/mermaid 预览，退化为可编辑源码。
@@ -958,12 +974,12 @@ function CodeBlockComponent({
   useEffect(() => {
     if (!isMathOrMermaid) {
       setPreviewMode("code");
-      setIsPreviewLightboxOpen(false);
+      setPreviewContent(null);
       return;
     }
     if (!canPreview) {
       setPreviewMode("code");
-      setIsPreviewLightboxOpen(false);
+      setPreviewContent(null);
       return;
     }
     setPreviewMode((current) => (current === "code" ? "preview" : current));
@@ -1064,7 +1080,10 @@ function CodeBlockComponent({
           previewMode={previewMode}
           onPreviewModeChange={setPreviewMode}
           onOpenPreview={() => {
-            if (canPreview) setIsPreviewLightboxOpen(true);
+            if (canPreview) void handleInternalPreview();
+          }}
+          onSystemPreview={() => {
+            if (canPreview) void handleSystemPreview();
           }}
           onDownloadPreview={handleDownloadPreview}
           onCopyPreview={handleCopyPreview}
@@ -1111,7 +1130,9 @@ function CodeBlockComponent({
               ref={previewRef}
               contentEditable={false}
               className="goose-code-preview select-none cursor-pointer bg-transparent"
-              onDoubleClick={() => setIsPreviewLightboxOpen(true)}
+              onDoubleClick={() => {
+                if (canPreview) void handleInternalPreview();
+              }}
             >
               {language === "math" && (
                 <MathView value={textContent} displayMode={true} />
@@ -1122,11 +1143,11 @@ function CodeBlockComponent({
         </div>
       )}
 
-      <CodeBlockPreviewLightbox
-        open={isPreviewLightboxOpen}
-        language={language}
-        value={textContent}
-        onClose={() => setIsPreviewLightboxOpen(false)}
+      <FullscreenPreview
+        open={Boolean(previewContent)}
+        content={previewContent}
+        title={language === "math" ? "公式预览" : "Mermaid"}
+        onClose={() => setPreviewContent(null)}
       />
 
       {/* LaTeX hint panel */}
