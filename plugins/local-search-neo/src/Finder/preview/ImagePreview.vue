@@ -15,7 +15,6 @@ const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.25;
 
 const shellRef = shallowRef<HTMLElement | null>(null);
-const imageEl = shallowRef<HTMLImageElement | null>(null);
 const imageNaturalSize = shallowRef<{ width: number; height: number } | null>(null);
 const viewportSize = shallowRef<{ width: number; height: number } | null>(null);
 const zoomLevel = shallowRef(1);
@@ -174,6 +173,8 @@ let scrollTopStart = 0;
 
 function handleMouseDown(event: MouseEvent) {
   if (event.button !== 0 || !shellRef.value) return;
+  if (zoomLevel.value === 1) return;
+
   checkOverflow();
   if (!hasOverflow.value) return;
 
@@ -185,6 +186,12 @@ function handleMouseDown(event: MouseEvent) {
   scrollTopStart = shellRef.value.scrollTop;
   window.addEventListener("mousemove", handleMouseMove);
   window.addEventListener("mouseup", handleMouseUp);
+}
+
+function handleImageDragStart(event: DragEvent) {
+  if (zoomLevel.value !== 1) {
+    event.preventDefault();
+  }
 }
 
 function handleMouseMove(event: MouseEvent) {
@@ -265,7 +272,7 @@ onBeforeUnmount(() => {
       ref="shellRef"
       class="preview-media-shell"
       :class="{
-        'has-overflow': hasOverflow,
+        'has-overflow': hasOverflow && zoomLevel !== 1,
         'is-panning': isPanning,
         'is-zoomed': zoomLevel !== 1,
       }"
@@ -275,13 +282,13 @@ onBeforeUnmount(() => {
     >
       <div class="image-stage-wrap">
         <img
-          ref="imageEl"
           class="preview-image"
           :class="{ 'svg-image': isSvg }"
           :src="source"
           :style="imageStyle"
           alt=""
-          draggable="false"
+          :draggable="zoomLevel === 1"
+          @dragstart="handleImageDragStart"
           @load="updateImageSize"
         />
       </div>
@@ -296,7 +303,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   background: #0f1012;
-  user-select: none;
+  user-select: auto;
 }
 
 .image-info-bar {
@@ -309,6 +316,7 @@ onBeforeUnmount(() => {
   color: #c3c8cf;
   border-bottom: 1px solid #282a2d;
   font-size: 12px;
+  user-select: none;
 }
 
 .image-size-label {
@@ -382,13 +390,16 @@ onBeforeUnmount(() => {
 .preview-media-shell.is-zoomed {
   overflow: auto;
   display: block;
+  user-select: none;
 }
 
-.preview-media-shell.has-overflow {
+.preview-media-shell.has-overflow,
+.preview-media-shell.is-zoomed {
   cursor: grab;
 }
 
-.preview-media-shell.is-panning {
+.preview-media-shell.is-panning,
+.preview-media-shell.is-panning * {
   cursor: grabbing !important;
   user-select: none;
 }
@@ -425,6 +436,9 @@ onBeforeUnmount(() => {
   height: auto;
   object-fit: contain;
   flex-shrink: 0;
+  user-select: auto;
+  -webkit-user-drag: auto;
+  cursor: default;
   background-color: #ffffff;
   background-image: conic-gradient(
     #e5e5e5 0 25%,
@@ -434,6 +448,12 @@ onBeforeUnmount(() => {
   );
   background-size: 16px 16px;
   box-shadow: 0 2px 14px rgb(0 0 0 / 18%);
+}
+
+.preview-media-shell.is-zoomed .preview-image {
+  user-select: none;
+  -webkit-user-drag: none;
+  cursor: grab;
 }
 
 .svg-image {
