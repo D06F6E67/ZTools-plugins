@@ -31,10 +31,11 @@
           v-for="job in filteredJobs"
           :key="job.url"
           :job="job"
-          :favorited="checkFavorited(job.name)"
-          @toggle-favorite="handleToggleFavorite(job)"
-          @build="handleBuild(job)"
-          @click="handleJobClick(job)"
+          :favorited="checkFavorited(job.fullName || job.name)"
+          :show-full-name="props.currentView === '__favorites__'"
+          @toggle-favorite="handleToggleFavorite"
+          @build="handleBuild"
+          @click="handleJobClick"
         />
       </div>
     </div>
@@ -62,6 +63,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import JobItem from './JobItem.vue'
 import { useInstances } from '../composables/useInstances'
 import { useFavorites } from '../composables/useFavorites'
+import { flattenFavoriteJobs } from '../utils/jobs'
 import type { JobInfo } from '../types'
 
 const props = defineProps<{
@@ -153,7 +155,7 @@ const filteredJobs = computed(() => {
 
   // 收藏视图：只显示收藏的 jobs
   if (props.currentView === '__favorites__') {
-    list = list.filter(job => favoritedJobs.value.has(job.name))
+    list = flattenFavoriteJobs(list, favoritedJobs.value)
   }
 
   // 搜索过滤
@@ -170,7 +172,7 @@ const filterJobsRecursive = (jobList: JobInfo[], query: string): JobInfo[] => {
   const result: JobInfo[] = []
 
   for (const job of jobList) {
-    if (job.name.toLowerCase().includes(query)) {
+    if ((job.fullName || job.name).toLowerCase().includes(query)) {
       result.push(job)
     } else if (job.jobs && job.jobs.length > 0) {
       const filtered = filterJobsRecursive(job.jobs, query)
@@ -196,7 +198,7 @@ const handleToggleFavorite = (job: JobInfo) => {
   const instanceId = currentInstance.value._id
   const viewName = props.currentView || 'all'
 
-  toggleFavorite(instanceId, instanceName, job.name, viewName)
+  toggleFavorite(instanceId, instanceName, job.fullName || job.name, viewName)
 }
 
 /**
@@ -214,7 +216,7 @@ const confirmBuild = async () => {
   if (!buildConfirmJob.value || !currentClient.value) return
 
   building.value = true
-  const jobName = buildConfirmJob.value.name
+  const jobName = buildConfirmJob.value.fullName || buildConfirmJob.value.name
 
   const result = await currentClient.value.triggerBuild(jobName)
 
@@ -278,7 +280,7 @@ watch(() => props.focusKey, (key) => {
 
 const findJob = (jobList: JobInfo[], name: string): JobInfo | null => {
   for (const job of jobList) {
-    if (job.name === name) return job
+    if ((job.fullName || job.name) === name) return job
     if (job.jobs) {
       const found = findJob(job.jobs, name)
       if (found) return found
@@ -289,12 +291,15 @@ const findJob = (jobList: JobInfo[], name: string): JobInfo | null => {
 
 // 获取第一个 Job（递归）
 const getFirstJob = (jobList: JobInfo[]): JobInfo | null => {
-  if (jobList.length === 0) return null
-  const first = jobList[0]
-  if (first.jobs && first.jobs.length > 0) {
-    return getFirstJob(first.jobs)
+  for (const job of jobList) {
+    if (job.jobs) {
+      const firstChild = getFirstJob(job.jobs)
+      if (firstChild) return firstChild
+      continue
+    }
+    return job
   }
-  return first
+  return null
 }
 
 onMounted(async () => {

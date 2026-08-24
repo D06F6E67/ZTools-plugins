@@ -56,7 +56,7 @@ function jenkinsBuild(jenkinsUrl, username, apiToken, jobName) {
     const httpModule = isHttps ? https : http
 
     const auth = Buffer.from(username + ':' + apiToken).toString('base64')
-    const jobPath = '/job/' + encodeURIComponent(jobName) + '/build'
+    const jobPath = getJobPath(jobName) + '/build'
 
     const options = {
       hostname: parsedUrl.hostname,
@@ -81,19 +81,62 @@ function jenkinsBuild(jenkinsUrl, username, apiToken, jobName) {
   })
 }
 
+const JOB_TREE = 'jobs[name,url,color,_class,lastBuild[number,url,result,timestamp]]'
+
+function getJobPath(jobName) {
+  return '/' + jobName
+    .split('/')
+    .filter(Boolean)
+    .map(function(segment) { return 'job/' + encodeURIComponent(segment) })
+    .join('/')
+}
+
+function isFolder(job) {
+  return typeof job._class === 'string' && /(?:Folder|MultiBranchProject)$/.test(job._class)
+}
+
+function getFolderApiPath(folderUrl) {
+  const parsedUrl = new URL(folderUrl)
+  const folderPath = parsedUrl.pathname.endsWith('/') ? parsedUrl.pathname : parsedUrl.pathname + '/'
+  return folderPath + 'api/json?tree=' + JOB_TREE
+}
+
+function loadJobs(jenkinsUrl, username, apiToken, apiPath, parentFullName) {
+  return jenkinsRequest(jenkinsUrl, username, apiToken, apiPath)
+    .then(function(data) {
+      return Promise.all((data.jobs || []).map(function(job) {
+        const fullName = parentFullName ? parentFullName + '/' + job.name : job.name
+        const normalizedJob = Object.assign({}, job, { fullName: fullName })
+
+        if (!isFolder(job)) return normalizedJob
+
+        return loadJobs(
+          jenkinsUrl,
+          username,
+          apiToken,
+          getFolderApiPath(job.url),
+          fullName
+        ).then(function(jobs) {
+          normalizedJob.jobs = jobs
+          return normalizedJob
+        })
+      }))
+    })
+}
+
 // 通过 window 对象向渲染进程注入 nodejs 能力
 window.services = {
   // Jenkins API 调用
   jenkins: {
     // 获取所有 Jobs
     getJobs: function(jenkinsUrl, username, apiToken) {
-      return jenkinsRequest(jenkinsUrl, username, apiToken, '/api/json?tree=jobs[name,url,color,lastBuild[number,url,result,timestamp]]')
-        .then(function(data) { return { data: data.jobs || [], error: null } })
+      return loadJobs(jenkinsUrl, username, apiToken, '/api/json?tree=' + JOB_TREE, '')
+        .then(function(jobs) { return { data: jobs, error: null } })
         .catch(function(err) { return { data: [], error: err.message } })
     },
     // 获取构建历史
     getBuilds: function(jenkinsUrl, username, apiToken, jobName) {
-      return jenkinsRequest(jenkinsUrl, username, apiToken, '/job/' + encodeURIComponent(jobName) + '/api/json?tree=builds[number,url,result,building,duration,timestamp,displayName,fullDisplayName]{0,20}')
+      return jenkinsRequest(jenkinsUrl, username, apiToken, getJobPath(jobName) + '/api/json?tree=builds[number,url,result,building,duration,timestamp,displayName,fullDisplayName]{0,20}')
         .then(function(data) { return { data: data.builds || [], error: null } })
         .catch(function(err) { return { data: [], error: err.message } })
     },
@@ -111,8 +154,8 @@ window.services = {
     },
     // 获取视图中的 Jobs
     getViewJobs: function(jenkinsUrl, username, apiToken, viewName) {
-      return jenkinsRequest(jenkinsUrl, username, apiToken, '/view/' + encodeURIComponent(viewName) + '/api/json?tree=jobs[name,url,color,lastBuild[number,url,result,timestamp]]')
-        .then(function(data) { return { data: data.jobs || [], error: null } })
+      return loadJobs(jenkinsUrl, username, apiToken, '/view/' + encodeURIComponent(viewName) + '/api/json?tree=' + JOB_TREE, '')
+        .then(function(jobs) { return { data: jobs, error: null } })
         .catch(function(err) { return { data: [], error: err.message } })
     },
     // 测试连接

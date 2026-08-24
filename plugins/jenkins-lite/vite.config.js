@@ -4,12 +4,12 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { resolve } from 'path'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
-    nodePolyfills({
+    ...(mode === 'test' ? [] : [nodePolyfills({
       include: ['buffer', 'process', 'util', 'stream', 'events', 'http', 'https', 'url', 'querystring', 'zlib', 'crypto', 'punycode', 'string_decoder', 'path', 'fs', 'os', 'net', 'tls', 'dgram', 'domain', 'assert', 'constants', 'timers', 'console', 'vm', 'repl', 'readline', 'tty', 'dns', 'module', 'child_process', 'perf_hooks']
-    })
+    })])
   ],
   base: './',
   server: {
@@ -28,4 +28,4 @@ export default defineConfig({
       }
     }
   }
-})
+}))

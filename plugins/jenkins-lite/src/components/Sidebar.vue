@@ -22,7 +22,7 @@
           <span class="service-option-name" :title="inst.name">{{ inst.name }}</span>
         </div>
         <div class="service-divider"></div>
-        <div class="service-option add-service" @click="openSettings">
+        <div class="service-option add-service" @click="openAddInstance">
           <span class="add-icon">+</span>
           <span>新增实例</span>
         </div>
@@ -89,6 +89,7 @@ const emit = defineEmits<{
   (e: 'favorite-click', fav: Favorite): void
   (e: 'view-change', viewName: string): void
   (e: 'open-settings'): void
+  (e: 'add-instance'): void
 }>()
 
 const { instances, currentInstance, currentClient, hasInstances, switchInstance } = useInstances()
@@ -96,7 +97,7 @@ const { favorites } = useFavorites()
 
 const views = ref<JenkinsView[]>([])
 const showServiceMenu = ref(false)
-const version = '1.1.0'
+const version = '1.2.0'
 
 /** 当前实例的收藏（按添加时间倒序） */
 const currentInstanceFavorites = computed(() => {
@@ -116,9 +117,9 @@ const selectService = (instanceId: string) => {
   emit('view-change', '')
 }
 
-const openSettings = () => {
+const openAddInstance = () => {
   showServiceMenu.value = false
-  emit('open-settings')
+  emit('add-instance')
 }
 
 const loadViews = async () => {
