@@ -1,6 +1,7 @@
 import { ref, watch, type ComputedRef } from "vue";
+import { formatBytes } from "../core/formatters";
+import type { FinderResult } from "../core/finderLogic";
 import {
-  formatBytes,
   getArchiveTreePreviewBlockedReason,
   getCodePreviewLanguage,
   isArchiveTreePreviewCandidate,
@@ -12,8 +13,8 @@ import {
   isPdfPreviewCandidate,
   isTextPreviewCandidate,
   isVideoPreviewCandidate,
-  type FinderResult,
-} from "../core/finderLogic";
+  type PreviewCandidate,
+} from "../core/previewCandidate";
 
 const PREVIEW_BYTES = 20 * 1024;
 const LOG_PREVIEW_BYTES = 10 * 1024;
@@ -50,12 +51,6 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
     if (!item) {
       resetPreview();
       previewStatus.value = "选择文件后预览";
-      return;
-    }
-
-    if (!item.fullPath) {
-      resetPreview();
-      previewStatus.value = "缺少文件路径，无法预览";
       return;
     }
 
@@ -96,8 +91,6 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
   }
 
   function loadMediaPreview(item: FinderResult) {
-    if (!item.fullPath) return false;
-
     if (isImagePreviewCandidate(item)) {
       setPreviewState({
         kind: "image",
@@ -134,8 +127,6 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
   }
 
   function loadDirectoryTreePreview(item: FinderResult) {
-    if (!item.fullPath) return;
-
     try {
       const tree = window.services.printDirectoryTree(item.fullPath);
       setPreviewState({
@@ -151,8 +142,6 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
   }
 
   function loadArchiveTreePreview(item: FinderResult) {
-    if (!item.fullPath) return false;
-
     const blockedReason = getArchiveTreePreviewBlockedReason(item);
     if (blockedReason) {
       resetPreview();
@@ -179,8 +168,6 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
   }
 
   function loadTextLikePreview(item: FinderResult) {
-    if (!item.fullPath) return;
-
     const textPreviewKind = getTextPreviewKind(item);
     let shouldPreviewAsText = textPreviewKind !== undefined;
 
@@ -246,9 +233,7 @@ export function useFilePreview({ activeItem }: UseFilePreviewOptions) {
   };
 }
 
-function getTextPreviewKind(
-  item: Pick<FinderResult, "name" | "extension" | "size" | "isDirectory">,
-): PreviewKind | undefined {
+function getTextPreviewKind(item: PreviewCandidate): PreviewKind | undefined {
   if (isMarkdownPreviewCandidate(item)) return "markdown";
   if (isCodePreviewCandidate(item)) return "code";
   if (isTextPreviewCandidate(item)) return "text";

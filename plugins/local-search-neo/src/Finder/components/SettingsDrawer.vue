@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { GripVertical, RotateCcw } from "@lucide/vue";
+import { ref, watch } from "vue";
 import type { FinderCategory } from "../core/finderLogic";
 
 const props = defineProps<{
@@ -15,27 +16,24 @@ const emit = defineEmits<{
   removeCategory: [category: FinderCategory];
   setCategoryEnabled: [id: string, enabled: boolean];
   setMatchPathEnabled: [enabled: boolean];
+  reorderCategories: [fromIndex: number, toIndex: number];
+  resetCategoryOrder: [];
 }>();
 
 const label = ref("");
 const rule = ref("");
 const editingCategoryId = ref<string | undefined>();
 const isAdding = ref(false);
-const builtInCollapsed = ref(true);
-const builtInCategories = computed(() =>
-  props.categories.filter((category) => category.kind !== "custom"),
-);
-const customCategories = computed(() =>
-  props.categories.filter((category) => category.kind === "custom"),
-);
+
+const draggedIndex = ref<number | null>(null);
+const dragOverIndex = ref<number | null>(null);
+const dropPosition = ref<"above" | "below" | null>(null);
 
 watch(
   () => props.open,
-  (open) => {
+  () => {
     resetDraft();
-    if (open) {
-      builtInCollapsed.value = true;
-    }
+    resetDragState();
   },
 );
 
@@ -63,6 +61,7 @@ function startAddCategory() {
   isAdding.value = true;
   label.value = "";
   rule.value = "";
+  resetDragState();
 }
 
 function editCategory(category: FinderCategory) {
@@ -71,6 +70,7 @@ function editCategory(category: FinderCategory) {
   editingCategoryId.value = category.id;
   label.value = category.label;
   rule.value = category.rule;
+  resetDragState();
 }
 
 function removeCategory(category: FinderCategory) {
@@ -87,6 +87,7 @@ function resetDraft() {
 
 function closeDrawer() {
   resetDraft();
+  resetDragState();
   emit("close");
 }
 
@@ -107,8 +108,78 @@ function readChecked(event: Event) {
   return event.target instanceof HTMLInputElement && event.target.checked;
 }
 
-function toggleBuiltInCategories() {
-  builtInCollapsed.value = !builtInCollapsed.value;
+function onDragStart(index: number, event: DragEvent) {
+  if (editingCategoryId.value !== undefined || isAdding.value) {
+    event.preventDefault();
+    return;
+  }
+  draggedIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(index));
+  }
+}
+
+function onDragOver(index: number, event: DragEvent) {
+  if (draggedIndex.value === null) return;
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  if (currentTarget) {
+    const rect = currentTarget.getBoundingClientRect();
+    const offsetY = event.clientY - rect.top;
+    const isBelow = offsetY > rect.height / 2;
+    dragOverIndex.value = index;
+    dropPosition.value = isBelow ? "below" : "above";
+  }
+}
+
+function onDragLeave(index: number, event: DragEvent) {
+  if (dragOverIndex.value === index) {
+    const related = event.relatedTarget as Node | null;
+    const current = event.currentTarget as Node | null;
+    if (!current || !related || !current.contains(related)) {
+      dragOverIndex.value = null;
+      dropPosition.value = null;
+    }
+  }
+}
+
+function onDrop(targetIndex: number, event: DragEvent) {
+  event.preventDefault();
+  const from = draggedIndex.value;
+  if (from === null) return;
+
+  let to = targetIndex;
+  if (dropPosition.value === "below" && from < targetIndex) {
+    to = targetIndex;
+  } else if (dropPosition.value === "below" && from > targetIndex) {
+    to = targetIndex + 1;
+  } else if (dropPosition.value === "above" && from < targetIndex) {
+    to = targetIndex - 1;
+  } else if (dropPosition.value === "above" && from > targetIndex) {
+    to = targetIndex;
+  }
+
+  const clampedTo = Math.max(0, Math.min(props.categories.length - 1, to));
+  if (from !== clampedTo) {
+    emit("reorderCategories", from, clampedTo);
+  }
+
+  resetDragState();
+}
+
+function onDragEnd() {
+  resetDragState();
+}
+
+function resetDragState() {
+  draggedIndex.value = null;
+  dragOverIndex.value = null;
+  dropPosition.value = null;
 }
 </script>
 
@@ -151,10 +222,20 @@ function toggleBuiltInCategories() {
                 <h3>分组管理</h3>
                 <p>关闭后，该分组不会显示在左侧分组栏。内置分组不支持删除。</p>
               </div>
+              <button
+                type="button"
+                class="category-reset-order-btn"
+                title="恢复默认排序"
+                aria-label="恢复默认排序"
+                @click="emit('resetCategoryOrder')"
+              >
+                <RotateCcw :size="16" :stroke-width="2" aria-hidden="true" />
+              </button>
             </div>
 
             <div class="category-list">
               <div class="category-list-header">
+                <span class="category-handle-col"></span>
                 <span>启用</span>
                 <span>名称</span>
                 <span>规则</span>
@@ -162,51 +243,20 @@ function toggleBuiltInCategories() {
                 <span>操作</span>
               </div>
 
-              <div class="category-group">
-                <button
-                  type="button"
-                  class="category-group-toggle"
-                  :aria-expanded="!builtInCollapsed"
-                  @click="toggleBuiltInCategories"
-                >
-                  <span class="category-group-arrow" aria-hidden="true"></span>
-                  <span>内置分组</span>
-                  <span class="category-group-count">{{ builtInCategories.length }} 个</span>
-                </button>
-
-                <template v-if="!builtInCollapsed">
-                  <div
-                    v-for="category in builtInCategories"
-                    :key="category.id"
-                    class="category-row"
-                    :class="{ disabled: !category.enabled }"
-                  >
-                    <label class="category-switch" title="启用该分组">
-                      <input
-                        type="checkbox"
-                        :checked="category.enabled"
-                        @change="handleCategoryEnabledChange(category, $event)"
-                      />
-                      <span class="switch-track"></span>
-                    </label>
-                    <span class="category-name">{{ category.label }}</span>
-                    <span class="category-rule" :title="category.rule || '全部'">{{
-                      category.rule || "全部"
-                    }}</span>
-                    <span class="category-type">{{ categoryTypeLabel(category) }}</span>
-                    <span class="category-actions">
-                      <span class="built-in-note">内置</span>
-                    </span>
-                  </div>
-                </template>
-              </div>
-
-              <template v-for="category in customCategories" :key="category.id">
+              <template v-for="(category, index) in categories" :key="category.id">
                 <form
                   v-if="editingCategoryId === category.id"
                   class="category-row category-edit-row"
                   @submit.prevent="submitCategory"
                 >
+                  <span class="category-drag-handle disabled">
+                    <GripVertical
+                      class="category-drag-icon"
+                      :size="14"
+                      :stroke-width="2"
+                      aria-hidden="true"
+                    />
+                  </span>
                   <label class="category-switch" title="启用该分组">
                     <input
                       type="checkbox"
@@ -224,7 +274,32 @@ function toggleBuiltInCategories() {
                   </span>
                 </form>
 
-                <div v-else class="category-row" :class="{ disabled: !category.enabled }">
+                <div
+                  v-else
+                  class="category-row"
+                  :class="{
+                    disabled: !category.enabled,
+                    'is-dragging': draggedIndex === index,
+                    'drag-over-top':
+                      dragOverIndex === index && dropPosition === 'above' && draggedIndex !== index,
+                    'drag-over-bottom':
+                      dragOverIndex === index && dropPosition === 'below' && draggedIndex !== index,
+                  }"
+                  :draggable="editingCategoryId === undefined && !isAdding"
+                  @dragstart="onDragStart(index, $event)"
+                  @dragover="onDragOver(index, $event)"
+                  @dragleave="onDragLeave(index, $event)"
+                  @drop="onDrop(index, $event)"
+                  @dragend="onDragEnd"
+                >
+                  <span class="category-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序">
+                    <GripVertical
+                      class="category-drag-icon"
+                      :size="14"
+                      :stroke-width="2"
+                      aria-hidden="true"
+                    />
+                  </span>
                   <label class="category-switch" title="启用该分组">
                     <input
                       type="checkbox"
@@ -239,10 +314,13 @@ function toggleBuiltInCategories() {
                   }}</span>
                   <span class="category-type">{{ categoryTypeLabel(category) }}</span>
                   <span class="category-actions">
-                    <button type="button" @click="editCategory(category)">编辑</button>
-                    <button type="button" class="danger-action" @click="removeCategory(category)">
-                      删除
-                    </button>
+                    <template v-if="category.kind === 'custom'">
+                      <button type="button" @click="editCategory(category)">编辑</button>
+                      <button type="button" class="danger-action" @click="removeCategory(category)">
+                        删除
+                      </button>
+                    </template>
+                    <span v-else class="built-in-note">内置</span>
                   </span>
                 </div>
               </template>
@@ -252,7 +330,10 @@ function toggleBuiltInCategories() {
                 class="category-row category-edit-row"
                 @submit.prevent="submitCategory"
               >
-                <span class="category-add-marker">＋</span>
+                <span class="category-drag-handle disabled">
+                  <span class="category-add-marker">＋</span>
+                </span>
+                <span></span>
                 <input
                   v-model="label"
                   class="category-inline-input"
@@ -309,10 +390,10 @@ function toggleBuiltInCategories() {
   gap: 16px;
   position: relative;
   width: 100%;
-  height: 75vh;
-  max-height: 75vh;
+  height: calc(100% - 48px);
+  max-height: calc(100% - 48px);
   box-sizing: border-box;
-  padding: 18px 20px 20px;
+  padding: 18px 4px 0 0;
   overflow: hidden;
   color: #f5f7fa;
   background: #2d2f32;
@@ -371,6 +452,7 @@ function toggleBuiltInCategories() {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding: 0 16px 0 20px;
 }
 
 .settings-header h2 {
@@ -423,7 +505,7 @@ function toggleBuiltInCategories() {
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding-right: 2px;
+  padding: 0 16px 20px 20px;
 }
 
 .settings-section::-webkit-scrollbar-button {
@@ -498,7 +580,7 @@ function toggleBuiltInCategories() {
 .category-list-header,
 .category-row {
   display: grid;
-  grid-template-columns: 46px minmax(82px, 130px) minmax(160px, 1fr) 60px 120px;
+  grid-template-columns: 24px 44px minmax(82px, 130px) minmax(160px, 1fr) 56px 110px;
   gap: 10px;
   align-items: center;
   min-height: 34px;
@@ -512,45 +594,89 @@ function toggleBuiltInCategories() {
   font-size: 12px;
 }
 
-.category-group {
-  display: grid;
-  border-top: 1px solid #3f4246;
-}
-
-.category-group-toggle {
-  display: flex;
+.category-reset-order-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 10px;
-  background: #2b2d30;
-  text-align: left;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #727982;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
-.category-group-arrow {
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  color: #aeb4bb;
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
+.category-reset-order-btn:hover {
+  color: #cbd1d8;
+  background: #3a3d42;
 }
 
-.category-group-toggle[aria-expanded="true"] .category-group-arrow {
-  transform: rotate(45deg);
-}
-
-.category-group-count {
-  margin-left: auto;
-  color: #aeb4bb;
-  font-size: 12px;
+.category-reset-order-btn:focus,
+.category-reset-order-btn:focus-visible {
+  outline: none;
+  color: #cbd1d8;
+  background: #3a3d42;
 }
 
 .category-row {
   border-top: 1px solid #3f4246;
   background: #303234;
   font-size: 13px;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.category-row.is-dragging {
+  opacity: 0.35;
+  background: #25272a;
+}
+
+.category-row.drag-over-top {
+  box-shadow: inset 0 2px 0 0 var(--primary-color);
+}
+
+.category-row.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 0 var(--primary-color);
+}
+
+.category-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  color: #727982;
+  cursor: grab;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.category-drag-handle:hover {
+  color: #cbd1d8;
+  background: #3a3d42;
+}
+
+.category-drag-handle.disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.category-drag-handle.disabled:hover {
+  color: #727982;
+  background: transparent;
+}
+
+.category-drag-icon {
+  display: block;
+  pointer-events: none;
 }
 
 .category-row.disabled .category-name,
@@ -740,13 +866,19 @@ function toggleBuiltInCategories() {
     background: #eef2f7;
   }
 
-  .category-group {
-    border-top-color: #e4e9f1;
+  .category-reset-order-btn {
+    color: #9aa4b2;
+    background: transparent;
+    border: 0;
   }
 
-  .category-group-toggle {
-    color: #1f2937;
-    background: #f8fafc;
+  .category-reset-order-btn:hover {
+    color: #374151;
+    background: #e5e9f0;
+  }
+
+  .category-row.is-dragging {
+    background: #f1f4f8;
   }
 
   .category-row,
@@ -754,6 +886,20 @@ function toggleBuiltInCategories() {
     color: #1f2937;
     background: #ffffff;
     border-top-color: #e4e9f1;
+  }
+
+  .category-drag-handle {
+    color: #9aa4b2;
+  }
+
+  .category-drag-handle:hover {
+    color: #374151;
+    background: #e5e9f0;
+  }
+
+  .category-drag-handle.disabled:hover {
+    color: #9aa4b2;
+    background: transparent;
   }
 
   .switch-track {
