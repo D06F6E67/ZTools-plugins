@@ -22,6 +22,7 @@ export interface JenkinsView {
 // Job 信息
 export interface JobInfo {
   name: string
+  fullName?: string
   url: string
   color: string
   lastBuild?: {

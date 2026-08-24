@@ -11,10 +11,12 @@ import type { JobInfo, Favorite } from './types'
 const { loadInstances, currentInstance, hasInstances } = useInstances()
 const { loadFavorites } = useFavorites()
 
-const selectedJob = ref<string | undefined>(undefined)
+const selectedJob = ref<string | undefined>(
+  window.ztools.dbStorage.getItem<string>('lastSelectedJob') || undefined
+)
 const showSettings = ref(false)
 const editInstanceId = ref<string | undefined>(undefined)
-const currentView = ref<string>('')
+const currentView = ref<string>(window.ztools.dbStorage.getItem<string>('lastView') || '')
 const autoSelectFirstJob = ref(false)
 const searchFocusKey = ref(0)
 const initialSearchQuery = ref('')
@@ -26,11 +28,14 @@ const handleFavoriteClick = (fav: Favorite) => {
   const targetView = fav.viewName || ''
   if (currentView.value !== targetView) {
     currentView.value = targetView
+    window.ztools.dbStorage.setItem('lastView', targetView)
     setTimeout(() => {
       selectedJob.value = fav.jobName
+      window.ztools.dbStorage.setItem('lastSelectedJob', fav.jobName)
     }, 100)
   } else {
     selectedJob.value = fav.jobName
+    window.ztools.dbStorage.setItem('lastSelectedJob', fav.jobName)
   }
 }
 
@@ -39,6 +44,10 @@ const handleFavoriteClick = (fav: Favorite) => {
  */
 const handleViewChange = (viewName: string) => {
   currentView.value = viewName
+  window.ztools.dbStorage.setItem('lastView', viewName)
+  // 视图变了，旧选中 Job 可能不在新视图里，清掉
+  selectedJob.value = undefined
+  window.ztools.dbStorage.removeItem('lastSelectedJob')
   autoSelectFirstJob.value = true
   setTimeout(() => {
     autoSelectFirstJob.value = false
@@ -49,7 +58,9 @@ const handleViewChange = (viewName: string) => {
  * 处理 Job 点击
  */
 const handleJobClick = (job: JobInfo) => {
-  selectedJob.value = job.name
+  const fullName = job.fullName || job.name
+  selectedJob.value = fullName
+  window.ztools.dbStorage.setItem('lastSelectedJob', fullName)
 }
 
 /**
@@ -68,6 +79,14 @@ const handleOpenSettings = () => {
   } else {
     editInstanceId.value = undefined
   }
+  showSettings.value = true
+}
+
+/**
+ * 新增实例 - 始终进入添加模式
+ */
+const handleAddInstance = () => {
+  editInstanceId.value = undefined
   showSettings.value = true
 }
 
@@ -102,6 +121,7 @@ onMounted(async () => {
       @favorite-click="handleFavoriteClick"
       @view-change="handleViewChange"
       @open-settings="handleOpenSettings"
+      @add-instance="handleAddInstance"
     />
 
     <main class="main-content">
