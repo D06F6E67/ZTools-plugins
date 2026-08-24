@@ -411,6 +411,69 @@
     } catch (error) {}
   }
 
+  async function installSingleLineCanvasCapture() {
+    try {
+      return Boolean(
+        await webview.executeJavaScript(
+          `(() => {
+            if (window.__ztoolsSingleLineCanvasCapture?.version === 1) return true
+
+            const prototype = window.CanvasRenderingContext2D?.prototype
+            const originalFillText = prototype?.fillText
+            if (!prototype || typeof originalFillText !== 'function') return false
+
+            const entriesByCanvas = new WeakMap()
+            prototype.fillText = function captureSingleLineText(text, x, y, maxWidth) {
+              let entries = entriesByCanvas.get(this.canvas)
+              if (!entries) {
+                entries = []
+                entriesByCanvas.set(this.canvas, entries)
+              }
+              entries.push({
+                text: String(text || ''),
+                x: Number(x),
+                y: Number(y),
+                font: String(this.font || '')
+              })
+              if (entries.length > 30000) entries.splice(0, entries.length - 30000)
+              return originalFillText.apply(this, arguments)
+            }
+
+            window.__ztoolsSingleLineCanvasCapture = {
+              version: 1,
+              read() {
+                const output = []
+                const canvases = Array.from(
+                  document.querySelectorAll('.readerChapterContent canvas')
+                )
+                canvases.forEach((canvas, canvasIndex) => {
+                  const rect = canvas.getBoundingClientRect()
+                  const scaleY = rect.height > 0 ? canvas.height / rect.height : 1
+                  const seen = new Set()
+                  for (const entry of entriesByCanvas.get(canvas) || []) {
+                    const key = [entry.font, entry.x, entry.y, entry.text].join('\\u0000')
+                    if (seen.has(key)) continue
+                    seen.add(key)
+                    output.push({
+                      ...entry,
+                      canvasIndex,
+                      screenY: rect.top + entry.y / scaleY
+                    })
+                  }
+                })
+                return output
+              }
+            }
+            return true
+          })()`,
+          true,
+        ),
+      )
+    } catch (error) {
+      return false
+    }
+  }
+
   function setLoading(isLoading) {
     loadingOverlay.hidden = !isLoading
   }
@@ -705,13 +768,82 @@
     }
   }
 
-  async function extractSingleLineSnapshot(options = {}) {
-    const advancePage = Boolean(options.advancePage)
+  async function extractSingleLineSnapshot() {
     try {
       const snapshot = await webview.executeJavaScript(
         `(async () => {
           const normalizeText = (value) => String(value || '').replace(/\\s+/g, ' ').trim()
           const cleanCanvasText = (value) => String(value || '').replace(/[\\u200b-\\u200d\\ufeff]/g, '')
+          const isNavigationLabel = (value) =>
+            /^(上一章|下一章|上章|下章|上一节|下一节|上一页|下一页)$/.test(normalizeText(value))
+
+          function captureVerticalCanvasChapter() {
+            if (document.querySelector('.wr_horizontalReader')) return null
+            const entries = window.__ztoolsSingleLineCanvasCapture?.read?.() || []
+            if (!entries.length) return null
+
+            const fontTotals = new Map()
+            for (const entry of entries) {
+              const text = cleanCanvasText(entry.text)
+              if (!text) continue
+              const fontSize = (Number.parseFloat(entry.font) || 0).toFixed(1)
+              fontTotals.set(fontSize, (fontTotals.get(fontSize) || 0) + text.length)
+            }
+            const bodyFont = Array.from(fontTotals.entries()).sort(
+              (left, right) => right[1] - left[1]
+            )[0]?.[0]
+            if (!bodyFont) return null
+
+            const bodyEntries = entries
+              .filter(
+                (entry) => (Number.parseFloat(entry.font) || 0).toFixed(1) === bodyFont
+              )
+              .sort(
+                (left, right) =>
+                  left.canvasIndex - right.canvasIndex || left.y - right.y || left.x - right.x
+              )
+            const rows = []
+            for (const entry of bodyEntries) {
+              const text = cleanCanvasText(entry.text)
+              if (!text) continue
+              let row = rows[rows.length - 1]
+              if (
+                !row ||
+                row.canvasIndex !== entry.canvasIndex ||
+                Math.abs(row.y - entry.y) >= 1
+              ) {
+                row = {
+                  canvasIndex: entry.canvasIndex,
+                  y: entry.y,
+                  screenY: entry.screenY,
+                  text: ''
+                }
+                rows.push(row)
+              }
+              row.text += text
+            }
+
+            const textRows = rows
+              .map((row) => ({ ...row, text: normalizeText(row.text) }))
+              .filter((row) => row.text && !isNavigationLabel(row.text))
+            if (!textRows.length) return null
+
+            let initialLine = textRows.findIndex(
+              (row) => row.screenY >= 0 && row.screenY < window.innerHeight
+            )
+            if (initialLine < 0) initialLine = textRows.findIndex((row) => row.screenY >= 0)
+            if (initialLine < 0) initialLine = textRows.length - 1
+
+            const heading = document.querySelector(
+              '.readerTopBar_title_chapter, .readerTopBar_title, .readerChapterContent_title'
+            )
+            return {
+              title: normalizeText(heading?.innerText || document.title) || '微信读书',
+              readerUrl: location.href,
+              lines: textRows.map((row) => row.text),
+              initialLine
+            }
+          }
 
           async function captureHorizontalCanvasPage() {
             const canvas = document.querySelector('.wr_horizontalReader canvas')
@@ -723,22 +855,15 @@
             prototype.fillText = function captureText(text, x, y, maxWidth) {
               entries.push({
                 text: String(text || ''),
+                x: Number(x),
                 y: Number(y),
                 font: String(this.font || '')
               })
-              return originalFillText.call(this, text, x, y, maxWidth)
+              return originalFillText.apply(this, arguments)
             }
 
             try {
-              if (${advancePage ? 'true' : 'false'}) {
-                const nextButton = document.querySelector(
-                  '.renderTarget_pager_button_right:not([disabled])'
-                )
-                if (!nextButton) return { unavailable: true }
-                nextButton.click()
-              } else {
-                window.dispatchEvent(new Event('resize'))
-              }
+              window.dispatchEvent(new Event('resize'))
 
               let lastCount = -1
               let stableChecks = 0
@@ -765,7 +890,7 @@
             if (!bodyFont) return null
 
             const rows = []
-            for (const entry of entries) {
+            for (const entry of entries.sort((left, right) => left.y - right.y || left.x - right.x)) {
               if ((Number.parseFloat(entry.font) || 0).toFixed(1) !== bodyFont) continue
               const text = cleanCanvasText(entry.text)
               if (!text) continue
@@ -788,19 +913,21 @@
             )
             return {
               title: normalizeText(heading?.innerText || document.title) || '微信读书',
+              readerUrl: location.href,
               lines: [pageText],
               initialLine: 0
             }
           }
 
+          const verticalCanvasSnapshot = captureVerticalCanvasChapter()
+          if (verticalCanvasSnapshot) return verticalCanvasSnapshot
           const canvasSnapshot = await captureHorizontalCanvasPage()
           if (canvasSnapshot) return canvasSnapshot
-          if (${advancePage ? 'true' : 'false'}) return { unavailable: true }
 
           const containers = [
-            document.querySelector('.readerContent .app_content'),
-            document.querySelector('.app_content:not(.app_content_in_reader)'),
-            document.querySelector('.readerChapterContent:not(:has(canvas))')
+            document.querySelector('.readerChapterContent:not(:has(canvas))'),
+            document.querySelector('.readerContent .app_content:not(:has(canvas))'),
+            document.querySelector('.app_content:not(.app_content_in_reader):not(:has(canvas))')
           ].filter(Boolean)
           const container = containers.find((node) => normalizeText(node.innerText))
           if (!container) return null
@@ -808,7 +935,7 @@
           const lines = []
           for (const rawLine of String(container.innerText || '').split(/\\n+/)) {
             const text = normalizeText(rawLine)
-            if (!text || text === lines[lines.length - 1]) continue
+            if (!text || isNavigationLabel(text) || text === lines[lines.length - 1]) continue
             lines.push(text)
             if (lines.length >= 2000) break
           }
@@ -828,6 +955,7 @@
           )
           return {
             title: normalizeText(heading?.innerText || document.title) || '微信读书',
+            readerUrl: location.href,
             lines,
             initialLine: visibleIndex >= 0 ? visibleIndex : 0
           }
@@ -835,12 +963,12 @@
         true,
       )
 
-      if (snapshot?.unavailable) return null
       if (!snapshot || !Array.isArray(snapshot.lines) || !snapshot.lines.length) return null
+      const readerUrl = bridge.normalizeWereadUrl(snapshot.readerUrl) || getCurrentUrl()
       const pageKey = snapshot.lines.join('\n')
       return {
         title: snapshot.title,
-        readerUrl: getCurrentUrl(),
+        readerUrl,
         lines: snapshot.lines,
         initialLine: snapshot.initialLine,
         pageKey,
@@ -848,6 +976,87 @@
     } catch (error) {
       return null
     }
+  }
+
+  async function prepareSingleLineNavigation(direction) {
+    const isPrevious = direction === 'previous'
+    try {
+      return await webview.executeJavaScript(
+        `(async () => {
+          const normalizeText = (value) => String(value || '').replace(/\\s+/g, ' ').trim()
+          const enabled = (element) => {
+            if (!element || element.disabled || element.getAttribute('aria-disabled') === 'true') {
+              return false
+            }
+            const rect = element.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0
+          }
+          const pageSelector = ${isPrevious ? "'.renderTarget_pager_button_left:not([disabled])'" : "'.renderTarget_pager_button_right:not([disabled])'"}
+          const chapterSelector = ${isPrevious ? "'.readerContentHeader button:not([disabled])'" : "'.readerFooter_button:not([disabled])'"}
+          const labels = ${isPrevious ? "['上一章', '上章', '上一节', '上一页']" : "['下一章', '下章', '下一节', '下一页']"}
+
+          let target = document.querySelector(pageSelector)
+          if (!enabled(target)) {
+            target = document.querySelector(chapterSelector)
+          }
+          if (!enabled(target)) {
+            target = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(
+              (element) =>
+                enabled(element) &&
+                labels.includes(
+                  normalizeText(element.innerText || element.textContent || element.title)
+                )
+            )
+          }
+          if (!enabled(target)) return null
+
+          target.scrollIntoView({ block: 'center', inline: 'center' })
+          await new Promise((resolve) => setTimeout(resolve, 160))
+          const rect = target.getBoundingClientRect()
+          return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2)
+          }
+        })()`,
+        true,
+      )
+    } catch (error) {
+      return null
+    }
+  }
+
+  function sendSingleLineNavigationInput(target) {
+    if (!target) return false
+    try {
+      webview.focus()
+      webview.sendInputEvent({ type: 'mouseMove', x: target.x, y: target.y })
+      webview.sendInputEvent({
+        type: 'mouseDown',
+        x: target.x,
+        y: target.y,
+        button: 'left',
+        clickCount: 1,
+      })
+      webview.sendInputEvent({
+        type: 'mouseUp',
+        x: target.x,
+        y: target.y,
+        button: 'left',
+        clickCount: 1,
+      })
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  async function waitForSingleLineSnapshot(previousPageKey) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(attempt === 0 ? 500 : 180)
+      const snapshot = await extractSingleLineSnapshot()
+      if (snapshot && snapshot.pageKey !== previousPageKey) return snapshot
+    }
+    return null
   }
 
   async function openSingleLineReader() {
@@ -860,7 +1069,12 @@
     singleLineButton.disabled = true
     setStatus('正在提取当前章节…')
     try {
-      const snapshot = await extractSingleLineSnapshot()
+      await installSingleLineCanvasCapture()
+      let snapshot = null
+      for (let attempt = 0; attempt < 12 && !snapshot; attempt += 1) {
+        snapshot = await extractSingleLineSnapshot()
+        if (!snapshot) await wait(200)
+      }
       if (!snapshot) {
         setStatus('当前章节没有读取到正文，请刷新后重试')
         return
@@ -874,26 +1088,50 @@
     }
   }
 
-  async function loadNextSingleLinePage() {
+  async function loadSingleLinePage(direction) {
     if (singleLinePageLoading) return
     singleLinePageLoading = true
+    const isPrevious = direction === 'previous'
+    const boundaryMessage = isPrevious ? '已经到达全书开头。' : '已经到达全书末尾。'
+    const failureMessage = isPrevious ? '上一页正文加载失败。' : '下一页正文加载失败。'
 
     try {
-      const snapshot = await extractSingleLineSnapshot({ advancePage: true })
-      if (!snapshot || snapshot.pageKey === singleLinePageKey) {
-        bridge.finishSingleLinePage('已经读到当前内容末尾。')
+      const target = await prepareSingleLineNavigation(direction)
+      if (!target) {
+        bridge.finishSingleLinePage(boundaryMessage)
+        return
+      }
+      if (!sendSingleLineNavigationInput(target)) {
+        bridge.finishSingleLinePage(failureMessage)
+        return
+      }
+
+      const snapshot = await waitForSingleLineSnapshot(singleLinePageKey)
+      if (!snapshot) {
+        bridge.finishSingleLinePage(failureMessage)
         return
       }
 
       singleLinePageKey = snapshot.pageKey
-      if (!bridge.appendSingleLineReader(snapshot)) {
-        bridge.finishSingleLinePage('下一页正文加载失败。')
+      const delivered = isPrevious
+        ? bridge.prependSingleLineReader(snapshot)
+        : bridge.appendSingleLineReader(snapshot)
+      if (!delivered) {
+        bridge.finishSingleLinePage(failureMessage)
       }
     } catch (error) {
-      bridge.finishSingleLinePage('下一页正文加载失败。')
+      bridge.finishSingleLinePage(failureMessage)
     } finally {
       singleLinePageLoading = false
     }
+  }
+
+  function loadNextSingleLinePage() {
+    return loadSingleLinePage('next')
+  }
+
+  function loadPreviousSingleLinePage() {
+    return loadSingleLinePage('previous')
   }
 
   menuButton.addEventListener('click', function toggleReaderMenu(event) {
@@ -959,6 +1197,7 @@
 
   singleLineButton.addEventListener('click', openSingleLineReader)
   window.addEventListener('weread:single-line:next-request', loadNextSingleLinePage)
+  window.addEventListener('weread:single-line:previous-request', loadPreviousSingleLinePage)
 
   document.getElementById('externalButton').addEventListener('click', function openExternalFromMenu() {
     setMenuOpen(false)
@@ -1005,9 +1244,10 @@
     setStatus('微信读书已打开')
   })
 
-  webview.addEventListener('dom-ready', function onDomReady() {
+  webview.addEventListener('dom-ready', async function onDomReady() {
     setLoading(false)
     const currentUrl = getCurrentUrl()
+    await installSingleLineCanvasCapture()
     handleNavigation(currentUrl)
     applyReaderPresentation(currentUrl)
     scheduleHostThemeReconcile()
