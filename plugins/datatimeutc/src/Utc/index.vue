@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, watch, computed } from 'vue'
-import { Setting } from '@element-plus/icons-vue'
 import { DEFAULT_FORMAT, getTimezoneOptions, getTimezoneLabel, type FormatOptions, type TimezoneOption } from './format'
 import { getNow, isSynced, getOffset, startPeriodicSync, stopPeriodicSync, onSyncTick } from './time'
 
@@ -62,8 +61,16 @@ const bigDate = computed(() => {
 
 // 当前时区显示名（"UTC+8 中国标准时间"），随时间刷新（夏令时切换时偏移可能变化）
 const timezoneLabel = computed(() => getTimezoneLabel(timezone.value, now.value))
-// el-select-v2 需要 {label, value} 结构（时区按偏移去重后约 40 项）
-const tzSelectOptions = computed(() => timezoneOptions.value.map(o => ({ label: o.label, value: o.value })))
+// 时区搜索关键字（原生 select 无内置搜索，用输入框过滤下拉项）
+const tzKeyword = ref('')
+// 过滤后的时区选项（匹配 IANA 名或中文显示名，不区分大小写）
+const filteredTzOptions = computed(() => {
+  const kw = tzKeyword.value.trim().toLowerCase()
+  if (!kw) return timezoneOptions.value
+  return timezoneOptions.value.filter(
+    o => o.value.toLowerCase().includes(kw) || o.label.toLowerCase().includes(kw)
+  )
+})
 // 校时状态文案：
 //   当前会话已校时 → "✓ 已校准 (NTP, -7ms)"
 //   仅 dbStorage 有上次 offset → "✓ 已校准 (上次, -7ms)"
@@ -169,7 +176,10 @@ onBeforeUnmount(() => {
           <span>开启悬浮窗</span>
         </button>
         <button class="utc-btn utc-btn-ghost" :class="{ 'is-active': showSettings }" :title="showSettings ? '收起设置' : '展开时区/格式设置'" @click="showSettings = !showSettings">
-          <el-icon><Setting /></el-icon>
+          <svg class="utc-setting-icon" viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M512 384a128 128 0 1 0 0 256 128 128 0 0 0 0-256zm0 192a64 64 0 1 1 0-128 64 64 0 0 1 0 128z"/>
+            <path fill="currentColor" d="M888 531.2l-46-26.6a330 330 0 0 0 0-37.2l46-26.6c20.8-12 28-38.6 16.4-59.6l-58.4-101.2a43.4 43.4 0 0 0-59.2-16l-46.4 26.8a328 328 0 0 0-32.2-18.6V224.8c0-24-19.6-43.6-43.6-43.6H496.4c-24 0-43.6 19.6-43.6 43.6v53.4c-11.2 5.4-22 11.6-32.2 18.6l-46.4-26.8a43.4 43.4 0 0 0-59.2 16L256.6 387.2c-11.6 21-4.4 47.6 16.4 59.6l46 26.6c-0.8 6.2-1.2 12.4-1.2 18.6s0.4 12.4 1.2 18.6l-46 26.6c-20.8 12-28 38.6-16.4 59.6l58.4 101.2a43.4 43.4 0 0 0 59.2 16l46.4-26.8c10.2 7 21 13.2 32.2 18.6v53.4c0 24 19.6 43.6 43.6 43.6h112.8c24 0 43.6-19.6 43.6-43.6v-53.4c11.2-5.4 22-11.6 32.2-18.6l46.4 26.8a43.4 43.4 0 0 0 59.2-16l58.4-101.2c11.6-21 4.4-47.6-16.4-59.6zM512 704a192 192 0 1 1 0-384 192 192 0 0 1 0 384z"/>
+          </svg>
         </button>
       </div>
 
@@ -178,20 +188,27 @@ onBeforeUnmount(() => {
         <div v-if="showSettings" class="utc-settings">
           <div class="utc-row">
             <span class="utc-label">时区</span>
-            <el-select-v2
-              v-model="timezone"
-              :options="tzSelectOptions"
-              filterable
-              placeholder="搜索或选择时区"
-              class="utc-select"
-            />
+            <div class="utc-tz-picker">
+              <input
+                v-model="tzKeyword"
+                class="utc-tz-search"
+                type="text"
+                placeholder="搜索时区，如 shanghai / UTC+8"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <select v-model="timezone" class="utc-select" size="1">
+                <option v-if="!filteredTzOptions.some(o => o.value === timezone)" :value="timezone">{{ timezoneLabel }}</option>
+                <option v-for="o in filteredTzOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+              </select>
+            </div>
           </div>
           <div class="utc-format">
-            <el-checkbox v-model="format.showDate">年月日</el-checkbox>
-            <el-checkbox v-model="format.showWeekday">星期</el-checkbox>
-            <el-checkbox v-model="format.showTime">时分秒</el-checkbox>
-            <el-checkbox v-model="format.showMs">毫秒</el-checkbox>
-            <el-checkbox v-model="format.hour12">12 小时制</el-checkbox>
+            <label class="utc-check"><input v-model="format.showDate" type="checkbox"><span>年月日</span></label>
+            <label class="utc-check"><input v-model="format.showWeekday" type="checkbox"><span>星期</span></label>
+            <label class="utc-check"><input v-model="format.showTime" type="checkbox"><span>时分秒</span></label>
+            <label class="utc-check"><input v-model="format.showMs" type="checkbox"><span>毫秒</span></label>
+            <label class="utc-check"><input v-model="format.hour12" type="checkbox"><span>12 小时制</span></label>
           </div>
         </div>
       </transition>
@@ -352,13 +369,13 @@ onBeforeUnmount(() => {
 }
 
 .utc-btn-primary {
-  background: var(--el-color-primary, var(--blue, #409eff));
+  background: #409eff;
   color: #fff;
   border-color: transparent;
 }
 
 .utc-btn-primary:hover {
-  background: var(--el-color-primary-light-3, #66b1ff);
+  background: #66b1ff;
 }
 
 .utc-btn-icon {
@@ -375,6 +392,11 @@ onBeforeUnmount(() => {
 .utc-btn-ghost.is-active {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.20);
+}
+
+/* 设置齿轮图标 */
+.utc-setting-icon {
+  display: block;
 }
 
 /* 折叠设置区：内容与上方三行水平居中对齐 */
@@ -400,18 +422,79 @@ onBeforeUnmount(() => {
   min-width: 36px;
 }
 
-.utc-select {
-  /* 限宽使时区行整体居中（与主按钮 240px 对齐） */
+/* 时区选择器：搜索框 + 原生下拉 */
+.utc-tz-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 0 1 240px;
   min-width: 180px;
 }
 
+.utc-tz-search,
+.utc-select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--card-fg);
+  font-size: 12px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.utc-tz-search:focus,
+.utc-select:focus {
+  border-color: #409eff;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* 原生 select 下拉面板颜色（Electron/Chromium 支持 color-scheme 深色面板） */
+.utc-select {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: light) {
+  .utc-select {
+    color-scheme: light;
+    background: #fff;
+  }
+
+  .utc-tz-search {
+    background: #fff;
+  }
+}
+
+/* 格式选项：原生 checkbox */
 .utc-format {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px 14px;
   font-size: 12px;
+}
+
+.utc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--card-fg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.utc-check input[type='checkbox'] {
+  /* accent-color：原生复选框主题色（Chromium 支持） */
+  accent-color: #409eff;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
 }
 
 /* 折叠动画 */
