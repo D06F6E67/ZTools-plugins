@@ -197,3 +197,4 @@ coverage/
 test-results/
 .idea/
 .serena/
+dist.zip

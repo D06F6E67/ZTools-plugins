@@ -2,6 +2,28 @@
 
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-08-25
+
+聚焦交互紧凑度与列表滚动体验。
+
+### 新增
+
+- **智能滚动**：箭头键上下移动光标时，列表区域自动 `scrollIntoView({ block: 'nearest' })`，高亮行始终保持在视窗内（不再依赖浏览器页面滚动）
+- **Shift+← / Shift+→**：切换分类（全部 / Android / 非安卓），结果面板与版本面板均生效，从循环起点环绕
+- **开源仓库链接**：结果面板底部新增 footer-link 跳转到 [https://github.com/kshq1996/ztools-maven](https://github.com/kshq1996/ztools-maven)，标签「开源 v{version}」版本号从 `package.json` 自动读取
+
+### 变更
+
+- **头部紧凑化**：`.maven-panel` padding、`result-header` / `header` 边距、`.tabs` / `.source-tip` / `.cat` 内边距与字号全面缩小，约 90px 高度让渡给 list 区域（600px 视窗下 list 从 ~370px 提升到 ~460px）
+- **顶部 hints 同步更新**：结果面板 `↑↓ 选包 · ←→ 切源 · Shift+←→ 切分类 · m Maven · g Gradle · Enter 进入`，版本面板 `↑↓ 选版本 · Shift+←→ 切分类 · Enter/c/p 菜单 · m Maven · g Gradle · ← 返回`
+- **Help 浮层（Cmd/Ctrl+K）新增一行**：`Shift+←/→` 切换分类
+- **README 快捷键表新增一行**：`Shift + ← / →` 在两个面板的分类切换
+
+### 修复
+
+- **列表独立滚动链**：补齐 `html` / `body` / `#app` 到 viewport 的 `height: 100%` + `overflow: hidden`，`.maven-panel` 由 `min-height` 改为 `height`，让 `.results > ul` / `.versions > ul` 的 `overflow-y: auto` 真正生效
+- **Shift+← 在版本面板不再误返回**：版本面板的 `onVersionKey` 之前不区分 shift 修饰键，按 ← 一律返回上层并提前把 `selectedArtifact` 清空，导致全局 `cycleCategory` 切到错的 ref。增加 `!e.shiftKey` 守卫让 Shift+← 透传到全局处理器
+
 ## [1.0.0] - 2026-08-14
 
 首个正式版本。一款在 ZTools 内快速检索 Maven 依赖、浏览历史版本并一键复制依赖声明的插件。

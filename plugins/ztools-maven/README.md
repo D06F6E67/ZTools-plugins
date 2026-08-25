@@ -1,4 +1,4 @@
-# ztools-maven
+# Maven Lite
 
 > 一款在 **ZTools** 中快速检索 Maven 依赖、浏览历史版本并一键复制依赖声明的开发者效率工具。
 > 告别"浏览器搜索 → 复制 → 切回 IDE"的繁琐流程，让依赖管理行云流水。
@@ -82,6 +82,7 @@ unzip dist.zip -d <ZTools 插件目录>/ztools-maven/
 |---|---|---|
 | `↑` / `↓` | 上下移动 | 上下移动 |
 | `←` / `→` | 切换数据源 Tab | `←` 返回结果列表 |
+| `Shift` + `←` / `→` | 切换分类（全部 / Android / 非安卓） | 切换分类（全部 / Android / 非安卓） |
 | `Enter` | 进入版本面板（阿里云直接复制） | 打开格式菜单 |
 | `m` | 复制 Maven XML（阿里云）；进入二级（Central/CodeRead） | 复制 Maven XML |
 | `g` | 复制 Gradle（阿里云）；进入二级（Central/CodeRead） | 复制 Gradle |

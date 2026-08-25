@@ -7,6 +7,7 @@ import { tagVersion, dedupeVersions, formatTimestamp, pickLatest } from '../lib/
 import { buildDependency, buildGradleCoord } from '../lib/pom-builder'
 import type { MavenArtifact, MavenVersion } from '../lib/types'
 import MavenSettings from '../MavenSettings/index.vue'
+import { version } from '../../package.json'
 
 const props = defineProps<{ enterAction: any }>()
 
@@ -29,6 +30,9 @@ const error = ref<{ msg: string; details?: any } | null>(null)
 
 // Settings dialog (replaces route-based settings page).
 const settingsOpen = ref(false)
+
+// Link to this plugin's own source repo (single "open source" entry point).
+const REPO_URL = 'https://github.com/kshq1996/ztools-maven'
 
 // Source tabs — user preference is remembered in dbStorage.
 const STORAGE_TAB_KEY = 'maven-search-tab'
@@ -145,6 +149,17 @@ function setVersionCat(cat: Category) {
   versionIdx.value = 0
 }
 
+// Shift+←/→ cycles 全部 → Android → 非安卓 → 全部 in both the results and
+// version panels. Same Category order used by both filters.
+const CATEGORY_CYCLE: Category[] = ['all', 'android', 'java']
+function cycleCategory(dir: 1 | -1) {
+  const target = selectedArtifact.value ? versionCat : categoryFilter
+  const i = CATEGORY_CYCLE.indexOf(target.value)
+  target.value = CATEGORY_CYCLE[(i + dir + CATEGORY_CYCLE.length) % CATEGORY_CYCLE.length]
+  // In the version panel, also reset the row cursor so it stays valid.
+  if (selectedArtifact.value) versionIdx.value = 0
+}
+
 // Action menu — POM and Android are SEPARATE format choices.
 const menuOpen = ref(false)
 const menuFocusIdx = ref(0)
@@ -174,6 +189,23 @@ watch(versions, async (newVersions) => {
     versionIdx.value = newVersions.findIndex(v => v.isLatest)
     versionsListRef.value?.focus({ preventScroll: true })
   }
+})
+
+// Smart-scroll: keep the highlighted row visible when the cursor moves.
+// block:'nearest' is a no-op when the row is already in the viewport, so
+// it never jumps or steals scroll from the search hint row / source tabs.
+function scrollSelectedIntoView(listEl: HTMLElement | null, idx: number) {
+  const item = listEl?.children[idx] as HTMLElement | undefined
+  item?.scrollIntoView({ block: 'nearest' })
+}
+
+watch(selectedIdx, async () => {
+  await nextTick()
+  scrollSelectedIntoView(resultsListRef.value, selectedIdx.value)
+})
+watch(versionIdx, async () => {
+  await nextTick()
+  scrollSelectedIntoView(versionsListRef.value, versionIdx.value)
 })
 
 // Help overlay (Cmd/Ctrl+K).
@@ -398,7 +430,11 @@ function onResultKey(e: KeyboardEvent) {
 function onVersionKey(e: KeyboardEvent) {
   if (e.key === 'ArrowDown') { versionIdx.value = Math.min(versionIdx.value + 1, filteredVersions.value.length - 1); e.preventDefault() }
   else if (e.key === 'ArrowUp') { versionIdx.value = Math.max(versionIdx.value - 1, 0); e.preventDefault() }
-  else if (e.key === 'ArrowLeft') { selectedArtifact.value = null; e.preventDefault() }
+  // Plain ← returns to results; Shift+←/→ must NOT be intercepted here so the
+  // global cycleCategory handler can see them (otherwise the local handler
+  // runs first, sets selectedArtifact=null, and the global handler then
+  // cycles the wrong panel's filter).
+  else if (!e.shiftKey && e.key === 'ArrowLeft') { selectedArtifact.value = null; e.preventDefault() }
   // Enter / c / p / a / g / u are handled globally (see onGlobalKey).
 }
 
@@ -432,6 +468,15 @@ function onGlobalKey(e: KeyboardEvent) {
   if (e.key === '/') {
     const el = document.getElementById('maven-search-input') as HTMLInputElement
     el?.focus(); e.preventDefault()
+    return
+  }
+
+  // Shift+←/→ cycles the 全部/Android/非安卓 category filter (works in
+  // both the results and version panels). Must come before the plain ←/→
+  // handlers below so the shift modifier wins.
+  if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    cycleCategory(e.key === 'ArrowRight' ? 1 : -1)
+    e.preventDefault()
     return
   }
 
@@ -520,6 +565,7 @@ onMounted(() => {
           <li><kbd>/</kbd> 聚焦搜索</li>
           <li><kbd>↑</kbd>/<kbd>↓</kbd> 列表内移动</li>
           <li><kbd>←</kbd>/<kbd>→</kbd> 切换数据源</li>
+          <li><kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> 切换分类</li>
           <li><kbd>Enter</kbd> 进入版本列表</li>
           <li><kbd>m</kbd> 复制 Maven / <kbd>g</kbd> 复制 Gradle</li>
           <li><kbd>c</kbd>/<kbd>p</kbd> 打开操作菜单（选版本后）</li>
@@ -564,7 +610,7 @@ Body: {{ error.details?.body }}</pre>
     <!-- Result list (Mode A step 5). -->
     <div v-if="!selectedArtifact" class="results">
       <header class="result-header">
-        <span class="search-tip">↑↓ 选包 · ←→ 切源 · m Maven · g Gradle · Enter 进入</span>
+        <span class="search-tip">↑↓ 选包 · ←→ 切源 · Shift+←→ 切分类 · m Maven · g Gradle · Enter 进入</span>
         <button class="settings-btn" @click="settingsOpen = true" title="代理等设置">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
           设置
@@ -633,6 +679,14 @@ Body: {{ error.details?.body }}</pre>
           </span>
         </li>
       </ul>
+      <footer class="panel-footer">
+        <a class="footer-link" :href="REPO_URL" target="_blank" rel="noopener" title="查看开源仓库">
+          <span class="github-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.16c-3.2.69-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.47.11-3.06 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.77.11 3.06.73.81 1.18 1.84 1.18 3.1 0 4.43-2.7 5.41-5.27 5.69.41.36.78 1.05.78 2.12v3.14c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+          </span>
+          <span>开源 v{{ version }}</span>
+        </a>
+      </footer>
     </div>
 
     <!-- Version list (Mode A step 6). -->
@@ -643,7 +697,7 @@ Body: {{ error.details?.body }}</pre>
           返回
         </button>
         <span class="id">{{ selectedArtifact.id }}</span>
-        <span class="hint-mini">↑↓ 选版本 · Enter/c/p 菜单 · m Maven · g Gradle · ← 返回</span>
+        <span class="hint-mini">↑↓ 选版本 · Shift+←→ 切分类 · Enter/c/p 菜单 · m Maven · g Gradle · ← 返回</span>
         <button class="settings-btn" @click="settingsOpen = true" title="代理等设置">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
         </button>
@@ -688,16 +742,35 @@ Body: {{ error.details?.body }}</pre>
 
 <style scoped>
 .maven-panel {
-  padding: 20px 24px;
+  padding: 12px 20px;
   background: var(--bg-primary);
   color: var(--text-primary);
   position: relative;
   font-size: 16px;
   line-height: 1.5;
-  min-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 ul { list-style: none; padding: 0; margin: 0; }
+
+/* Result / version containers fill the remaining viewport height; the inner
+   <ul> scrolls internally so the search tip, source tabs, filter chips,
+   and footer stay anchored while arrow-key navigation can run past the
+   visible window. */
+.results, .versions {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.results > ul,
+.versions > ul {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* Result list items — bigger, more breathing room */
 .results li {
@@ -793,21 +866,21 @@ ul { list-style: none; padding: 0; margin: 0; }
 header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
-  padding-bottom: 12px;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
 .hint-mini {
   color: var(--text-muted);
-  font-size: 0.8em;
+  font-size: 0.78em;
   margin-left: auto;
   font-family: var(--font-mono);
 }
 footer {
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 6px;
+  padding-top: 4px;
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 0.85em;
@@ -857,13 +930,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.8em;
+  font-size: 0.75em;
   color: var(--text-muted);
   background: var(--bg-secondary);
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  padding: 6px 10px;
-  margin-bottom: 10px;
+  padding: 3px 8px;
+  margin-bottom: 6px;
 }
 .source-tip .dot {
   width: 7px;
@@ -879,24 +952,24 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
 }
 .cats-label {
-  font-size: 0.8em;
+  font-size: 0.78em;
   color: var(--text-muted);
   margin-right: 2px;
 }
 .cat {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 12px;
+  gap: 4px;
+  padding: 2px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 0.85em;
+  font-size: 0.82em;
   cursor: pointer;
   transition: all 0.1s;
 }
@@ -919,21 +992,21 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
 .tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 5px;
+  padding: 3px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 0.9em;
+  font-size: 0.85em;
   cursor: pointer;
   transition: all 0.1s;
 }
@@ -998,6 +1071,27 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .settings-btn:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
 
+/* Panel footer (results view) — open-source link lives here. */
+.panel-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.8em;
+  transition: color 0.1s;
+}
+.footer-link:hover { color: var(--accent); }
+.github-icon { display: inline-flex; align-items: center; }
+
 /* Back button (CSS arrow) */
 .back-btn {
   display: inline-flex;
@@ -1031,13 +1125,13 @@ details[open] .err-toggle::after { transform: rotate(180deg); }
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
 .search-tip {
   color: var(--text-muted);
-  font-size: 0.85em;
+  font-size: 0.78em;
   font-family: var(--font-mono);
 }
 
