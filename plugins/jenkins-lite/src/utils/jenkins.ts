@@ -33,4 +33,8 @@ export class JenkinsClient {
   async getViewJobs(viewName: string): Promise<{ data: JobInfo[]; error: string | null }> {
     return (window.services as any).jenkins.getViewJobs(this.jenkinsUrl, this.username, this.apiToken, viewName)
   }
+
+  async getBuildConsole(jobName: string, buildNumber: number): Promise<{ data: string; error: string | null }> {
+    return (window.services as any).jenkins.getBuildConsole(this.jenkinsUrl, this.username, this.apiToken, jobName, buildNumber)
+  }
 }

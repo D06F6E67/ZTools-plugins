@@ -1,10 +1,17 @@
 <template>
-  <div class="build-history">
+  <div class="build-history" @click="focusPanel">
     <div class="history-header">
       <h3>构建历史</h3>
       <button class="refresh-btn" @click="refresh" :disabled="loading">
         <span class="refresh-icon" :class="{ spinning: loading }"></span>
       </button>
+    </div>
+
+    <div class="keyboard-hint">
+      <span><kbd>←</kbd><kbd>→</kbd> 切面板</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> 切换</span>
+      <span><kbd>Enter</kbd> 查看日志</span>
+      <span><kbd>Esc</kbd> 关闭</span>
     </div>
 
     <div v-if="!selectedJob" class="empty">
@@ -23,12 +30,14 @@
       暂无构建记录
     </div>
 
-    <div v-else class="builds">
+    <div v-else class="builds" ref="buildsRef">
       <div
-        v-for="build in builds"
+        v-for="(build, idx) in builds"
         :key="build.number"
         class="build-item"
-        @click="openBuild(build.url)"
+        :class="{ 'is-keyboard-selected': nav.focusedPanel.value === 'history' && nav.historyIndex.value === idx }"
+        @click="openLog(build)"
+        :data-build-index="idx"
       >
         <div class="build-main">
           <div class="build-info">
@@ -54,14 +63,23 @@
         <span class="build-link">→</span>
       </div>
     </div>
+
+    <BuildLogModal
+      v-if="logBuild"
+      :build="logBuild"
+      :job-name="props.selectedJob || ''"
+      @close="closeLog"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted, nextTick } from 'vue'
 import type { BuildInfo } from '../types'
 import { useInstances } from '../composables/useInstances'
 import { useBuildPolling } from '../composables/useBuildPolling'
+import { useKeyboardNav } from '../composables/useKeyboardNav'
+import BuildLogModal from './BuildLogModal.vue'
 
 const props = defineProps<{
   selectedJob?: string
@@ -69,10 +87,13 @@ const props = defineProps<{
 
 const { currentClient } = useInstances()
 const { currentBuilds, startPolling, stopPolling } = useBuildPolling()
+const nav = useKeyboardNav()
 
 const builds = ref<BuildInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const logBuild = ref<BuildInfo | null>(null)
+const buildsRef = ref<HTMLElement | null>(null)
 
 /**
  * 加载构建历史
@@ -189,11 +210,79 @@ const formatTime = (timestamp: number): string => {
 }
 
 /**
- * 打开构建页面
+ * 打开日志弹窗（替代原直接跳转 Jenkins 的行为）
  */
-const openBuild = (url: string) => {
-  window.ztools.shellOpenExternal(url)
+const openLog = (build: BuildInfo) => {
+  logBuild.value = build
 }
+
+const closeLog = () => {
+  logBuild.value = null
+}
+
+/**
+ * 点击本面板任何位置 → 焦点切到 history
+ */
+const focusPanel = () => {
+  if (nav.focusedPanel.value !== 'history') {
+    nav.setFocusedPanel('history')
+  }
+}
+
+/**
+ * historyIndex 越界裁剪
+ */
+const clampHistoryIndex = () => {
+  const n = builds.value.length
+  if (n === 0) {
+    nav.historyIndex.value = 0
+  } else if (nav.historyIndex.value >= n) {
+    nav.historyIndex.value = n - 1
+  } else if (nav.historyIndex.value < 0) {
+    nav.historyIndex.value = 0
+  }
+}
+
+watch(builds, () => clampHistoryIndex())
+
+/**
+ * 同级内移动（↑↓）
+ */
+const moveInSiblings = (delta: number) => {
+  const n = builds.value.length
+  if (n === 0) return
+  nav.historyIndex.value = Math.max(0, Math.min(n - 1, nav.historyIndex.value + delta))
+  scrollSelectedIntoView()
+}
+
+/**
+ * 主操作：打开选中条目的日志弹窗
+ */
+const primaryAction = () => {
+  const target = builds.value[nav.historyIndex.value]
+  if (target) openLog(target)
+}
+
+/**
+ * 滚动选中项入视
+ */
+const scrollSelectedIntoView = () => {
+  nextTick(() => {
+    const root = buildsRef.value
+    if (!root) return
+    const el = root.querySelector(`[data-build-index="${nav.historyIndex.value}"]`) as HTMLElement | null
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+defineExpose({
+  focusPanel,
+  moveInSiblings,
+  primaryAction,
+  handleEsc: () => {
+    if (logBuild.value) closeLog()
+  }
+})
 
 // 监听选中 Job 变化
 watch(() => props.selectedJob, (job) => {
@@ -237,6 +326,35 @@ onUnmounted(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+}
+
+.keyboard-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text-secondary, #999);
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  background: var(--bg-secondary, #fafafa);
+  line-height: 1.6;
+}
+
+.keyboard-hint kbd {
+  display: inline-block;
+  padding: 0 4px;
+  min-width: 14px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-color, #333);
+  background: var(--bg-color, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  line-height: 14px;
+  margin: 0 1px;
 }
 
 .refresh-btn {
@@ -304,6 +422,11 @@ onUnmounted(() => {
 
 .build-item:hover {
   background: var(--bg-hover, #f5f5f5);
+}
+
+.build-item.is-keyboard-selected {
+  background: var(--primary-bg, rgba(0, 120, 212, 0.15));
+  box-shadow: inset 2px 0 0 var(--primary-color, #0078d4);
 }
 
 .build-main {

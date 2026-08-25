@@ -2,6 +2,7 @@
 
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { ref } from 'vue'
 import JobItem from '../src/components/JobItem.vue'
 import type { JobInfo } from '../src/types'
 
@@ -21,12 +22,25 @@ describe('JobItem folders', () => {
       _class: 'com.cloudbees.hudson.plugins.folder.Folder',
       jobs: [child]
     }
+    const expandedMap = ref<Set<string>>(new Set())
     const wrapper = mount(JobItem, {
-      props: { job: folder, favorited: false }
+      props: {
+        job: folder,
+        favorited: false,
+        expandedMap: expandedMap.value
+      }
     })
 
     expect(wrapper.findAll('.job-item')).toHaveLength(1)
     await wrapper.find('.job-info').trigger('click')
+
+    // 模拟父组件响应 toggle-expand 事件：把 folder 的 fullName 加进 expandedMap
+    const emits = wrapper.emitted('toggle-expand')
+    expect(emits).toBeDefined()
+    const toggled = emits![0][0] as JobInfo
+    expandedMap.value = new Set([...expandedMap.value, toggled.fullName || toggled.name])
+    await wrapper.setProps({ expandedMap: expandedMap.value })
+    await wrapper.vm.$nextTick()
 
     expect(wrapper.findAll('.job-item')).toHaveLength(2)
     expect(wrapper.emitted('click')).toBeUndefined()

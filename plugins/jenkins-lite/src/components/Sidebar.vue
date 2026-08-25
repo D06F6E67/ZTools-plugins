@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" @click="focusPanel">
     <div class="sidebar-header">
       <h1 class="logo">Jenkins Lite</h1>
     </div>
@@ -29,7 +29,7 @@
       </div>
     </div>
 
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" ref="navRef">
       <!-- Jenkins 视图列表 + 收藏 -->
       <div class="nav-section" v-if="hasInstances && currentInstance">
         <div class="nav-section-title">视图</div>
@@ -37,9 +37,13 @@
         <!-- 收藏 - 作为特殊视图 -->
         <div
           class="nav-item favorite-view-item"
-          :class="{ active: props.currentView === '__favorites__' }"
+          :class="{
+            active: props.currentView === '__favorites__',
+            'is-keyboard-selected': nav.focusedPanel.value === 'sidebar' && nav.sidebarIndex.value === 0
+          }"
           @click="selectView('__favorites__')"
           title="收藏的 Jobs"
+          data-nav-index="0"
         >
           <span class="nav-icon star-icon"></span>
           <span class="nav-label">收藏</span>
@@ -50,11 +54,15 @@
 
         <!-- Jenkins 视图列表 -->
         <div
-          v-for="view in views"
+          v-for="(view, idx) in views"
           :key="view.name"
           class="nav-item"
-          :class="{ active: props.currentView === view.name }"
+          :class="{
+            active: props.currentView === view.name,
+            'is-keyboard-selected': nav.focusedPanel.value === 'sidebar' && nav.sidebarIndex.value === idx + 1
+          }"
           @click="selectView(view.name)"
+          :data-nav-index="idx + 1"
         >
           <span class="nav-icon view-icon"></span>
           <span class="nav-label" :title="view.name">{{ view.name }}</span>
@@ -66,6 +74,11 @@
     </nav>
 
     <div class="sidebar-footer">
+      <div class="keyboard-hint">
+        <kbd>←</kbd><kbd>→</kbd> 切面板
+        <span class="hint-sep">·</span>
+        <kbd>↑</kbd><kbd>↓</kbd> 切换视图
+      </div>
       <a class="footer-link" href="https://github.com/kshq1996/ztools-jenkins" target="_blank" title="查看开源仓库">
         <span class="github-icon"></span>
         <span>开源 v{{ version }}</span>
@@ -75,9 +88,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useInstances } from '../composables/useInstances'
 import { useFavorites } from '../composables/useFavorites'
+import { useKeyboardNav } from '../composables/useKeyboardNav'
 import type { Favorite, JenkinsView } from '../types'
 
 const props = defineProps<{
@@ -90,14 +104,17 @@ const emit = defineEmits<{
   (e: 'view-change', viewName: string): void
   (e: 'open-settings'): void
   (e: 'add-instance'): void
+  (e: 'focus-sidebar'): void
 }>()
 
 const { instances, currentInstance, currentClient, hasInstances, switchInstance } = useInstances()
 const { favorites } = useFavorites()
+const nav = useKeyboardNav()
 
 const views = ref<JenkinsView[]>([])
 const showServiceMenu = ref(false)
-const version = '1.2.1'
+const version = '1.4.0'
+const navRef = ref<HTMLElement | null>(null)
 
 /** 当前实例的收藏（按添加时间倒序） */
 const currentInstanceFavorites = computed(() => {
@@ -106,6 +123,29 @@ const currentInstanceFavorites = computed(() => {
     .filter(f => f.instanceId === currentInstance.value?._id)
     .sort((a, b) => b.addedAt - a.addedAt)
 })
+
+/**
+ * 导航项总数（收藏 + 视图）
+ */
+const navItemsCount = computed(() => {
+  return 1 + views.value.length // 1 = 收藏
+})
+
+/**
+ * sidebarIndex 越界裁剪
+ */
+const clampSidebarIndex = () => {
+  const n = navItemsCount.value
+  if (n === 0) {
+    nav.sidebarIndex.value = 0
+  } else if (nav.sidebarIndex.value >= n) {
+    nav.sidebarIndex.value = n - 1
+  } else if (nav.sidebarIndex.value < 0) {
+    nav.sidebarIndex.value = 0
+  }
+}
+
+watch(navItemsCount, () => clampSidebarIndex())
 
 const toggleServiceMenu = () => {
   showServiceMenu.value = !showServiceMenu.value
@@ -136,6 +176,66 @@ const loadViews = async () => {
 const selectView = (viewName: string) => {
   emit('view-change', viewName)
 }
+
+/**
+ * 根据 sidebarIndex 选中目标视图 / 收藏
+ */
+const activateNavItem = (index: number) => {
+  if (index === 0) {
+    selectView('__favorites__')
+  } else {
+    const view = views.value[index - 1]
+    if (view) selectView(view.name)
+  }
+}
+
+/**
+ * 同级内移动（↑↓）
+ * 选中即切换视图 —— 不再需要回车确认，直接查询/加载
+ */
+const moveInSiblings = (delta: number) => {
+  const n = navItemsCount.value
+  if (n === 0) return
+  nav.sidebarIndex.value = Math.max(0, Math.min(n - 1, nav.sidebarIndex.value + delta))
+  scrollSelectedIntoView()
+  // 移动即选中（与 JobsList 的"键盘移动联动右侧"一致）
+  activateNavItem(nav.sidebarIndex.value)
+}
+
+/**
+ * 主操作（Enter）：保留点击 / Enter 切换的兜底（鼠标点击不触发 moveInSiblings）
+ */
+const primaryAction = () => {
+  activateNavItem(nav.sidebarIndex.value)
+}
+
+/**
+ * 滚动选中项入视
+ */
+const scrollSelectedIntoView = () => {
+  nextTick(() => {
+    const root = navRef.value
+    if (!root) return
+    const el = root.querySelector(`[data-nav-index="${nav.sidebarIndex.value}"]`) as HTMLElement | null
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+/**
+ * 点击本面板 → 焦点切到 sidebar
+ */
+const focusPanel = () => {
+  if (nav.focusedPanel.value !== 'sidebar') {
+    nav.setFocusedPanel('sidebar')
+  }
+  emit('focus-sidebar')
+}
+
+defineExpose({
+  focusPanel,
+  moveInSiblings,
+  primaryAction
+})
 
 watch(currentInstance, () => loadViews())
 watch(currentClient, () => {
@@ -331,6 +431,10 @@ onMounted(() => {
   color: var(--primary-color, #0078d4);
 }
 
+.nav-item.is-keyboard-selected {
+  box-shadow: inset 2px 0 0 var(--primary-color, #0078d4);
+}
+
 .nav-icon {
   width: 14px;
   height: 14px;
@@ -392,6 +496,38 @@ onMounted(() => {
 .sidebar-footer {
   padding: 10px 12px;
   border-top: 1px solid var(--border-color, #e0e0e0);
+}
+
+.keyboard-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-secondary, #999);
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.keyboard-hint .hint-sep {
+  margin: 0 2px;
+  color: var(--text-secondary, #aaa);
+}
+
+.keyboard-hint kbd {
+  display: inline-block;
+  padding: 0 4px;
+  min-width: 14px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-color, #333);
+  background: var(--bg-color, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  line-height: 14px;
 }
 
 .footer-link {

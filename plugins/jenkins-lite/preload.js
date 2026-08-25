@@ -48,6 +48,44 @@ function jenkinsRequest(jenkinsUrl, username, apiToken, apiPath) {
   })
 }
 
+// Jenkins 文本端点调用（不解析 JSON，直接返回原始字符串）
+function jenkinsRequestText(jenkinsUrl, username, apiToken, apiPath) {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(jenkinsUrl)
+    const isHttps = parsedUrl.protocol === 'https:'
+    const httpModule = isHttps ? https : http
+
+    const auth = Buffer.from(username + ':' + apiToken).toString('base64')
+    const cleanPath = apiPath.startsWith('/') ? apiPath : '/' + apiPath
+
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (isHttps ? 443 : 80),
+      path: cleanPath,
+      method: 'GET',
+      headers: {
+        'Authorization': 'Basic ' + auth,
+        'Accept': 'text/plain'
+      }
+    }
+
+    const req = httpModule.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(data)
+        } else {
+          reject(new Error('HTTP ' + res.statusCode))
+        }
+      })
+    })
+
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 // Jenkins 构建触发
 function jenkinsBuild(jenkinsUrl, username, apiToken, jobName) {
   return new Promise((resolve, reject) => {
@@ -163,6 +201,17 @@ window.services = {
       return jenkinsRequest(jenkinsUrl, username, apiToken, '/api/json')
         .then(function() { return { success: true, error: null } })
         .catch(function(err) { return { success: false, error: err.message } })
+    },
+    // 获取构建的 console log（纯文本）
+    getBuildConsole: function(jenkinsUrl, username, apiToken, jobName, buildNumber) {
+      return jenkinsRequestText(
+        jenkinsUrl,
+        username,
+        apiToken,
+        getJobPath(jobName) + '/' + encodeURIComponent(String(buildNumber)) + '/consoleText'
+      )
+        .then(function(data) { return { data: data || '', error: null } })
+        .catch(function(err) { return { data: '', error: err.message } })
     }
   },
   // 读文件
