@@ -1,10 +1,11 @@
 const VarConv = require('./var-conv.js');
 
-function getSetList(var_name, searchWord) {
+function getSetList(var_name, searchWord, not_loop) {
     var_name = var_name == null ? '' : String(var_name);
     searchWord = searchWord ? String(searchWord) : '';
+    not_loop = not_loop || false;
 
-    const var_conv = new VarConv(var_name);
+    const var_conv = new VarConv(var_name || searchWord);
     const list = [];
 
     for (const name in var_conv.maps) {
@@ -17,6 +18,11 @@ function getSetList(var_name, searchWord) {
                 sort: sort
             });
         }
+    }
+
+    // 对不上目标类型时，把当前输入当作新变量名再转一遍
+    if (list.length <= 0 && !not_loop && searchWord) {
+        return getSetList(searchWord, '', true);
     }
 
     return list.sort(function (a, b) { return a.sort - b.sort; });

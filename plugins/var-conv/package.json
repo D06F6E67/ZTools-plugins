@@ -1,6 +1,6 @@
 {
   "name": "var-conv",
-  "version": "1.1.2",
+  "version": "1.0.2",
   "description": "将任意写法变量名转换为任意写法变量名。移植自 imdong/Var-Conv，原作者青石 (ImDong)。",
   "author": "ImDong",
   "license": "Apache-2.0",

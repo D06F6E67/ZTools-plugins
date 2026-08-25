@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- 子输入框占位符改为「目标类型 or 新变量名」
+- 输入内容会筛选风格；匹配不到时按新变量名转换，且输入框保留刚才输入的文字
+- 修复顶部输入框被列表刷新清空或重复写入的问题
+
 ## 1.0.1
 
 - 将 uTools 插件 [Var-Conv](https://github.com/imdong/Var-Conv) 移植为 ZTools 插件（原作者青石 ImDong）

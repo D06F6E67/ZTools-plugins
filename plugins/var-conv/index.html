@@ -98,11 +98,6 @@
         ztools.setExpendHeight(Math.min(height, 541))
       }
 
-      function focusPlugin() {
-        document.body.focus()
-        if (ztools.subInputBlur) ztools.subInputBlur()
-      }
-
       function updateSelection() {
         const nodes = listEl.querySelectorAll('.item:not(.empty)')
         for (let i = 0; i < nodes.length; i++) {
@@ -120,7 +115,6 @@
         if (!items.length) {
           listEl.innerHTML = '<div class="item empty"><div class="body"><div class="title"></div><div class="desc"></div></div></div>'
           syncHeight()
-          focusPlugin()
           return
         }
         listEl.innerHTML = items.map(function (item, index) {
@@ -146,7 +140,6 @@
         }
         updateSelection()
         syncHeight()
-        focusPlugin()
       }
 
       function selectIndex(index) {
@@ -159,10 +152,11 @@
       }
 
       function applyFilter(text) {
-        filterText = text || ''
+        const next = typeof text === 'string' ? text : ''
+        if (next === filterText) return
+        filterText = next
         selectedIndex = 0
         ignoreHover = false
-        ztools.setSubInputValue(filterText)
         render()
       }
 
@@ -199,13 +193,11 @@
         filterText = ''
         selectedIndex = 0
         pasting = false
-        const placeholder = fromOver ? '类型' : '输入变量名'
+        const placeholder = fromOver ? '目标类型 or 新变量名' : '输入变量名'
         ztools.setSubInput(function (details) {
           const text = details && typeof details === 'object' ? details.text : details
-          filterText = text || ''
-          selectedIndex = 0
-          render()
-        }, placeholder, false)
+          applyFilter(typeof text === 'string' ? text : '')
+        }, placeholder, true)
         render()
       })
 
@@ -255,15 +247,7 @@
           selectIndex(selectedIndex)
           return
         }
-        if (event.key === 'Backspace') {
-          event.preventDefault()
-          applyFilter(filterText.slice(0, -1))
-          return
-        }
-        if (event.key.length === 1 && event.key !== 'Process') {
-          event.preventDefault()
-          applyFilter(filterText + event.key)
-        }
+
       }, true)
     })()
   </script>
