@@ -2,7 +2,7 @@
   "name": "jenkins-lite",
   "title": "Jenkins Lite",
   "description": " 一款轻量级 Jenkins 辅助工具。告别繁琐的网页操作，可轻松实现实时查询任务状态、监控构建进度、一键触发构建，可显著提升 CI/CD 效率。",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "index.html",
   "logo": "logo.png",
   "author": "康康学长",

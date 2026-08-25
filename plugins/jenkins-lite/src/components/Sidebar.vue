@@ -97,7 +97,7 @@ const { favorites } = useFavorites()
 
 const views = ref<JenkinsView[]>([])
 const showServiceMenu = ref(false)
-const version = '1.2.0'
+const version = '1.2.1'
 
 /** 当前实例的收藏（按添加时间倒序） */
 const currentInstanceFavorites = computed(() => {

@@ -6,12 +6,6 @@
         class="folder-arrow"
         :class="{ expanded }"
       ></span>
-      <span
-        class="job-status"
-        :style="{ color: statusInfo.color }"
-      >
-        {{ statusInfo.icon }}
-      </span>
       <span class="job-name" :title="displayName">{{ displayName }}</span>
     </div>
 
@@ -72,6 +66,9 @@ const displayName = computed(() => {
   return props.showFullName ? (props.job.fullName || props.job.name) : props.job.name
 })
 
+/**
+ * 是否为 Folder
+ */
 const isFolder = computed(() => {
   return Array.isArray(props.job.jobs) || /(?:Folder|MultiBranchProject)$/.test(props.job._class || '')
 })
@@ -83,14 +80,6 @@ const handleClick = () => {
   }
   emit('click', props.job)
 }
-
-/**
- * 获取状态信息
- */
-const statusInfo = computed(() => {
-  const colorKey = props.job.color?.replace('anime', '') || 'notbuilt'
-  return JOB_COLOR_MAP[colorKey] || JOB_COLOR_MAP['notbuilt']
-})
 </script>
 
 <style scoped>
@@ -98,8 +87,8 @@ const statusInfo = computed(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  padding: 10px 12px;
-  margin-bottom: 4px;
+  padding: 5px 12px;
+  margin-bottom: 2px;
   background: var(--bg-color, #fff);
   border-radius: 6px;
   cursor: pointer;
@@ -116,12 +105,6 @@ const statusInfo = computed(() => {
   align-items: center;
   gap: 8px;
   overflow: hidden;
-}
-
-.job-status {
-  font-size: 12px;
-  width: 16px;
-  text-align: center;
 }
 
 .folder-arrow {
@@ -207,7 +190,7 @@ const statusInfo = computed(() => {
 .job-children {
   flex-basis: 100%;
   width: 100%;
-  margin-left: 16px;
-  margin-top: 4px;
+  margin-left: 10px;
+  margin-top: 2px;
 }
 </style>
