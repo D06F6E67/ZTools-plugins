@@ -80,6 +80,7 @@
       let selectedIndex = 0
       let ignoreHover = false
       let pasting = false
+      let ignoreSubInput = 0
 
       function shortcutDigit(index) {
         if (index >= 0 && index < 9) return String(index + 1)
@@ -96,6 +97,19 @@
       function syncHeight() {
         const height = Math.max(listEl.scrollHeight || 0, MIN_HEIGHT)
         ztools.setExpendHeight(Math.min(height, 541))
+      }
+
+      function focusPlugin() {
+        document.body.focus()
+        if (ztools.subInputBlur) ztools.subInputBlur()
+      }
+
+      function showSubInput(text) {
+        ignoreSubInput += 1
+        ztools.setSubInputValue(text)
+        setTimeout(function () {
+          ignoreSubInput = Math.max(0, ignoreSubInput - 1)
+        }, 50)
       }
 
       function updateSelection() {
@@ -115,6 +129,7 @@
         if (!items.length) {
           listEl.innerHTML = '<div class="item empty"><div class="body"><div class="title"></div><div class="desc"></div></div></div>'
           syncHeight()
+          focusPlugin()
           return
         }
         listEl.innerHTML = items.map(function (item, index) {
@@ -140,6 +155,7 @@
         }
         updateSelection()
         syncHeight()
+        focusPlugin()
       }
 
       function selectIndex(index) {
@@ -151,12 +167,16 @@
         })
       }
 
-      function applyFilter(text) {
+      function applyFilter(text, fromHost) {
         const next = typeof text === 'string' ? text : ''
-        if (next === filterText) return
+        if (next === filterText) {
+          focusPlugin()
+          return
+        }
         filterText = next
         selectedIndex = 0
         ignoreHover = false
+        if (!fromHost) showSubInput(filterText)
         render()
       }
 
@@ -195,9 +215,10 @@
         pasting = false
         const placeholder = fromOver ? '目标类型 or 新变量名' : '输入变量名'
         ztools.setSubInput(function (details) {
+          if (ignoreSubInput) return
           const text = details && typeof details === 'object' ? details.text : details
-          applyFilter(typeof text === 'string' ? text : '')
-        }, placeholder, true)
+          applyFilter(typeof text === 'string' ? text : '', true)
+        }, placeholder, false)
         render()
       })
 
@@ -247,7 +268,16 @@
           selectIndex(selectedIndex)
           return
         }
-
+        if (event.key === 'Backspace') {
+          event.preventDefault()
+          applyFilter(filterText.slice(0, -1), false)
+          return
+        }
+        if (event.isComposing || event.key === 'Process') return
+        if (event.key.length === 1) {
+          event.preventDefault()
+          applyFilter(filterText + event.key, false)
+        }
       }, true)
     })()
   </script>
