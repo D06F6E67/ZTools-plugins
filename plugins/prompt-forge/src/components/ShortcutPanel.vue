@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { X } from 'lucide-vue-next'
+
 defineProps<{
   visible: boolean
 }>()
@@ -44,7 +46,7 @@ const shortcuts: { title: string; items: Shortcut[] }[] = [
       <div class="shortcut-panel">
         <div class="shortcut-header">
           <span>快捷键</span>
-          <button class="shortcut-close" @click="emit('close')">✕</button>
+          <button class="shortcut-close" @click="emit('close')"><X :size="16" /></button>
         </div>
         <div class="shortcut-body">
           <div v-for="(group, gi) in shortcuts" :key="gi" class="shortcut-group">

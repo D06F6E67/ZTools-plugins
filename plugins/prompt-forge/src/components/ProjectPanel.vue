@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { FolderInput, Trash2, Check, ArrowLeft } from 'lucide-vue-next'
 import { usePromptStore } from '../stores/prompt'
 import { useProjectStore } from '../stores/project'
 import { showNotification } from '../utils/platform'
@@ -98,18 +99,18 @@ defineExpose({ closeCtxMenu })
     <teleport to="body">
       <div v-if="ctxMenu.visible" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
         <template v-if="!showMoveGroup">
-          <div class="ctx-menu-item" @click="showMoveGroup = true"><span>📂</span><span>移动到…</span></div>
+          <div class="ctx-menu-item" @click="showMoveGroup = true"><FolderInput :size="14" /><span>移动到…</span></div>
           <div class="ctx-menu-divider"></div>
-          <div class="ctx-menu-item danger" @click="deleteProject(ctxMenu.project!)"><span>🗑</span><span>删除项目</span></div>
+          <div class="ctx-menu-item danger" @click="deleteProject(ctxMenu.project!)"><Trash2 :size="14" /><span>删除项目</span></div>
         </template>
         <template v-else>
           <div class="ctx-menu-title">移动到分组</div>
           <div class="ctx-menu-divider"></div>
           <div v-for="g in projectStore.GROUPS" :key="g" class="ctx-menu-item" :class="{ active: ctxMenu.project?.group === g }" @click="moveProjectGroup(ctxMenu.project!, g)">
-            <span>{{ ctxMenu.project?.group === g ? '✓' : '' }}</span><span>{{ g }}</span>
+            <span class="ctx-check"><Check v-if="ctxMenu.project?.group === g" :size="14" /></span><span>{{ g }}</span>
           </div>
           <div class="ctx-menu-divider"></div>
-          <div class="ctx-menu-item" @click="showMoveGroup = false"><span>←</span><span>返回</span></div>
+          <div class="ctx-menu-item" @click="showMoveGroup = false"><ArrowLeft :size="14" /><span>返回</span></div>
         </template>
       </div>
     </teleport>
@@ -144,6 +145,7 @@ defineExpose({ closeCtxMenu })
 .ctx-menu-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: var(--pf-text); cursor: pointer; transition: background 0.1s; }
 .ctx-menu-item:hover { background: var(--pf-surface-hover); }
 .ctx-menu-item.active { color: var(--pf-accent); font-weight: 600; }
+.ctx-check { width: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .ctx-menu-item.danger { color: var(--pf-danger, #ef4444); }
 .ctx-menu-item.danger:hover { background: rgba(239, 68, 68, 0.08); }
 </style>

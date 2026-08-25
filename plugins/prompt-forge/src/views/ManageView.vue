@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { Star } from 'lucide-vue-next'
 import Fuse from 'fuse.js'
 import { useRouter } from '../stores/router'
 import { usePromptStore } from '../stores/prompt'
@@ -231,11 +232,11 @@ onMounted(() => {
         >
           <input v-if="selectMode" type="checkbox" :checked="selectedIds.has(item.id)" class="m-cb" @click.stop="toggleSelect(item.id)" />
           <div class="mi-body">
-            <div class="mi-title"><span v-if="item.favorite" class="star">★</span>{{ item.title }}</div>
+            <div class="mi-title"><Star v-if="item.favorite" :size="12" class="star" :fill="'currentColor'" />{{ item.title }}</div>
             <div class="mi-meta"><span class="type-tag">{{ { prompt: '提示词', snippet: '片段', template: '模板', constraint: '约束' }[item.type] || item.type }}</span><span class="spacer"></span><span class="cnt">{{ item.usageCount }}次</span></div>
           </div>
           <button v-if="!selectMode" class="mi-fav" @click.stop="toggleFavorite(item.id)" :title="item.favorite ? '取消收藏' : '收藏'">
-            {{ item.favorite ? '★' : '☆' }}
+            <Star :size="15" :fill="item.favorite ? 'currentColor' : 'none'" />
           </button>
         </div>
       </div>

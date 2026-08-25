@@ -31,7 +31,7 @@ async function flushPersist() {
 }
 
 // 筛选 & 排序状态（模块级，确保所有组件共享同一份）
-const spaceTab = ref<'all' | 'recent' | 'favorite' | 'project' | 'asset' | 'history' | 'trash'>('recent')
+const spaceTab = ref<'all' | 'recent' | 'favorite' | 'project' | 'asset' | 'history' | 'trash' | 'stats'>('recent')
 const query = ref('')
 const filterTag = ref('')
 const filterProjectId = ref('')

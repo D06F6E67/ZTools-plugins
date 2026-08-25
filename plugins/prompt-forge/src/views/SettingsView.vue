@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { Settings, Palette, Download, Info } from 'lucide-vue-next'
 import { useRouter } from '../stores/router'
 import { usePromptStore } from '../stores/prompt'
 import { useAppSettings } from '../stores/app'
 import { useTheme } from '../stores/theme'
+import { normalizePromptItem } from '../utils/prompt'
 
 const router = useRouter()
 const promptStore = usePromptStore()
@@ -24,12 +26,20 @@ function importJson(e: Event) {
       const data = JSON.parse(reader.result as string); if (!Array.isArray(data)) { alert('格式不正确'); return }
       await promptStore.ensureReady(); let count = 0
       let changed = false
-      for (const item of data) { if (item.id && item.title && item.content && !promptStore.rawItems.value.some(i => i.id === item.id)) { promptStore.rawItems.value.push(item); count++; changed = true } }
+      for (const rawItem of data) {
+        const item = normalizePromptItem(rawItem)
+        if (item && !promptStore.rawItems.value.some(existing => existing.id === item.id)) {
+          promptStore.rawItems.value.push(item)
+          count++
+          changed = true
+        }
+      }
       if (changed) await promptStore.persistAll()
       alert(`✓ 导入 ${count} 条`)
     } catch { alert('导入失败') }
   }
   reader.readAsText(file)
+  ;(e.target as HTMLInputElement).value = ''
 }
 async function clearAll() {
   if (!confirm('⚠ 确定清空全部？')) return
@@ -43,12 +53,12 @@ async function clearAll() {
   <div class="sv">
     <div class="sv-nav">
       <div class="ns">通用</div>
-      <div :class="['ni', { active: tab === 'behavior' }]" @click="tab = 'behavior'">⚙ 行为</div>
-      <div :class="['ni', { active: tab === 'theme' }]" @click="tab = 'theme'">🎨 主题</div>
+      <div :class="['ni', { active: tab === 'behavior' }]" @click="tab = 'behavior'"><Settings :size="15" />行为</div>
+      <div :class="['ni', { active: tab === 'theme' }]" @click="tab = 'theme'"><Palette :size="15" />主题</div>
       <div class="ns">数据</div>
-      <div :class="['ni', { active: tab === 'import-export' }]" @click="tab = 'import-export'">📦 导入/导出</div>
+      <div :class="['ni', { active: tab === 'import-export' }]" @click="tab = 'import-export'"><Download :size="15" />导入/导出</div>
       <div class="ns">关于</div>
-      <div :class="['ni', { active: tab === 'about' }]" @click="tab = 'about'">ℹ 关于</div>
+      <div :class="['ni', { active: tab === 'about' }]" @click="tab = 'about'"><Info :size="15" />关于</div>
     </div>
     <div class="sv-content">
       <div v-if="tab === 'behavior'">
@@ -80,7 +90,7 @@ async function clearAll() {
       </div>
       <div v-if="tab === 'about'">
         <h2>关于 PromptForge</h2><p class="sub">AI 工作流增强插件。</p>
-        <div class="about-card"><div class="about-logo">PF</div><div><h3>PromptForge</h3><p class="ver">v1.1.0</p><p class="copy">© 2026</p></div></div>
+        <div class="about-card"><div class="about-logo">PF</div><div><h3>PromptForge</h3><p class="ver">v1.3.0</p><p class="copy">© 2026</p></div></div>
         <p class="privacy">本插件不发起网络请求。数据仅存储在本地。</p>
       </div>
     </div>

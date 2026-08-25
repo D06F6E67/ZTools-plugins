@@ -13,6 +13,7 @@ import SpaceSidebar from '../components/SpaceSidebar.vue'
 import ProjectPanel from '../components/ProjectPanel.vue'
 import HistoryPanel from '../components/HistoryPanel.vue'
 import TrashPanel from '../components/TrashPanel.vue'
+import StatisticsPanel from '../components/StatisticsPanel.vue'
 
 const router = useRouter()
 const prompt = usePromptStore()
@@ -137,8 +138,8 @@ onUnmounted(() => {
     <SpaceSidebar />
 
     <div class="space-main">
-      <!-- 顶栏 -->
-      <div class="space-topbar">
+      <!-- 顶栏（统计 tab 隐藏） -->
+      <div v-if="prompt.spaceTab.value !== 'stats'" class="space-topbar">
         <input
           v-model="prompt.query.value"
           type="text"
@@ -192,6 +193,11 @@ onUnmounted(() => {
       <!-- 回收站 tab -->
       <template v-else-if="prompt.spaceTab.value === 'trash'">
         <TrashPanel />
+      </template>
+
+      <!-- 统计 tab -->
+      <template v-else-if="prompt.spaceTab.value === 'stats'">
+        <StatisticsPanel />
       </template>
 
       <!-- 其他 tab：列表 + 填写 -->
