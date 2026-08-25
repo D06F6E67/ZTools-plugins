@@ -1,7 +1,7 @@
 {
   "name": "datatimeutc",
   "version": "1.0.4",
-  "description": "",
+  "description": "实时显示 UTC 时间，支持多时区切换、自定义日期时间格式，悬浮小窗",
   "type": "module",
   "scripts": {
     "dev": "vite",

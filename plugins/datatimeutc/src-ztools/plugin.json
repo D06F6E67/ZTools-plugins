@@ -1,15 +1,15 @@
 {
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "datatimeutc",
-  "title": "UTC 标准时间",
+  "title": "UTC时间悬浮",
   "description": "实时显示 UTC 时间，支持多时区切换、自定义日期时间格式，悬浮小窗",
-  "author": "lvy",
-  "version": "1.0.2",
+  "author": "paff",
+  "version": "1.0.4",
   "main": "dist/index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
   "development": {
-    "main": "http://localhost:5173"
+    "main": "http://localhost:5173/"
   },
   "features": [
     {
