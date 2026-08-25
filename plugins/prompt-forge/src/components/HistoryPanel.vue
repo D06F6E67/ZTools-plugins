@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from 'lucide-vue-next'
 import { usePromptStore } from '../stores/prompt'
 import { useRouter } from '../stores/router'
 import { copyText, showNotification } from '../utils/platform'
@@ -40,7 +41,7 @@ function handleClearHistory() {
         <div class="history-item-actions">
           <button class="btn" :disabled="!prompt.liveItems.value.some(i => i.id === h.promptId)" @click="router.navigateToManage(h.promptId)" title="查看原始提示词">查看</button>
           <button class="btn" @click="copyText(h.copiedContent); showNotification('✓ 已复制')">复制</button>
-          <button class="btn icon-btn" title="删除" @click="prompt.deleteHistoryEntry(h.id)">✕</button>
+          <button class="btn icon-btn" title="删除" @click="prompt.deleteHistoryEntry(h.id)"><X :size="13" /></button>
         </div>
       </div>
     </div>

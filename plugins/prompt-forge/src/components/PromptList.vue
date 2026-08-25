@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Calendar, Star, Pencil, Trash2 } from 'lucide-vue-next'
 import type { PromptItem } from '../types'
 import { usePromptStore } from '../stores/prompt'
 
@@ -24,17 +25,21 @@ const emit = defineEmits<{
 const prompt = usePromptStore()
 
 /** 高亮搜索关键词 */
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+}
+
 function highlightText(text: string, q: string): string {
-  if (!q) return text
+  if (!q) return escapeHtml(text)
   // 转义特殊正则字符
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // 逐字符构造正则，允许字符之间有任意内容（模拟 Fuse.js 模糊匹配风格）
   const pattern = escaped.split('').join('[\\s\\S]*?')
   try {
     const regex = new RegExp(`(${pattern})`, 'gi')
-    return text.replace(regex, '<mark>$1</mark>')
+    return escapeHtml(text).replace(regex, '<mark>$1</mark>')
   } catch {
-    return text
+    return escapeHtml(text)
   }
 }
 
@@ -114,13 +119,13 @@ const sortIcon = computed(() => prompt.sortDir.value === 'desc' ? '↓' : '↑')
       >
         <div class="card-left">
           <button :class="['dot', { fav: item.favorite }]" @click.stop="emit('toggleFavorite', item.id)">
-            {{ item.favorite ? '★' : '☆' }}
+            <Star :size="14" :fill="item.favorite ? 'currentColor' : 'none'" />
           </button>
         </div>
         <div class="card-body">
           <div class="card-title" v-html="highlightText(item.title, query || prompt.query.value)"></div>
           <div class="card-meta">
-            <span class="create-time">📅 {{ formatDate(item.createdAt) }}</span>
+            <span class="create-time"><Calendar :size="12" />{{ formatDate(item.createdAt) }}</span>
             <span v-for="tag in item.tags.slice(0, 3)" :key="tag" class="tag">#{{ tag }}</span>
             <span v-if="item.variables?.length" class="tag accent">{{ item.variables.length }} 变量</span>
             <span v-if="item.usageCount" class="usage">{{ item.usageCount }}次</span>
@@ -153,11 +158,11 @@ const sortIcon = computed(() => prompt.sortDir.value === 'desc' ? '↓' : '↑')
     <teleport to="body">
       <div v-if="ctxMenu.visible" class="prompt-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
         <div class="prompt-ctx-item" @click="emit('edit', ctxMenu.item!.id); closeCtxMenu()">
-          <span>✏️</span><span>编辑</span>
+          <Pencil :size="14" /><span>编辑</span>
         </div>
         <div class="prompt-ctx-divider"></div>
         <div class="prompt-ctx-item danger" @click="emit('delete', ctxMenu.item!.id); closeCtxMenu()">
-          <span>🗑</span><span>删除</span>
+          <Trash2 :size="14" /><span>删除</span>
         </div>
       </div>
     </teleport>
@@ -175,7 +180,7 @@ const sortIcon = computed(() => prompt.sortDir.value === 'desc' ? '↓' : '↑')
 .sort-btn { border: 1px solid var(--pf-border); border-radius: var(--pf-radius-xs); background: var(--pf-surface); font-size: 11px; color: var(--pf-text-muted); padding: 3px 8px; cursor: pointer; transition: all 0.12s; }
 .sort-btn:hover { border-color: var(--pf-accent); color: var(--pf-accent); }
 .sort-btn.active { background: var(--pf-accent-soft); color: var(--pf-accent); border-color: var(--pf-accent); font-weight: 600; }
-.create-time { font-size: 11px; color: var(--pf-text-faint); font-family: var(--pf-font-mono); }
+.create-time { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--pf-text-faint); font-family: var(--pf-font-mono); }
 .card {
   display: flex; align-items: center;
   gap: 14px; padding: 14px 16px;

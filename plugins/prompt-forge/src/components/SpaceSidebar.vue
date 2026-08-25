@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { List, Clock, Star, History, Folder, Package, BarChart3, Trash2 } from 'lucide-vue-next'
 import { usePromptStore } from '../stores/prompt'
 
 const prompt = usePromptStore()
 
 const sideNav = computed(() => [
-  { key: 'all' as const, label: '全部', icon: '📋' },
-  { key: 'recent' as const, label: '最近', icon: '🕘' },
-  { key: 'favorite' as const, label: '收藏', icon: '⭐' },
-  { key: 'history' as const, label: '历史', icon: '📜' },
-  { key: 'project' as const, label: '项目', icon: '📁' },
-  { key: 'asset' as const, label: '资产', icon: '📦' },
-  { key: 'trash' as const, label: '回收站', icon: '🗑' },
+  { key: 'all' as const, label: '全部', icon: List },
+  { key: 'recent' as const, label: '最近', icon: Clock },
+  { key: 'favorite' as const, label: '收藏', icon: Star },
+  { key: 'history' as const, label: '历史', icon: History },
+  { key: 'project' as const, label: '项目', icon: Folder },
+  { key: 'asset' as const, label: '资产', icon: Package },
+  { key: 'stats' as const, label: '统计', icon: BarChart3 },
+  { key: 'trash' as const, label: '回收站', icon: Trash2 },
 ])
 
 function switchTab(key: typeof prompt.spaceTab.value) {
@@ -31,7 +33,7 @@ function switchTab(key: typeof prompt.spaceTab.value) {
       :class="['side-btn', { active: prompt.spaceTab.value === nav.key }]"
       @click="switchTab(nav.key)"
     >
-      <span class="side-icon">{{ nav.icon }}</span>
+      <span class="side-icon"><component :is="nav.icon" :size="16" /></span>
       <span class="side-label">{{ nav.label }}</span>
       <span v-if="nav.key === 'all'" class="side-count">{{ prompt.liveItems.value.length }}</span>
       <span v-if="nav.key === 'history'" class="side-count">{{ prompt.historyItems.value.length }}</span>

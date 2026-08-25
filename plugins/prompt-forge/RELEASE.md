@@ -122,7 +122,29 @@ git push origin prompt-forge --tags
 
 ## 八、上传插件市场
 
-将 `prompt-forge-vX.Y.Z.zpx` 提交到 ZTools 插件中心。
+#### 首次发布
+
+首次执行 `ztools publish` 时，CLI 会自动完成：
+
+1. **GitHub OAuth 认证** - 通过 Device Flow 引导你在浏览器授权一次（含 `workflow` scope），token 保存在 `~/.config/ztools/cli-config.json`
+2. **Fork 中心仓库** - 自动在你账号下 fork `ZToolsCenter/ZTools-plugins`（已存在则复用）
+3. **同步 fork main** - 调用 GitHub merge-upstream API 把 fork 的 main 拉齐到上游，避免后续分支基于落后的 main 导致冲突
+4. **判定 Add / Update** - 检查上游 `plugins/<你的插件 ID>/` 目录是否存在，决定 PR 标题用 `Add` 还是 `Update`
+5. **复制工作目录文件** - 把当前目录内容复制到 fork 的 `plugins/<插件 ID>/`（自动忽略 `node_modules`、`dist`、`.env*` 等）
+6. **生成 commit + 推送分支** - 在 fork 的 `plugin/<插件 ID>` 分支上做**一个** commit 并普通 push（不 force）
+7. **创建 Draft Pull Request** - 自动开 PR 到中心仓库，默认 draft 状态
+
+#### 后续发布（增量更新）
+
+每次 `ztools publish` 都是**增量追加**：
+
+- 远端分支保留旧 commit，只 fast-forward 追加一个新 commit
+- 同一个 PR 自动复用，链接不变
+- 不会 force-push，旧的 review 评论上下文不会丢失
+
+> 例：你本地累计 5 个 commit 发布出去后，远端 PR 上是 1 个 "Add plugin Foo v0.1.0" commit；又改了 3 个 commit 再发布，远端就 fast-forward 多 1 个 "Update plugin Foo v0.1.1" commit，旧的不动。
+
+更详细的发布与协作机制（CHANGELOG 自动注入、智能 commit 标题、`pull-contributions` 拉回审核者改动等）请参考 [发布与协作流程](https://ztoolscenter.github.io/ZTools-doc/publish-and-update.html)。
 
 ---
 

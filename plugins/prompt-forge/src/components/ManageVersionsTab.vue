@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { X } from 'lucide-vue-next'
 import type { PromptItem, Snapshot } from '../types'
 
 const props = defineProps<{
@@ -95,7 +96,7 @@ function formatTime(ts: number) { return new Date(ts).toLocaleString('zh-CN') }
         <span class="diff-label">当前版本</span>
         <span class="diff-ver">v{{ unit.version || 1 }}</span>
       </div>
-      <button class="btn btn-xs diff-close" @click="exitDiff">✕ 关闭</button>
+      <button class="btn btn-xs diff-close" @click="exitDiff"><X :size="13" />关闭</button>
     </div>
     <div class="diff-body">
       <div

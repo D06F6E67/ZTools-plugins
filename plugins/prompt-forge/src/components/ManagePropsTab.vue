@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Star } from 'lucide-vue-next'
 import type { PromptType, Project } from '../types'
 
 defineProps<{
@@ -48,7 +49,7 @@ const emit = defineEmits<{
   </div>
   <div class="field">
     <label>收藏</label>
-    <button class="btn" @click="emit('toggleFavorite')">{{ isFavorite ? '★ 已收藏' : '☆ 加入收藏' }}</button>
+    <button class="btn" @click="emit('toggleFavorite')"><Star :size="14" :fill="isFavorite ? 'currentColor' : 'none'" />{{ isFavorite ? '已收藏' : '加入收藏' }}</button>
   </div>
 </template>
 
