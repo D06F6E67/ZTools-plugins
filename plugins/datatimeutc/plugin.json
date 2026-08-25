@@ -4,7 +4,7 @@
   "title": "UTC时间悬浮",
   "description": "实时显示 UTC 时间，支持多时区切换、自定义日期时间格式，悬浮小窗",
   "author": "paff",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "main": "dist/index.html",
   "logo": "logo.png",
   "preload": "preload.js",

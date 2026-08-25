@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
-import { DEFAULT_FORMAT, formatTime, type FormatOptions } from './format'
+import { DEFAULT_FORMAT, type FormatOptions } from './format'
 import { getNow, getOffset } from './time'
 
 const STORAGE_KEY = 'utc-config'
 
-// ===== 悬浮窗偏好：透明度 / 窗口缩放 =====
+// ===== 悬浮窗偏好：透明度 / 窗口大小 =====
 // 尺寸偏好由主插件窗口在创建悬浮窗时读取（悬浮窗自身无窗口句柄，仅存偏好）
 const FLOAT_PREFS_KEY = 'utc-float-prefs'
-const BASE_W = 420
-const BASE_H = 165
+const BASE_W = 300
+const BASE_H = 118
 const MIN_OPACITY = 0.3
-const MIN_SCALE = 0.7
-const MAX_SCALE = 1.6
+const MIN_SCALE = 0.8
+const MAX_SCALE = 1.4
 
 interface FloatPrefs {
   /** 背景透明度（0.3–1，只作用于背景/边框，文字保持清晰） */
   opacity: number
-  /** 窗口缩放（0.7–1.6，基准 420×165） */
+  /** 窗口大小缩放（0.8–1.4，基准 300×118；内容字号经 vh 单位随窗口自适应） */
   scale: number
 }
 
@@ -186,14 +186,14 @@ onBeforeUnmount(() => {
   <div
     class="float-card"
     :title="timezone"
-    :style="{ '--float-alpha': opacity, '--float-scale': scale }"
+    :style="{ '--float-alpha': opacity }"
   >
     <!-- 整卡可拖拽；按钮/滑块区域 no-drag -->
     <button class="float-close" title="关闭" @click="close">×</button>
     <button
       class="float-close float-settings-btn"
       :class="{ 'is-active': showSettings }"
-      :title="showSettings ? '收起设置' : '透明度 / 大小设置'"
+      :title="showSettings ? '收起设置' : '透明度 / 窗口大小设置'"
       @click="showSettings = !showSettings"
     >⚙</button>
 
@@ -213,15 +213,15 @@ onBeforeUnmount(() => {
         step="0.05"
         title="背景透明度"
       >
-      <span class="float-ctrl-label">缩</span>
+      <span class="float-ctrl-label">大</span>
       <input
         v-model.number="scale"
         class="float-ctrl-range"
         type="range"
-        min="0.7"
-        max="1.6"
+        min="0.8"
+        max="1.4"
         step="0.05"
-        title="大小"
+        title="窗口大小"
       >
     </div>
     <div v-else class="float-badge-row">
@@ -239,9 +239,8 @@ onBeforeUnmount(() => {
   --float-date-fg: #868886;
   --float-time-fg: #d1d1d1;
   --float-accent: #53a153;
-  /* 由 :style 注入：--float-alpha 背景透明度（0.3–1）、--float-scale 字号缩放（0.7–1.6） */
+  /* 由 :style 注入：--float-alpha 背景透明度（0.3–1） */
   --float-alpha: 1;
-  --float-scale: 1;
   position: relative;
   width: 100%;
   height: 100%;
@@ -254,8 +253,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(4px * var(--float-scale));
-  padding: 10px 14px;
+  gap: 2.5vh;
+  padding: 6vh 4vw;
   /* 整卡拖拽 */
   -webkit-app-region: drag;
   cursor: move;
@@ -317,16 +316,16 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 日期行（字号随缩放） */
+/* 日期行（字号随窗口高度自适应，clamp 兜底可读性） */
 .float-date {
-  font-size: calc(12px * var(--float-scale));
+  font-size: clamp(8px, 8.5vh, 16px);
   color: var(--float-date-fg);
   letter-spacing: 0.5px;
 }
 
-/* 大字时间（字号随缩放） */
+/* 大字时间（字号随窗口高度自适应） */
 .float-time {
-  font-size: calc(30px * var(--float-scale));
+  font-size: clamp(13px, 18vh, 40px);
   font-weight: 700;
   color: var(--float-time-fg);
   font-variant-numeric: tabular-nums;
@@ -342,7 +341,7 @@ onBeforeUnmount(() => {
   margin-left: 1px;
 }
 
-/* 校时徽章（字号随缩放） */
+/* 校时徽章（字号随窗口高度自适应） */
 .float-badge-row {
   display: flex;
 }
@@ -351,7 +350,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: calc(11px * var(--float-scale));
+  font-size: clamp(7px, 7.3vh, 13px);
   padding: 2px 9px;
   border-radius: 10px;
   color: var(--float-date-fg);

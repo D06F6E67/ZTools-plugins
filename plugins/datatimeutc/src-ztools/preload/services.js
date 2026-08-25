@@ -32,17 +32,17 @@ try {
 }
 
 // ===== 悬浮窗尺寸偏好 =====
-// 透明度/缩放由悬浮窗 UI 写入 dbStorage；主窗口创建悬浮窗时按上次缩放取尺寸
+// 透明度/大小由悬浮窗 UI 写入 dbStorage；主窗口创建悬浮窗时按上次缩放取尺寸
 const FLOAT_PREFS_KEY = 'utc-float-prefs'
-const FLOAT_BASE_W = 420
-const FLOAT_BASE_H = 165
+const FLOAT_BASE_W = 300
+const FLOAT_BASE_H = 118
 
-// 读取悬浮窗缩放偏好（脏数据钳制到 0.7–1.6）
+// 读取悬浮窗缩放偏好（脏数据钳制到 0.8–1.4）
 function readFloatScale() {
   try {
     const prefs = window.ztools.dbStorage.getItem(FLOAT_PREFS_KEY)
     if (prefs && typeof prefs.scale === 'number' && isFinite(prefs.scale)) {
-      return Math.min(1.6, Math.max(0.7, prefs.scale))
+      return Math.min(1.4, Math.max(0.8, prefs.scale))
     }
   } catch (_e) {
     // ignore

@@ -1,282 +1,67 @@
-# {{PLUGIN_NAME}}
+# datatimeutc — UTC 标准时间
 
-> {{DESCRIPTION}}
+> ZTools 插件：实时显示 UTC 时间，支持多时区切换、自定义日期时间格式、NTP 网络校时，以及可拖拽的置顶悬浮时间小窗。
 
-这是一个使用 **Vue 3 + Vite + TypeScript** 构建的 ZTools 插件。
+基于 **Vue 3 + Vite + TypeScript** 构建。
 
 ## ✨ 功能特性
 
-### 📌 已包含的示例功能
+- **实时 UTC 时间**：大字时钟，250ms 刷新，毫秒级显示
+- **多时区切换**：覆盖 Intl 全部时区（按 UTC 偏移去重，约 40 项），中文显示名
+- **自定义格式**：日期、时间、星期、毫秒可自由组合
+- **NTP 网络校时**：依次尝试 `cn.ntp.org.cn` → `pool.ntp.org` → `time.nist.gov`，每 5 分钟自动校准一次；校准偏移持久化，悬浮窗启动即可用
+- **悬浮时间窗**：无边框、透明、置顶、不占任务栏，可拖拽移动；透明度与大小（缩放）可调，偏好自动记忆
+- **亮/暗双主题**：跟随系统
 
-- **Hello** - 基础功能指令示例
-  - 触发指令：`你好` / `hello`
-  - 展示简单的 Vue 组件界面
+## 🚀 使用
 
-- **读文件** - 文件读取功能示例
-  - 功能指令：`读文件`
-  - 匹配指令：支持拖拽文件触发
-  - 演示如何使用 Node.js 能力读取文件内容
+在 ZTools 中触发以下指令：
 
-- **保存为文件** - 文件写入功能示例
-  - 匹配指令：任意文本/图片 → `保存为文件`
-  - 演示如何将剪贴板内容保存为文件
+| 指令 | 功能 |
+| --- | --- |
+| `utc` / `时间` / `时区` / `utc时间` | 打开主界面（时钟 + 时区/格式设置） |
+| `悬浮时间` / `utc悬浮` / `时间悬浮` | 直接开启悬浮时间窗 |
+
+悬浮窗内可用滑块调节透明度与大小，点击关闭按钮退出。
+
+## 🛠️ 开发
+
+```bash
+npm install        # 安装依赖
+npm run dev        # 开发服务器（端口 5173），ZTools 客户端自动加载 dev 版
+npm run build      # 类型检查 + 构建 → 输出到 src-ztools/dist/
+```
 
 ## 📁 项目结构
 
 ```
 .
-├── src/
-│   ├── main.ts               # 入口文件
-│   ├── main.css              # 全局样式
-│   ├── App.vue               # 根组件
-│   ├── env.d.ts              # 类型声明
-│   ├── Hello/                # Hello 功能组件
-│   │   └── index.vue
-│   ├── Read/                 # 读文件功能组件
-│   │   └── index.vue
-│   └── Write/                # 写文件功能组件
-│       └── index.vue
-├── src-ztools/               # ZTools 插件目录
-│   ├── logo.png              # 插件图标
-│   ├── plugin.json           # 插件配置文件
-│   ├── preload/              # Preload 脚本目录
-│   │   ├── package.json      # Preload 依赖配置
-│   │   └── services.js       # Node.js 能力扩展
-│   └── dist/                 # Vite 构建产物
-├── index.html                # HTML 模板
-├── vite.config.js            # Vite 配置
-├── tsconfig.json             # TypeScript 配置
-├── package.json              # 项目依赖
-└── README.md                 # 项目文档
+├── src/                        # Vue 3 前端源码
+│   ├── main.ts                 # 入口
+│   ├── App.vue                 # 根组件（三态路由：#float / utc-float / 主界面）
+│   ├── env.d.ts                # window.services 类型声明
+│   └── Utc/
+│       ├── index.vue           # 主界面：大字时钟 + 时区/格式设置
+│       ├── Float.vue           # 悬浮窗界面
+│       ├── AutoFloat.vue       # 自动开悬浮窗（无 UI）
+│       ├── time.ts             # NTP offset 单例（getNow / 周期校准）
+│       └── format.ts           # Intl 时间格式化 + 时区列表/中文名
+├── src-ztools/                 # 插件发布单元
+│   ├── plugin.json             # 插件清单（实际生效的配置）
+│   ├── preload/services.js     # Node 能力桥接（NTP 校时、悬浮窗管理）
+│   ├── dist/                   # 构建产物
+│   └── logo.png
+├── index.html
+├── vite.config.js              # base: './'（file:// 加载必需）
+└── package.json
 ```
-
-## 🚀 快速开始
-
-### 安装依赖
-
-```bash
-npm install
-```
-
-### 开发模式
-
-```bash
-npm run dev
-```
-
-开发服务器将在 `http://localhost:5173` 启动。ZTools 会自动加载开发版本。
-
-### 构建生产版本
-
-```bash
-npm run build
-```
-
-构建产物将输出到 `src-ztools/dist/` 目录，插件配置、图标和 Preload 保留在同级目录。
-
-## 📖 开发指南
-
-### 1. 修改插件配置
-
-编辑 `src-ztools/plugin.json` 文件：
-
-```json
-{
-  "name": "你的插件名称",
-  "description": "插件描述",
-  "author": "作者名称",
-  "version": "1.0.0",
-  "features": [
-    // 添加你的功能配置
-  ]
-}
-```
-
-### 2. 创建新功能
-
-#### 步骤 1: 创建 Vue 组件
-
-在 `src/` 目录下创建新的功能组件：
-
-```vue
-<!-- src/MyFeature/index.vue -->
-<template>
-  <div class="my-feature">
-    <h1>{{ title }}</h1>
-    <!-- 你的组件内容 -->
-  </div>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-
-const title = ref('我的新功能')
-</script>
-
-<style scoped>
-.my-feature {
-  padding: 20px;
-}
-</style>
-```
-
-#### 步骤 2: 注册路由
-
-在 `src/App.vue` 中添加路由：
-
-```vue
-<script setup lang="ts">
-import MyFeature from './MyFeature/index.vue'
-
-const routes = {
-  hello: Hello,
-  read: Read,
-  write: Write,
-  myfeature: MyFeature // 添加新路由
-}
-</script>
-```
-
-#### 步骤 3: 配置功能
-
-在 `plugin.json` 中添加功能配置：
-
-```json
-{
-  "code": "myfeature",
-  "explain": "我的新功能",
-  "icon": "logo.png",
-  "cmds": ["触发指令"]
-}
-```
-
-### 3. 使用 Node.js 能力
-
-#### 扩展 Preload 服务
-
-编辑 `src-ztools/preload/services.js`：
-
-```javascript
-const fs = require('fs')
-const path = require('path')
-
-module.exports = {
-  // 示例：读取文件
-  readFile: (filePath) => {
-    return fs.readFileSync(filePath, 'utf-8')
-  },
-
-  // 添加你的服务
-  myService: (params) => {
-    // 实现你的逻辑
-    return result
-  }
-}
-```
-
-#### 在 Vue 组件中调用
-
-```vue
-<script setup lang="ts">
-const handleRead = async () => {
-  try {
-    const content = await window.services.readFile('/path/to/file')
-    console.log(content)
-  } catch (error) {
-    console.error('读取失败:', error)
-  }
-}
-</script>
-```
-
-### 4. 使用 ZTools API
-
-```vue
-<script setup lang="ts">
-// 获取剪贴板内容
-const text = await window.ztools.getClipboardContent()
-
-// 隐藏主窗口
-window.ztools.hideMainWindow()
-
-// 显示提示
-window.ztools.showTip('操作成功')
-
-// 更多 API 请参考官方文档
-</script>
-```
-
-## 🎨 样式开发
-
-### 使用 CSS 变量
-
-ZTools 提供了一套 CSS 变量用于主题适配：
-
-```css
-.my-component {
-  background: var(--bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
-}
-```
-
-### 暗色模式支持
-
-```css
-@media (prefers-color-scheme: dark) {
-  .my-component {
-    /* 暗色模式样式 */
-  }
-}
-```
-
-## 📦 构建与发布
-
-### 1. 构建插件
-
-```bash
-npm run build
-```
-
-### 2. 测试构建产物
-
-将 `src-ztools/` 作为完整 ZTools 插件目录进行测试或打包。
-
-### 3. 发布到插件市场
-
-1. 确保 `plugin.json` 中的信息完整准确
-2. 准备好插件截图和详细说明
-3. 访问 ZTools 插件市场提交插件
 
 ## 📚 相关资源
 
-- [ZTools 官方文档](https://github.com/ztool-center/ztools)
-- [ZTools API 文档](https://github.com/ztool-center/ztools-api-types)
+- [ZTools 文档](https://ztoolscenter.github.io/ZTools-doc)
 - [Vue 3 文档](https://vuejs.org/)
 - [Vite 文档](https://vitejs.dev/)
-
-## ❓ 常见问题
-
-### Q: 如何调试插件？
-
-A: 使用 `npm run dev` 启动开发服务器，在插件界面中点击插件头像图标，在弹出的菜单中选择"打开开发者工具"进行调试。
-
-### Q: 如何访问 Node.js 能力？
-
-A: 通过 `src-ztools/preload/services.js` 文件扩展服务，然后在组件中使用 `window.services` 调用。
-
-### Q: 插件图标不显示？
-
-A: 确保 `src-ztools/logo.png` 文件存在，且在 `plugin.json` 中正确配置了 `logo` 字段。
-
-### Q: 如何处理大文件上传？
-
-A: 建议使用 Node.js 流式处理，在 preload 脚本中实现文件分块处理逻辑。
 
 ## 📄 开源协议
 
 MIT License
-
----
-
-**祝你开发愉快！** 🎉
