@@ -28,6 +28,7 @@ function getPluginInfo(pluginName) {
   const pluginJsonPaths = [
     join(PLUGINS_DIR, pluginName, 'plugin.json'),
     join(PLUGINS_DIR, pluginName, 'public', 'plugin.json'),
+    join(PLUGINS_DIR, pluginName, 'src-ztools', 'plugin.json'),
     join(PLUGINS_DIR, pluginName, 'dist', 'plugin.json'),
   ];
 
@@ -204,6 +205,16 @@ function getPackageDir(pluginName) {
 
   // 如果有自定义构建脚本或执行了构建，检查dist目录
   if (buildConfig.customScript || buildConfig.build) {
+    // Standard Vue/React projects keep the distributable plugin under src-ztools.
+    const standardPluginDir = join(pluginPath, 'src-ztools');
+    if (
+      existsSync(join(standardPluginDir, 'plugin.json')) &&
+      existsSync(join(standardPluginDir, 'dist'))
+    ) {
+      console.log(`使用标准 src-ztools 目录作为打包源: ${standardPluginDir}`);
+      return standardPluginDir;
+    }
+
     const manifestBuildDir = getManifestBuildDir(pluginPath);
     if (manifestBuildDir) {
       console.log(`使用plugin.json声明的构建目录作为打包源: ${manifestBuildDir}`);
@@ -265,7 +276,7 @@ async function packagePlugin(pluginName, version) {
       const stat = statSync(filePath);
 
       // 排除不需要的文件
-      const excludes = ['.git', '.DS_Store', 'package-lock.json', 'npm-debug.log'];
+      const excludes = ['.git', '.DS_Store', 'node_modules', 'package-lock.json', 'npm-debug.log'];
       if (excludes.includes(file) || file.endsWith('.zpx')) {
         return;
       }
