@@ -2,6 +2,8 @@
 
 ZTools 插件，把屏幕、窗口或自定义区域录制成 GIF 动图。
 
+![录屏生成 GIF 主界面](docs/screenshot-main.jpg)
+
 ## 功能
 
 - 全屏录制、窗口录制、鼠标框选区域录制
