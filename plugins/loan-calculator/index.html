@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>贷款计算器</title>
+<style>
+  :root {
+    --primary: #5b6ef5;
+    --primary-2: #7c8cff;
+    --primary-grad: linear-gradient(135deg, #5b6ef5 0%, #7c8cff 100%);
+    --primary-soft: #eef1ff;
+    --bg: #f5f6fb;
+    --bg-2: #eceff7;
+    --card: #ffffff;
+    --line: #e9ecf4;
+    --text: #1c2434;
+    --muted: #8b93a7;
+    --green: #16b981;
+    --green-soft: #e6f8f1;
+    --red: #ef4d6b;
+    --red-soft: #fdeaee;
+    --orange: #f5a524;
+    --orange-soft: #fdf1de;
+    --radius: 16px;
+    --radius-sm: 11px;
+    --shadow: 0 6px 24px rgba(28,40,80,.08);
+    --shadow-sm: 0 2px 10px rgba(28,40,80,.06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(1200px 600px at 85% -10%, #eef1ff 0%, transparent 55%), var(--bg);
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; min-height: 100%; }
+  .app::before { content: ''; height: 3px; background: var(--primary-grad); }
+  header {
+    padding: 15px 20px; background: rgba(255,255,255,.9); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px;
+  }
+  header .logo { width: 30px; height: 30px; filter: drop-shadow(0 3px 6px rgba(91,110,245,.35)); }
+  header h1 { font-size: 17px; font-weight: 700; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  header .ver { background: var(--primary-soft); color: var(--primary); padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+  .tabs { position: sticky; top: 0; z-index: 40; display: flex; gap: 4px; padding: 9px 16px; background: rgba(255,255,255,.82); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: 0 0 auto; padding: 8px 17px; border: none; background: transparent; cursor: pointer;
+    font-size: 13px; color: var(--muted); border-radius: 10px; transition: .18s; font-weight: 500;
+  }
+  .tab:hover { color: var(--text); background: var(--bg-2); }
+  .tab.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+
+  .panel { display: none; padding: 20px; flex: 1; animation: panelIn .26s ease; }
+  .panel.active { display: block; }
+  @keyframes panelIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+  /* 方案对比：A/B 配置区自动平分页面宽度 */
+  .layout.cmp-layout { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .layout.cmp-layout { grid-template-columns: 1fr; } }
+  .btn.accent { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+  .btn.accent:hover { opacity: .92; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  .col-left { position: sticky; top: 64px; align-self: start; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 18px; box-shadow: var(--shadow-sm); }
+  .card:last-child { margin-bottom: 0; }
+  .card h3 { font-size: 13px; font-weight: 700; margin-bottom: 14px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .card h3::before { content: ''; width: 4px; height: 14px; border-radius: 3px; background: var(--primary-grad); }
+  .card h3.sep { margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--line); }
+
+  .field { margin-bottom: 15px; }
+  .field > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px; font-weight: 500; }
+
+  .seg { display: flex; background: var(--bg-2); border-radius: 12px; padding: 4px; gap: 4px; }
+  .seg button {
+    flex: 1; border: none; background: transparent; padding: 8px 4px; border-radius: 9px;
+    font-size: 12px; color: var(--muted); cursor: pointer; transition: .18s; font-weight: 500;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.active { background: var(--card); color: var(--primary); font-weight: 600; box-shadow: 0 2px 8px rgba(28,40,80,.1); }
+
+  .input-wrap { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; transition: .15s; }
+  .input-wrap input { flex: 1; border: none; background: transparent; padding: 11px 0; font-size: 15px; color: var(--text); outline: none; font-weight: 600; }
+  .input-wrap .unit { color: var(--muted); font-size: 12px; font-weight: 500; }
+  .input-wrap:focus-within { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 4px rgba(91,110,245,.12); }
+  .input-wrap.err { border-color: var(--red); background: var(--red-soft); }
+  input, select { font-family: inherit; }
+  select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); font-size: 13px; transition: .15s; }
+  select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(91,110,245,.12); background: #fff; }
+
+  .result-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+  .stat { background: linear-gradient(180deg, #fbfcff, #f4f6ff); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; text-align: center; }
+  .stat .k { font-size: 12px; color: var(--muted); margin-bottom: 7px; }
+  .stat .v { font-size: 19px; font-weight: 800; color: var(--primary); letter-spacing: .3px; }
+  .stat.alt .v { color: var(--text); }
+
+  .highlight { background: var(--primary-grad); border: none; border-radius: var(--radius); padding: 22px 24px; margin-bottom: 18px; display: flex; align-items: baseline; gap: 14px; box-shadow: 0 10px 26px rgba(91,110,245,.28); color: #fff; }
+  .highlight .big { font-size: 34px; font-weight: 800; color: #fff; letter-spacing: .5px; }
+  .highlight .lab { font-size: 12px; color: rgba(255,255,255,.85); }
+  .highlight .note { margin-left: auto; font-size: 12px; color: #d7ffe9; background: rgba(255,255,255,.16); padding: 4px 12px; border-radius: 20px; white-space: nowrap; }
+
+  /* DTI bar */
+  .dti-bar { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; display: none; box-shadow: var(--shadow-sm); }
+  .dti-bar.show { display: block; }
+  .dti-bar .dti-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .dti-bar .dti-title { font-size: 12px; color: var(--muted); }
+  .dti-bar .dti-ratio { font-size: 17px; font-weight: 800; }
+  .dti-track { height: 9px; background: var(--bg-2); border-radius: 6px; overflow: hidden; }
+  .dti-fill { height: 100%; border-radius: 6px; transition: width .4s ease, background .4s; }
+  .dti-warn { font-size: 11px; margin-top: 8px; }
+
+  /* Pie + Trend */
+  .chart-row { display: grid; grid-template-columns: 160px 1fr; gap: 18px; margin-bottom: 18px; align-items: center; }
+  @media (max-width: 760px) { .chart-row { grid-template-columns: 1fr; } }
+  .chart-box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-align: center; box-shadow: var(--shadow-sm); }
+  .chart-box .chart-title { font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; background: var(--bg); position: sticky; top: 0; font-size: 11px; }
+  tbody tr:hover { background: #f8f9ff; }
+  tbody tr:nth-child(even) { background: #fbfcff; }
+
+  .table-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .table-head h3 { margin-bottom: 0; }
+  .table-head .ctrl { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .table-head select { width: auto; padding: 6px 10px; font-size: 12px; }
+  .btn {
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+    padding: 8px 14px; border-radius: 11px; font-size: 12px; cursor: pointer; transition: .15s; font-weight: 500;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); box-shadow: 0 2px 8px rgba(91,110,245,.12); transform: translateY(-1px); }
+  .btn.primary { background: var(--primary-grad); color: #fff; border-color: transparent; box-shadow: 0 6px 16px rgba(91,110,245,.28); }
+  .btn.primary:hover { opacity: .94; color: #fff; transform: translateY(-1px); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn.danger { color: var(--red); border-color: var(--line); }
+  .btn.danger:hover { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+
+  .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+
+  .vs { text-align: center; color: var(--muted); font-weight: 800; font-size: 14px; padding: 8px 0; }
+  .cmp-summary { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; margin-top: 18px; }
+  .cmp-summary .col { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); }
+  .cmp-summary .col h4 { font-size: 13px; text-align: center; margin-bottom: 12px; }
+  .cmp-summary .col.a h4 { color: var(--primary); }
+  .cmp-summary .col.b h4 { color: var(--orange); }
+  .cmp-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .cmp-row span:last-child { font-weight: 600; }
+  .win { color: var(--green); }
+  .cmp-diff { margin-top: 18px; padding: 16px; background: var(--primary-soft); border-radius: var(--radius); border: 1px solid #dde3ff; }
+
+  .save-bar { margin-top: 14px; display: flex; gap: 10px; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
+  .err-msg { font-size: 11px; color: var(--red); margin-top: 4px; display: none; }
+  .err-msg.show { display: block; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+
+  /* BP */
+  .bp-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .bp-label { font-size: 12px; color: var(--muted); }
+  .bp-btn { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px; padding: 4px 10px; font-size: 11px; cursor: pointer; transition: .15s; font-weight: 600; }
+  .bp-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .bp-input { width: 56px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 12px; text-align: center; }
+  .bp-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,110,245,.12); background: #fff; }
+  .eff { font-size: 11px; color: var(--green); margin-left: auto; font-weight: 600; }
+
+  .rate-status { font-size: 11px; color: var(--muted); }
+  .rate-status.loading { color: var(--primary); }
+  .rate-status.ok { color: var(--green); }
+  .rate-status.err { color: var(--red); }
+
+  /* Prepay dual strategy */
+  .dual-strategy { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .dual-strategy { grid-template-columns: 1fr; } }
+  .strategy-col { background: linear-gradient(180deg, #fbfcff, #f5f7ff); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .strategy-col h4 { font-size: 13px; margin-bottom: 12px; color: var(--primary); }
+  .strategy-col.alt h4 { color: var(--orange); }
+  .strategy-col .cmp-row { border-bottom-color: var(--line); }
+
+  /* Prepay timeline */
+  .timeline-item { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 10px; background: var(--bg); border-radius: 10px; border: 1px solid var(--line); }
+  .tl-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .tl-input { width: 60px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font-size: 12px; text-align: center; }
+  .tl-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,110,245,.12); }
+  .tl-del { margin-left: auto; }
+
+  /* History */
+  .hist-item { display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; transition: .15s; }
+  .hist-item:hover { box-shadow: var(--shadow-sm); border-color: #dde3ff; }
+  .hist-item .hist-info { flex: 1; font-size: 12px; }
+  .hist-item .hist-info .hist-title { font-weight: 700; margin-bottom: 5px; }
+  .hist-item .hist-info .hist-detail { color: var(--muted); }
+  .hist-empty { text-align: center; padding: 48px; color: var(--muted); font-size: 13px; }
+
+  /* Variable Rate */
+  .vr-presets { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .vr-presets .btn { font-size: 11px; padding: 6px 12px; }
+  .vr-tl-item { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 10px; background: var(--bg); border-radius: 10px; border: 1px solid var(--line); flex-wrap: wrap; }
+  .vr-tl-item .tl-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .vr-tl-item .tl-input { width: 50px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font-size: 11px; text-align: center; }
+  .vr-tl-item .tl-input:focus { outline: none; border-color: var(--primary); }
+  .vr-tl-item .tl-del { padding: 4px 8px; }
+  .vr-tl-item .tl-select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font-size: 11px; }
+  .vr-rate-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; }
+  .vr-rate-tag.up { background: var(--red-soft); color: var(--red); }
+  .vr-rate-tag.down { background: var(--green-soft); color: var(--green); }
+  .vr-rate-tag.same { background: var(--primary-soft); color: var(--primary); }
+
+  /* Toast */
+  .toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(16px); background: rgba(28,36,52,.94); color: #fff; padding: 10px 18px; border-radius: 12px; font-size: 12px; opacity: 0; pointer-events: none; transition: .25s; z-index: 9999; max-width: 86%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Chart tooltip (fixed) */
+  .chart-tip { position: fixed; background: rgba(28,36,52,.96); color: #fff; padding: 7px 11px; border-radius: 9px; font-size: 11px; line-height: 1.6; pointer-events: none; opacity: 0; transition: opacity .1s; white-space: nowrap; z-index: 9998; box-shadow: 0 8px 22px rgba(0,0,0,.22); }
+  .chart-tip.show { opacity: 1; }
+
+  /* action bars */
+  .act-bar { display: flex; gap: 10px; margin-top: 14px; }
+  .act-bar .btn { flex: 1; min-width: 0; }
+
+  .field-err { font-size: 11px; color: var(--red); margin-top: 4px; display: none; }
+  .field-err.show { display: block; }
+
+  /* VR save state */
+  .btn.saved { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <svg class="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#5b6ef5"/><path d="M9 22 L16 9 L23 22" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.5 17 H20.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+    <h1>贷款计算器</h1>
+    <span class="sub">房贷 · 方案对比 · 提前还款 · 浮动利率 · 历史记录</span>
+    <span class="ver">v1.7.0</span>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="calc">房贷计算器</button>
+    <button class="tab" data-tab="compare">方案对比</button>
+    <button class="tab" data-tab="prepay">提前还款</button>
+    <button class="tab" data-tab="variable">浮动利率</button>
+    <button class="tab" data-tab="history">历史记录</button>
+  </div>
+
+  <!-- ============ 房贷计算器 ============ -->
+  <section class="panel active" id="calc">
+    <div class="layout">
+      <div class="card col-left">
+        <h3>贷款信息</h3>
+
+        <!-- P0-2: 购房套数 -->
+        <div class="field">
+          <label>购房套数</label>
+          <select id="calc-house-type">
+            <option value="first">首套房</option>
+            <option value="second">二套房</option>
+          </select>
+          <div class="hint" id="calc-house-hint">首套：商业 LPR-20BP · 公积金 2.6%（5年内 2.1%）</div>
+        </div>
+
+        <div class="field">
+          <label>贷款类型</label>
+          <div class="seg" id="calc-type">
+            <button data-v="commercial" class="active">商业贷款</button>
+            <button data-v="fund">公积金</button>
+            <button data-v="combo">组合贷</button>
+          </div>
+        </div>
+
+        <div class="field" id="calc-amount-wrap">
+          <label id="calc-amount-label">贷款金额（万元）</label>
+          <div class="input-wrap"><input type="number" id="calc-amount" value="200" min="0" step="1" /><span class="unit">万</span></div>
+        </div>
+
+        <div id="combo-wrap" style="display:none">
+          <div class="field">
+            <label>商业贷款金额（万元）</label>
+            <div class="input-wrap"><input type="number" id="calc-combo-commercial" value="150" min="0" step="1" /><span class="unit">万</span></div>
+          </div>
+          <div class="field">
+            <label>公积金金额（万元）</label>
+            <div class="input-wrap"><input type="number" id="calc-combo-fund" value="50" min="0" step="1" /><span class="unit">万</span></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>贷款年限</label>
+          <div class="input-wrap"><input type="number" id="calc-years" value="30" min="1" max="40" step="1" /><span class="unit">年</span></div>
+        </div>
+
+        <div class="field">
+          <label>利率方式</label>
+          <select id="calc-rate-mode">
+            <option value="latest">最新基准利率</option>
+            <option value="custom">自定义</option>
+          </select>
+          <div class="bp-row" style="margin-top:8px">
+            <button type="button" class="btn" id="rate-refresh">联网获取最新</button>
+            <span class="rate-status" id="rate-status">内置最新 · 商业 3.5% · 公积金 首套2.6%/二套3.075%（2026-08）</span>
+          </div>
+        </div>
+
+        <div id="calc-rate-wrap">
+          <div class="field" id="rate-commercial-wrap">
+            <label>商业贷款年利率（%）</label>
+            <div class="input-wrap"><input type="number" id="calc-rate-commercial" value="3.5" min="0" step="0.01" /><span class="unit">%</span></div>
+            <div class="bp-row">
+              <span class="bp-label">加点</span>
+              <button type="button" class="bp-btn" data-bpid="calc-bp-commercial" data-d="-25">-25</button>
+              <input type="number" id="calc-bp-commercial" class="bp-input" value="0" step="5" />
+              <span class="unit">BP</span>
+              <button type="button" class="bp-btn" data-bpid="calc-bp-commercial" data-d="25">+25</button>
+              <span class="eff" id="calc-eff-commercial">实际 3.50%</span>
+            </div>
+          </div>
+          <div class="field" id="rate-fund-wrap" style="display:none">
+            <label>公积金年利率（%）</label>
+            <div class="input-wrap"><input type="number" id="calc-rate-fund" value="2.6" min="0" step="0.01" /><span class="unit">%</span></div>
+            <div class="bp-row">
+              <span class="bp-label">加点</span>
+              <button type="button" class="bp-btn" data-bpid="calc-bp-fund" data-d="-25">-25</button>
+              <input type="number" id="calc-bp-fund" class="bp-input" value="0" step="5" />
+              <span class="unit">BP</span>
+              <button type="button" class="bp-btn" data-bpid="calc-bp-fund" data-d="25">+25</button>
+              <span class="eff" id="calc-eff-fund">实际 2.60%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>还款方式</label>
+          <div class="seg" id="calc-method">
+            <button data-v="equal-installment" class="active">等额本息</button>
+            <button data-v="equal-principal">等额本金</button>
+          </div>
+        </div>
+
+        <!-- P0-3: 月收入 / DTI -->
+        <div class="field">
+          <label>月收入（元，选填）</label>
+          <div class="input-wrap"><input type="number" id="calc-income" value="" min="0" step="100" placeholder="用于计算月供收入比" /><span class="unit">元</span></div>
+        </div>
+
+        <div class="err-msg" id="calc-err"></div>
+        <button class="btn primary" style="width:100%" id="calc-btn">开始计算</button>
+        <div class="save-bar">
+          <button class="btn" id="calc-save" style="flex:1">保存到历史</button>
+          <button class="btn" id="calc-copy" style="flex:1">复制结果</button>
+        </div>
+        <button class="btn accent" id="calc-to-compare" style="width:100%;margin-top:8px">＋ 加入方案对比（A），原 A 移至 B</button>
+        <button class="btn" style="width:100%" id="calc-reset">恢复默认</button>
+      </div>
+
+      <div>
+        <div class="highlight">
+          <div>
+            <div class="lab" id="calc-month-label">等额本息月供</div>
+            <div class="big" id="calc-month">—</div>
+          </div>
+          <div class="note" id="calc-month-note"></div>
+        </div>
+
+        <!-- P0-3: DTI bar -->
+        <div class="dti-bar" id="dti-bar">
+          <div class="dti-head">
+            <span class="dti-title">月供收入比（DTI）</span>
+            <span class="dti-ratio" id="dti-ratio">—</span>
+          </div>
+          <div class="dti-track"><div class="dti-fill" id="dti-fill" style="width:0%"></div></div>
+          <div class="dti-warn" id="dti-warn"></div>
+        </div>
+
+        <div class="result-grid">
+          <div class="stat"><div class="k">还款总额</div><div class="v" id="calc-total">—</div></div>
+          <div class="stat alt"><div class="k">贷款总额</div><div class="v" id="calc-principal">—</div></div>
+          <div class="stat alt"><div class="k">支付利息</div><div class="v" id="calc-interest">—</div></div>
+        </div>
+
+        <!-- P1-5/6: Pie chart + Trend line -->
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="chart-title">本金 / 利息占比</div>
+            <div id="pie-chart"></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">剩余本金趋势</div>
+            <div id="trend-chart"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-head">
+            <h3>月供明细</h3>
+            <div class="ctrl">
+              <select id="calc-detail-mode">
+                <option value="year">按年</option>
+                <option value="month">按期</option>
+              </select>
+              <button class="btn" id="calc-export-csv">导出CSV</button>
+            </div>
+          </div>
+          <table>
+            <thead id="calc-thead"></thead>
+            <tbody id="calc-tbody"></tbody>
+          </table>
+          <div class="pager">
+            <button class="btn" id="calc-prev">上一页</button>
+            <span id="calc-page">1 / 1</span>
+            <button class="btn" id="calc-next">下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案对比 ============ -->
+  <section class="panel" id="compare">
+    <div class="layout cmp-layout">
+      <div class="card">
+        <h3>方案 A</h3>
+        <div class="field"><label>贷款金额（万元）</label><div class="input-wrap"><input type="number" id="cmp-a-amount" value="200" min="0" step="1" /><span class="unit">万</span></div></div>
+        <div class="field"><label>年限（年）</label><div class="input-wrap"><input type="number" id="cmp-a-years" value="30" min="1" step="1" /><span class="unit">年</span></div></div>
+        <div class="field"><label>年利率（%）</label><div class="input-wrap"><input type="number" id="cmp-a-rate" value="3.5" min="0" step="0.01" /><span class="unit">%</span></div>
+          <div class="bp-row">
+            <span class="bp-label">加点</span>
+            <button type="button" class="bp-btn" data-bpid="cmp-a-bp" data-d="-25">-25</button>
+            <input type="number" id="cmp-a-bp" class="bp-input" value="0" step="5" />
+            <span class="unit">BP</span>
+            <button type="button" class="bp-btn" data-bpid="cmp-a-bp" data-d="25">+25</button>
+            <span class="eff" id="cmp-a-eff">实际 3.50%</span>
+          </div>
+        </div>
+        <div class="field"><label>还款方式</label>
+          <div class="seg" id="cmp-a-method"><button data-v="equal-installment" class="active">等额本息</button><button data-v="equal-principal">等额本金</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>方案 B</h3>
+        <div class="field"><label>贷款金额（万元）</label><div class="input-wrap"><input type="number" id="cmp-b-amount" value="150" min="0" step="1" /><span class="unit">万</span></div></div>
+        <div class="field"><label>年限（年）</label><div class="input-wrap"><input type="number" id="cmp-b-years" value="20" min="1" step="1" /><span class="unit">年</span></div></div>
+        <div class="field"><label>年利率（%）</label><div class="input-wrap"><input type="number" id="cmp-b-rate" value="3.5" min="0" step="0.01" /><span class="unit">%</span></div>
+          <div class="bp-row">
+            <span class="bp-label">加点</span>
+            <button type="button" class="bp-btn" data-bpid="cmp-b-bp" data-d="-25">-25</button>
+            <input type="number" id="cmp-b-bp" class="bp-input" value="0" step="5" />
+            <span class="unit">BP</span>
+            <button type="button" class="bp-btn" data-bpid="cmp-b-bp" data-d="25">+25</button>
+            <span class="eff" id="cmp-b-eff">实际 3.50%</span>
+          </div>
+        </div>
+        <div class="field"><label>还款方式</label>
+          <div class="seg" id="cmp-b-method"><button data-v="equal-installment" class="active">等额本息</button><button data-v="equal-principal">等额本金</button></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <button class="btn primary" id="cmp-btn">对比方案</button>
+      <button class="btn" id="cmp-reset">恢复默认</button>
+      <div class="cmp-summary" id="cmp-result" style="display:none">
+        <div class="col a"><h4>方案 A</h4><div id="cmp-a-out"></div></div>
+        <div class="vs">VS</div>
+        <div class="col b"><h4>方案 B</h4><div id="cmp-b-out"></div></div>
+      </div>
+      <!-- P1-8: 差异对比 -->
+      <div class="cmp-diff" id="cmp-diff" style="display:none"></div>
+      <div class="act-bar" id="cmp-act-bar" style="display:none">
+        <button class="btn" id="cmp-copy">复制对比结果</button>
+        <button class="btn" id="cmp-export">导出CSV</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 提前还款 ============ -->
+  <section class="panel" id="prepay">
+    <div class="layout">
+      <div class="col-left">
+        <div class="card">
+          <h3>原贷款信息</h3>
+          <div class="field"><label>贷款本金（万元）</label><div class="input-wrap"><input type="number" id="pp-amount" value="200" min="0" step="1" /><span class="unit">万</span></div></div>
+          <div class="field"><label>贷款年限（年）</label><div class="input-wrap"><input type="number" id="pp-years" value="30" min="1" step="1" /><span class="unit">年</span></div></div>
+          <div class="field"><label>年利率（%）</label><div class="input-wrap"><input type="number" id="pp-rate" value="3.5" min="0" step="0.01" /><span class="unit">%</span></div>
+            <div class="bp-row">
+              <span class="bp-label">加点</span>
+              <button type="button" class="bp-btn" data-bpid="pp-bp" data-d="-25">-25</button>
+              <input type="number" id="pp-bp" class="bp-input" value="0" step="5" />
+              <span class="unit">BP</span>
+              <button type="button" class="bp-btn" data-bpid="pp-bp" data-d="25">+25</button>
+              <span class="eff" id="pp-eff">实际 3.50%</span>
+            </div>
+          </div>
+          <div class="field"><label>还款方式</label>
+            <div class="seg" id="pp-method"><button data-v="equal-installment" class="active">等额本息</button><button data-v="equal-principal">等额本金</button></div>
+          </div>
+          <div class="field"><label>已还期数（月）</label><div class="input-wrap"><input type="number" id="pp-paid" value="36" min="0" step="1" /><span class="unit">期</span></div></div>
+        </div>
+
+        <!-- P2-10: 多次提前还款时间线 -->
+        <div class="card">
+          <h3>提前还款计划</h3>
+          <div id="pp-timeline"></div>
+          <button class="btn" id="pp-add-entry" style="margin-top:4px;width:100%">+ 添加一笔提前还款</button>
+
+          <div class="field" style="margin-top:14px">
+            <label>预期理财年化收益率（%）</label>
+            <div class="input-wrap"><input type="number" id="pp-invest-rate" value="3.0" min="0" step="0.1" /><span class="unit">%</span></div>
+            <div class="hint">用于对比"提前还款省利息" vs "同等金额理财收益"</div>
+          </div>
+          <button class="btn primary" style="width:100%" id="pp-btn">分析提前还款</button>
+          <button class="btn" style="width:100%;margin-top:8px" id="pp-reset">恢复默认</button>
+        </div>
+      </div>
+
+      <div>
+        <!-- P2-9: 双策略并排 -->
+        <div class="card">
+          <h3>两种策略并排对比</h3>
+          <div class="dual-strategy">
+            <div class="strategy-col">
+              <h4>缩短期限</h4>
+              <div id="pp-shorten-out"><div class="hint">点击"分析提前还款"查看结果</div></div>
+            </div>
+            <div class="strategy-col alt">
+              <h4>减少月供</h4>
+              <div id="pp-reduce-out"><div class="hint">点击"分析提前还款"查看结果</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- P2-11: vs 投资 -->
+        <div class="card">
+          <h3>提前还款 vs 理财投资</h3>
+          <div id="pp-invest-out"><div class="hint">点击"分析提前还款"查看对比</div></div>
+        </div>
+        <div class="act-bar" id="pp-act-bar" style="display:none">
+          <button class="btn" id="pp-copy">复制结果</button>
+          <button class="btn" id="pp-export">导出CSV</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 浮动利率 ============ -->
+  <section class="panel" id="variable">
+    <div class="layout">
+      <div class="col-left">
+        <div class="card">
+          <h3>贷款信息</h3>
+          <div class="field"><label>贷款本金（万元）</label><div class="input-wrap"><input type="number" id="vr-amount" value="200" min="0" step="1" /><span class="unit">万</span></div></div>
+          <div class="field"><label>贷款年限</label><div class="input-wrap"><input type="number" id="vr-years" value="30" min="1" max="40" step="1" /><span class="unit">年</span></div></div>
+          <div class="field"><label>初始还款方式</label>
+            <div class="seg" id="vr-method"><button data-v="equal-installment" class="active">等额本息</button><button data-v="equal-principal">等额本金</button></div>
+            <div class="hint">时间线节点可从中途切换还款方式</div>
+          </div>
+          <div class="field">
+            <label>初始利率</label>
+            <div class="bp-row">
+              <span class="bp-label">LPR</span>
+              <input type="number" id="vr-init-lpr" class="bp-input" value="3.5" step="0.05" style="width:58px" />
+              <span class="unit">%</span>
+              <span class="bp-label" style="margin-left:6px">加点</span>
+              <input type="number" id="vr-init-bp" class="bp-input" value="-20" step="5" />
+              <span class="unit">BP</span>
+              <span class="eff" id="vr-init-eff">实际 3.30%</span>
+            </div>
+            <div class="hint">起始利率 = LPR + BP/100，后续按时间线变化</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>利率变化时间线</h3>
+          <div class="vr-presets">
+            <button type="button" class="btn" id="vr-preset-recent">近3年LPR走势</button>
+            <button type="button" class="btn" id="vr-preset-annual">每年降10BP</button>
+            <button type="button" class="btn" id="vr-preset-clear">清空</button>
+          </div>
+          <div id="vr-timeline"></div>
+          <button class="btn" id="vr-add-entry" style="margin-top:4px;width:100%">+ 添加利率变化节点</button>
+          <div class="hint" style="margin-top:8px">每个节点设定从该月起生效的新 LPR 和 BP；留空则保持原值</div>
+          <button class="btn primary" style="width:100%;margin-top:8px" id="vr-btn">开始模拟</button>
+          <button class="btn" style="width:100%;margin-top:8px" id="vr-reset">恢复默认配置</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="result-grid">
+          <div class="stat"><div class="k">初始月供</div><div class="v" id="vr-init-monthly">—</div></div>
+          <div class="stat alt"><div class="k">最终月供</div><div class="v" id="vr-final-monthly">—</div></div>
+          <div class="stat alt"><div class="k">利息总额</div><div class="v" id="vr-total-interest">—</div></div>
+        </div>
+
+        <div class="act-bar" id="vr-act-bar" style="display:none">
+          <button class="btn" id="vr-copy">复制结果</button>
+          <button class="btn" id="vr-save">保存到历史</button>
+          <button class="btn" id="vr-export">导出CSV</button>
+        </div>
+
+        <div class="card" id="vr-compare-card" style="display:none">
+          <h3>固定利率 vs 浮动利率</h3>
+          <div id="vr-compare-out"></div>
+        </div>
+
+        <div class="card">
+          <div class="table-head"><h3>利率变化节点</h3></div>
+          <table>
+            <thead id="vr-changes-thead"></thead>
+            <tbody id="vr-changes-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-box">
+            <div class="chart-title">月供变化趋势</div>
+            <div id="vr-trend-chart"></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-title">利率变化曲线</div>
+            <div id="vr-rate-chart"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-head">
+            <h3>月供明细</h3>
+            <div class="ctrl"><select id="vr-detail-mode"><option value="year">按年</option><option value="month">按期</option></select></div>
+          </div>
+          <table>
+            <thead id="vr-thead"></thead>
+            <tbody id="vr-tbody"></tbody>
+          </table>
+          <div class="pager">
+            <button class="btn" id="vr-prev">上一页</button>
+            <span id="vr-page">1 / 1</span>
+            <button class="btn" id="vr-next">下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 历史记录 ============ -->
+  <section class="panel" id="history">
+    <div class="card">
+      <div class="table-head">
+        <h3>历史记录</h3>
+        <div class="ctrl">
+          <button class="btn danger" id="hist-clear">清空全部</button>
+        </div>
+      </div>
+      <div id="hist-list"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ===================== 计算核心 ===================== */
+const wan = 10000;
+
+function equalInstallment(principal, annualRate, months) {
+  const r = annualRate / 12;
+  let monthly;
+  if (r === 0) monthly = principal / months;
+  else monthly = principal * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+  const schedule = [];
+  let balance = principal, totalInterest = 0;
+  for (let i = 1; i <= months; i++) {
+    const interest = balance * r;
+    let p = monthly - interest;
+    let pay = monthly;
+    if (i === months) { p = balance; pay = p + interest; }
+    balance -= p; if (balance < 0) balance = 0;
+    totalInterest += interest;
+    schedule.push({ period: i, payment: pay, principal: p, interest, balance });
+  }
+  return { monthly, firstMonthly: monthly, schedule, totalInterest, totalPayment: principal + totalInterest, totalPrincipal: principal };
+}
+
+function equalPrincipal(principal, annualRate, months) {
+  const r = annualRate / 12;
+  const base = principal / months;
+  const schedule = [];
+  let balance = principal, totalInterest = 0, firstMonthly = 0;
+  for (let i = 1; i <= months; i++) {
+    const interest = balance * r;
+    let p = (i === months) ? balance : base;
+    const pay = p + interest;
+    balance -= p; if (balance < 0) balance = 0;
+    totalInterest += interest;
+    if (i === 1) firstMonthly = pay;
+    schedule.push({ period: i, payment: pay, principal: p, interest, balance });
+  }
+  return { firstMonthly, schedule, totalInterest, totalPayment: principal + totalInterest, totalPrincipal: principal };
+}
+
+function computeLoan(principal, annualRate, months, method) {
+  return method === 'equal-principal'
+    ? equalPrincipal(principal, annualRate, months)
+    : equalInstallment(principal, annualRate, months);
+}
+
+/* ===================== 工具 ===================== */
+const $ = (id) => document.getElementById(id);
+const num = (id) => parseFloat($(id).value) || 0;
+function fmtMoney(y) { return (y / wan).toFixed(2) + '万'; }
+function fmtYuan(y) { return '¥' + Math.round(y).toLocaleString('zh-CN'); }
+function f2(y) { return y.toFixed(2); }
+
+/* ===================== 通用：Toast / 复制 / 校验 ===================== */
+let _toastTimer = null;
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('已复制 ✓'), () => fallbackCopy(text));
+    } else fallbackCopy(text);
+  } catch (e) { fallbackCopy(text); }
+}
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast(ok ? '已复制 ✓' : '复制失败，请手动选择');
+  } catch (e) { showToast('复制失败'); }
+}
+function validateRange(val, min, max, name) {
+  if (isNaN(val) || val <= 0) return name + '需大于 0';
+  if (val < min || val > max) return name + '需在 ' + min + '–' + max + ' 之间';
+  return '';
+}
+
+/* 通用：保存历史项（房贷/浮动利率共用） */
+function saveHistoryItem(item) {
+  let ok = false;
+  try {
+    if (window.loanApi && typeof window.loanApi.add === 'function') { window.loanApi.add(item); ok = true; }
+  } catch (e) {}
+  if (!ok) {
+    try {
+      const k = 'loan-calculator-history';
+      const list = JSON.parse(window.localStorage.getItem(k) || '[]');
+      list.unshift(item);
+      if (list.length > 20) list.length = 20;
+      window.localStorage.setItem(k, JSON.stringify(list));
+      ok = true;
+    } catch (e2) {}
+  }
+  return ok;
+}
+
+/* ===================== 利率 / BP ===================== */
+/* 公积金利率：政策固定，按 首套/二套 × 5年内(≤5年)/5年以上 四档（2026-08 最新） */
+const FUND_RATES = {
+  first:  { le5: 2.10,  gt5: 2.60  },
+  second: { le5: 2.525, gt5: 3.075 }
+};
+let BASELINE = { commercial: 3.5, fund: FUND_RATES, updated: '2026-08', source: '内置' };
+try {
+  const saved = JSON.parse(window.localStorage.getItem('loan-rate-baseline') || 'null');
+  if (saved && typeof saved.commercial === 'number') {
+    BASELINE.commercial = saved.commercial;
+    BASELINE.updated = saved.updated || BASELINE.updated;
+    BASELINE.source = saved.source || BASELINE.source;
+    if (saved.fund && typeof saved.fund === 'object') BASELINE.fund = saved.fund;
+  }
+} catch (e) {}
+
+function saveBaseline() {
+  try { window.localStorage.setItem('loan-rate-baseline', JSON.stringify(BASELINE)); } catch (e) {}
+}
+
+function effRate(rateId, bpId) {
+  return num(rateId) + (parseFloat($(bpId).value) || 0) / 100;
+}
+
+const RATE_PAIRS = [
+  ['calc-rate-commercial', 'calc-bp-commercial', 'calc-eff-commercial'],
+  ['calc-rate-fund', 'calc-bp-fund', 'calc-eff-fund'],
+  ['cmp-a-rate', 'cmp-a-bp', 'cmp-a-eff'],
+  ['cmp-b-rate', 'cmp-b-bp', 'cmp-b-eff'],
+  ['pp-rate', 'pp-bp', 'pp-eff']
+];
+function updateEffHints() {
+  RATE_PAIRS.forEach(([r, b, e]) => {
+    const el = $(e); if (!el) return;
+    el.textContent = '实际 ' + f2(effRate(r, b)) + '%';
+  });
+}
+
+/* 公积金基准利率：按当前 首套/二套 + 贷款年限(≤5年→le5, >5年→gt5) 取档 */
+function fundBaselineRate() {
+  const ht = $('calc-house-type').value === 'second' ? 'second' : 'first';
+  const tier = num('calc-years') <= 5 ? 'le5' : 'gt5';
+  const map = BASELINE.fund[ht] || BASELINE.fund.first;
+  return map[tier];
+}
+/* 仅“最新基准利率”模式、且当前为公积金/组合贷时，自动回填公积金利率 */
+function autoFillFundRate() {
+  if ($('calc-rate-mode').value !== 'latest') return;
+  if (!(calcState.type === 'fund' || calcState.type === 'combo')) return;
+  $('calc-rate-fund').value = fundBaselineRate();
+  $('calc-bp-fund').value = 0;
+  updateEffHints();
+}
+
+function applyLatest() {
+  $('calc-rate-commercial').value = BASELINE.commercial;
+  $('calc-bp-commercial').value = 0;
+  applyHouseTypeBP();
+  updateEffHints();
+}
+
+async function fetchLatestRates() {
+  const status = $('rate-status');
+  status.textContent = '联网获取中…';
+  status.className = 'rate-status loading';
+  const url = 'https://datacenter.eastmoney.com/api/data/get?type=RPTA_WEB_RATE&sty=ALL&token=894050c76af8597a853f5b408b759f5d&p=1&ps=1&st=TRADE_DATE&sr=-1&var=WPuRCBoA';
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    let text = await res.text();
+    text = text.replace(/^var\s+WPuRCBoA\s*=\s*/, '').replace(/;\s*$/, '');
+    const json = JSON.parse(text);
+    const rows = json && json.result && json.result.data;
+    if (!rows || !rows.length) throw new Error('返回数据为空');
+    const r = rows[0];
+    const lpr5 = parseFloat(r.LPR5Y);
+    if (isNaN(lpr5)) throw new Error('LPR5Y 解析失败');
+    BASELINE.commercial = lpr5;
+    BASELINE.updated = (r.TRADE_DATE || '').slice(0, 10) || BASELINE.updated;
+    BASELINE.source = '东方财富';
+    saveBaseline();
+    if ($('calc-rate-mode').value === 'latest') applyLatest();
+    status.textContent = '已联网获取 · 商业基准 ' + lpr5 + '%（' + BASELINE.updated + '）· 公积金政策利率 首套2.6%/二套3.075%';
+    status.className = 'rate-status ok';
+  } catch (e) {
+    status.textContent = '联网失败，已用内置最新值（' + BASELINE.updated + '）';
+    status.className = 'rate-status err';
+  }
+}
+
+/* P0-2: 首套/二套 → 自动 BP */
+function applyHouseTypeBP() {
+  const ht = $('calc-house-type').value;
+  const bpCom = ht === 'first' ? -20 : 60;
+  $('calc-bp-commercial').value = bpCom;
+  $('calc-house-hint').textContent = ht === 'first'
+    ? '首套：商业 LPR-20BP · 公积金 2.6%（5年内 2.1%）'
+    : '二套：商业 LPR+60BP · 公积金 3.075%（5年内 2.525%）';
+  autoFillFundRate();
+  updateEffHints();
+}
+
+/* ===================== Tab 切换（切换时自动缓存当前页签数据） ===================== */
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === name));
+  if (name === 'history') renderHistory();
+}
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => { scheduleSave(); switchTab(t.dataset.tab); };
+});
+
+/* ===================== 段控件 ===================== */
+function bindSeg(id, cb) {
+  const seg = $(id);
+  if (!seg) { console.warn('bindSeg: #' + id + ' not found'); return () => 'equal-installment'; }
+  seg.querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      if (cb) cb(b.dataset.v);
+    };
+  });
+  return () => { const a = seg.querySelector('button.active'); return a ? a.dataset.v : 'equal-installment'; };
+}
+
+/* ===================== P0-4: 输入校验 ===================== */
+function validateCalc() {
+  const errs = [];
+  if (calcState.type === 'combo') {
+    if (num('calc-combo-commercial') <= 0) errs.push('商业贷款金额需大于 0');
+    if (num('calc-combo-fund') <= 0) errs.push('公积金金额需大于 0');
+  } else {
+    if (num('calc-amount') <= 0) errs.push('贷款金额需大于 0');
+  }
+  const years = num('calc-years');
+  if (years < 1 || years > 40) errs.push('贷款年限需在 1–40 年之间');
+  const rate = calcState.type === 'fund'
+    ? effRate('calc-rate-fund', 'calc-bp-fund')
+    : effRate('calc-rate-commercial', 'calc-bp-commercial');
+  if (rate <= 0 || rate > 20) errs.push('实际利率需在 0–20% 之间');
+  return errs;
+}
+function showCalcErr(msgs) {
+  const box = $('calc-err');
+  const btn = $('calc-btn');
+  if (msgs.length) {
+    box.textContent = '⚠ ' + msgs.join('；');
+    box.classList.add('show');
+    btn.disabled = true;
+  } else {
+    box.classList.remove('show');
+    btn.disabled = false;
+  }
+}
+
+/* ===================== 房贷计算器 ===================== */
+let calcState = { type: 'commercial', method: 'equal-installment' };
+/* 贷款类型/套数变化 → 统一刷新相关输入区显隐（修复：切到公积金时隐藏商业贷款年利率与加点） */
+function refreshTypeUI(v) {
+  $('combo-wrap').style.display = v === 'combo' ? 'block' : 'none';
+  $('calc-amount-wrap').style.display = v === 'combo' ? 'none' : 'block';
+  $('rate-commercial-wrap').style.display = (v === 'commercial' || v === 'combo') ? 'block' : 'none';
+  $('rate-fund-wrap').style.display = (v === 'fund' || v === 'combo') ? 'block' : 'none';
+  $('calc-amount-label').textContent = v === 'fund' ? '公积金金额（万元）' : '贷款金额（万元）';
+}
+const getCalcType = bindSeg('calc-type', v => {
+  calcState.type = v;
+  refreshTypeUI(v);
+  if (v === 'fund' || v === 'combo') autoFillFundRate();
+  showCalcErr(validateCalc());
+});
+const getCalcMethod = bindSeg('calc-method', v => calcState.method = v);
+
+$('calc-house-type').onchange = () => { applyHouseTypeBP(); if (calcResult) runCalc(); };
+$('calc-rate-mode').onchange = () => { if ($('calc-rate-mode').value === 'latest') applyLatest(); updateEffHints(); };
+
+document.querySelectorAll('.bp-btn').forEach(btn => {
+  btn.onclick = () => {
+    const inp = $(btn.dataset.bpid);
+    inp.value = (parseInt(inp.value || '0', 10) || 0) + parseInt(btn.dataset.d, 10);
+    updateEffHints();
+    if (btn.dataset.bpid.indexOf('calc-bp-') === 0 && calcResult) runCalc();
+  };
+});
+
+['calc-rate-commercial','calc-rate-fund','calc-bp-commercial','calc-bp-fund',
+ 'cmp-a-rate','cmp-a-bp','cmp-b-rate','cmp-b-bp','pp-rate','pp-bp'].forEach(id => {
+  const el = $(id); if (!el) return;
+  el.oninput = () => { updateEffHints(); if (id.indexOf('calc-') === 0 && calcResult) runCalc(); };
+});
+
+// P0-4: 实时校验
+['calc-amount','calc-combo-commercial','calc-combo-fund','calc-years'].forEach(id => {
+  const el = $(id); if (!el) return;
+  el.oninput = () => {
+    showCalcErr(validateCalc());
+    if (id === 'calc-years' && (calcState.type === 'fund' || calcState.type === 'combo')) autoFillFundRate();
+  };
+});
+
+$('rate-refresh').onclick = () => fetchLatestRates();
+
+function buildCalcInput() {
+  const months = Math.round(num('calc-years') * 12);
+  const method = calcState.method;
+  let parts = [];
+  if (calcState.type === 'combo') {
+    parts.push({ principal: num('calc-combo-commercial') * wan, rate: effRate('calc-rate-commercial','calc-bp-commercial') / 100, months });
+    parts.push({ principal: num('calc-combo-fund') * wan, rate: effRate('calc-rate-fund','calc-bp-fund') / 100, months });
+  } else if (calcState.type === 'fund') {
+    parts.push({ principal: num('calc-amount') * wan, rate: effRate('calc-rate-fund','calc-bp-fund') / 100, months });
+  } else {
+    parts.push({ principal: num('calc-amount') * wan, rate: effRate('calc-rate-commercial','calc-bp-commercial') / 100, months });
+  }
+  return { parts, months, method };
+}
+
+function mergeParts(parts, method) {
+  const maxMonths = Math.max(...parts.map(p => p.months));
+  const merged = [];
+  for (let i = 1; i <= maxMonths; i++) {
+    let payment = 0, principal = 0, interest = 0, balance = 0, valid = false;
+    for (const part of parts) {
+      const res = computeLoan(part.principal, part.rate, part.months, method);
+      if (i <= part.months) {
+        const row = res.schedule[i - 1];
+        payment += row.payment; principal += row.principal; interest += row.interest; balance += row.balance;
+        valid = true;
+      }
+    }
+    if (valid) merged.push({ period: i, payment, principal, interest, balance });
+  }
+  const totalInterest = merged.reduce((s, r) => s + r.interest, 0);
+  const totalPrincipal = parts.reduce((s, p) => s + p.principal, 0);
+  const monthly = merged.length ? merged[0].payment : 0;
+  return { merged, totalInterest, totalPrincipal, totalPayment: totalPrincipal + totalInterest, monthly, firstMonthly: monthly };
+}
+
+let calcResult = null;
+let calcPage = 1;
+const PAGE = 12;
+
+function runCalc() {
+  const errs = validateCalc();
+  if (errs.length) { showCalcErr(errs); return; }
+  showCalcErr([]);
+  const { parts, method } = buildCalcInput();
+  const r = mergeParts(parts, method);
+  calcResult = r;
+  markComputed('calc');
+  calcPage = 1;
+
+  const isPrincipal = method === 'equal-principal';
+  if (isPrincipal) {
+    $('calc-month-label').textContent = '等额本金首月月供';
+    $('calc-month').textContent = fmtYuan(r.firstMonthly);
+    const dec = r.merged.length > 1 ? r.merged[0].payment - r.merged[1].payment : 0;
+    $('calc-month-note').textContent = dec > 0 ? '每月递减约 ' + fmtYuan(dec) : '';
+  } else {
+    $('calc-month-label').textContent = '等额本息月供';
+    $('calc-month').textContent = fmtYuan(r.monthly);
+    $('calc-month-note').textContent = '';
+  }
+  $('calc-total').textContent = f2(r.totalPayment / wan) + '万';
+  $('calc-principal').textContent = f2(r.totalPrincipal / wan) + '万';
+  $('calc-interest').textContent = f2(r.totalInterest / wan) + '万';
+
+  updateDTI();
+  renderPie(r.totalPrincipal, r.totalInterest);
+  renderTrend(r.merged);
+  renderDetail();
+}
+
+/* P0-3: DTI */
+function updateDTI() {
+  const income = num('calc-income');
+  const monthly = calcResult ? calcResult.monthly : 0;
+  const bar = $('dti-bar');
+  if (income <= 0 || monthly <= 0) { bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  const ratio = monthly / income * 100;
+  $('dti-ratio').textContent = ratio.toFixed(1) + '%';
+  const fill = $('dti-fill');
+  fill.style.width = Math.min(ratio, 100) + '%';
+  const warn = $('dti-warn');
+  if (ratio > 50) { fill.style.background = 'var(--red)'; warn.textContent = '⚠ 超过 50%，银行审批可能不通过'; warn.style.color = 'var(--red)'; }
+  else if (ratio > 30) { fill.style.background = '#f0a020'; warn.textContent = '建议月供收入比控制在 30% 以内'; warn.style.color = '#f0a020'; }
+  else { fill.style.background = 'var(--green)'; warn.textContent = '✓ 还款压力可控'; warn.style.color = 'var(--green)'; }
+}
+
+/* P1-5: 饼图 */
+let _tipEl = null;
+function getTip() {
+  if (!_tipEl) { _tipEl = document.createElement('div'); _tipEl.className = 'chart-tip'; document.body.appendChild(_tipEl); }
+  return _tipEl;
+}
+function bindChartTip(containerId, tipTexts, padFrac) {
+  const el = $(containerId);
+  if (!el) return;
+  el.onmousemove = (ev) => {
+    if (!tipTexts || !tipTexts.length) return;
+    const rect = el.getBoundingClientRect();
+    let frac = (ev.clientX - rect.left) / rect.width;
+    if (padFrac) frac = (frac - padFrac) / (1 - 2 * padFrac);
+    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+    let idx = Math.round(frac * (tipTexts.length - 1));
+    if (idx < 0) idx = 0; if (idx >= tipTexts.length) idx = tipTexts.length - 1;
+    const tip = getTip();
+    tip.innerHTML = tipTexts[idx];
+    tip.style.left = ev.clientX + 'px';
+    tip.style.top = (ev.clientY - 14) + 'px';
+    tip.classList.add('show');
+  };
+  el.onmouseleave = () => { const tip = getTip(); tip.classList.remove('show'); };
+}
+
+function renderPie(principal, interest) {
+  const total = principal + interest;
+  if (total <= 0) { $('pie-chart').innerHTML = ''; return; }
+  const pPct = (principal / total * 100).toFixed(1);
+  const iPct = (interest / total * 100).toFixed(1);
+  const cx = 55, cy = 55, r = 42;
+  const pAngle = principal / total * Math.PI * 2;
+  const x1 = cx, y1 = cy - r;
+  const x2 = cx + r * Math.sin(pAngle);
+  const y2 = cy - r * Math.cos(pAngle);
+  const largeArc = pAngle > Math.PI ? 1 : 0;
+  $('pie-chart').innerHTML =
+    '<svg viewBox="0 0 150 115" width="150" height="115">' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="#5b6ef5"/>' +
+    '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' Z" fill="#f5a524" opacity="0.85"/>' +
+    '<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" font-size="10" fill="#fff" font-weight="600">本金</text>' +
+    '<text x="' + cx + '" y="' + (cy + 10) + '" text-anchor="middle" font-size="9" fill="#fff">' + pPct + '%</text>' +
+    '<rect x="105" y="28" width="9" height="9" rx="2" fill="#5b6ef5"/><text x="118" y="36" font-size="9" fill="#1c2434">本金 ' + pPct + '%</text>' +
+    '<rect x="105" y="46" width="9" height="9" rx="2" fill="#f5a524" opacity="0.85"/><text x="118" y="54" font-size="9" fill="#1c2434">利息 ' + iPct + '%</text>' +
+    '</svg>';
+  bindChartTip('pie-chart', ['本金 ' + pPct + '%<br>利息 ' + iPct + '%']);
+}
+
+/* P1-6: 趋势线 */
+function renderTrend(schedule) {
+  if (!schedule || !schedule.length) { $('trend-chart').innerHTML = ''; return; }
+  const w = 280, h = 90, pad = 8;
+  const balances = schedule.map(r => r.balance);
+  const maxB = Math.max.apply(null, balances.concat([1]));
+  const n = schedule.length;
+  const step = Math.max(1, Math.floor(n / 80));
+  const pts = [];
+  const tipTexts = [];
+  for (let i = 0; i < n; i += step) {
+    const x = pad + (i / (n - 1)) * (w - pad * 2);
+    const y = h - pad - (balances[i] / maxB) * (h - pad * 2 - 14);
+    pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    tipTexts.push('第 ' + (i + 1) + ' 期 (' + ((i + 1) / 12).toFixed(1) + '年)<br>剩余 ' + fmtYuan(balances[i]));
+  }
+  $('trend-chart').innerHTML =
+    '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
+    '<line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" stroke="#e9ecf4" stroke-width="1"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#5b6ef5" stroke-width="2"/>' +
+    '<text x="' + pad + '" y="' + (pad + 8) + '" font-size="9" fill="#8b93a7">最大 ' + (maxB / wan).toFixed(0) + ' 万</text>' +
+    '<text x="' + (w - pad - 50) + '" y="' + (h - pad - 3) + '" font-size="9" fill="#8b93a7">' + Math.ceil(n / 12) + ' 年</text>' +
+    '</svg>';
+  bindChartTip('trend-chart', tipTexts, pad / w);
+}
+
+function renderDetail() {
+  if (!calcResult) return;
+  const mode = $('calc-detail-mode').value;
+  const rows = calcResult.merged;
+  let data = [];
+  if (mode === 'year') {
+    const groups = {};
+    rows.forEach(r => {
+      const y = Math.ceil(r.period / 12);
+      if (!groups[y]) groups[y] = { year: y, payment: 0, principal: 0, interest: 0, balance: 0 };
+      groups[y].payment += r.payment; groups[y].principal += r.principal;
+      groups[y].interest += r.interest; groups[y].balance = r.balance;
+    });
+    data = Object.values(groups);
+    $('calc-thead').innerHTML = '<tr><th>年份</th><th>年还本息</th><th>年还本金</th><th>年还利息</th><th>年末剩余</th></tr>';
+  } else {
+    data = rows;
+    $('calc-thead').innerHTML = '<tr><th>期数</th><th>月供</th><th>本金</th><th>利息</th><th>剩余本金</th></tr>';
+  }
+  const total = Math.ceil(data.length / PAGE);
+  if (calcPage > total) calcPage = total;
+  const start = (calcPage - 1) * PAGE;
+  const slice = data.slice(start, start + PAGE);
+  $('calc-tbody').innerHTML = slice.map(r => {
+    const c0 = mode === 'year' ? r.year + ' 年' : r.period + ' 期';
+    return '<tr><td>' + c0 + '</td><td>' + fmtYuan(r.payment) + '</td><td>' + fmtYuan(r.principal) + '</td><td>' + fmtYuan(r.interest) + '</td><td>' + fmtYuan(r.balance) + '</td></tr>';
+  }).join('');
+  $('calc-page').textContent = calcPage + ' / ' + total;
+  $('calc-prev').disabled = calcPage <= 1;
+  $('calc-next').disabled = calcPage >= total;
+}
+
+/* P1-7 / P2-10: 通用 CSV 下载（带 BOM，失败回退新窗口） */
+function downloadCsv(filename, csv) {
+  const body = csv.charAt(0) === '\uFEFF' ? csv : '\uFEFF' + csv;
+  try {
+    const blob = new Blob([body], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    showToast('已导出 ' + filename);
+    return true;
+  } catch (e) {
+    // ZTools 环境可能不支持 Blob 下载，回退到新窗口
+    const win = window.open('', '_blank');
+    if (win) { win.document.write('<pre>' + body + '</pre>'); win.document.close(); return true; }
+    showToast('导出失败：环境不支持下载');
+    return false;
+  }
+}
+/* CSV 单元格转义 */
+function csvCell(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function toCsv(rows) {
+  return rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+function exportCSV() {
+  if (!calcResult) { showToast('请先计算'); return; }
+  const rows = [['期数', '月供(元)', '本金(元)', '利息(元)', '剩余本金(元)']];
+  calcResult.merged.forEach(r => {
+    rows.push([r.period, r.payment.toFixed(2), r.principal.toFixed(2), r.interest.toFixed(2), r.balance.toFixed(2)]);
+  });
+  downloadCsv('还款明细.csv', toCsv(rows));
+}
+
+$('calc-btn').onclick = runCalc;
+$('calc-detail-mode').onchange = () => { calcPage = 1; renderDetail(); };
+$('calc-prev').onclick = () => { if (calcPage > 1) { calcPage--; renderDetail(); } };
+$('calc-next').onclick = () => { calcPage++; renderDetail(); };
+$('calc-export-csv').onclick = exportCSV;
+
+$('calc-income').oninput = () => updateDTI();
+
+$('calc-save').onclick = () => {
+  if (!calcResult) runCalc();
+  if (!calcResult) return;
+  const item = {
+    ts: Date.now(),
+    type: calcState.type,
+    method: calcState.method,
+    houseType: $('calc-house-type').value,
+    amount: calcState.type === 'combo' ? num('calc-combo-commercial') + num('calc-combo-fund') : num('calc-amount'),
+    years: num('calc-years'),
+    month: calcResult.firstMonthly,
+    total: calcResult.totalPayment / wan,
+    interest: calcResult.totalInterest / wan
+  };
+  let ok = false;
+  try {
+    if (window.loanApi && typeof window.loanApi.add === 'function') { window.loanApi.add(item); ok = true; }
+  } catch (e) {}
+  if (!ok) {
+    try {
+      const k = 'loan-calculator-history';
+      const list = JSON.parse(window.localStorage.getItem(k) || '[]');
+      list.unshift(item);
+      if (list.length > 20) list.length = 20;
+      window.localStorage.setItem(k, JSON.stringify(list));
+      ok = true;
+    } catch (e2) {}
+  }
+  $('calc-save').textContent = ok ? '已保存 ✓' : '保存失败';
+  setTimeout(() => { $('calc-save').textContent = '保存到历史'; }, 1500);
+};
+
+/* ===================== 方案对比 ===================== */
+const getCmpMethod = { a: bindSeg('cmp-a-method', null), b: bindSeg('cmp-b-method', null) };
+function validateCmp() {
+  const errs = [];
+  if (num('cmp-a-amount') <= 0) errs.push('方案A 贷款金额需大于 0');
+  if (num('cmp-b-amount') <= 0) errs.push('方案B 贷款金额需大于 0');
+  const ay = num('cmp-a-years'), by = num('cmp-b-years');
+  if (ay < 1 || ay > 40) errs.push('方案A 年限需在 1–40 年');
+  if (by < 1 || by > 40) errs.push('方案B 年限需在 1–40 年');
+  const ar = effRate('cmp-a-rate','cmp-a-bp') / 100, br = effRate('cmp-b-rate','cmp-b-bp') / 100;
+  if (ar <= 0 || ar > 0.2) errs.push('方案A 利率需在 0–20%');
+  if (br <= 0 || br > 0.2) errs.push('方案B 利率需在 0–20%');
+  return errs;
+}
+
+let cmpResult = null;
+
+$('cmp-btn').onclick = () => {
+  const cErrs = validateCmp();
+  if (cErrs.length) { showToast(cErrs[0]); return; }
+  try {
+    const a = computeLoan(num('cmp-a-amount') * wan, effRate('cmp-a-rate','cmp-a-bp') / 100, Math.round(num('cmp-a-years') * 12), getCmpMethod.a());
+    const b = computeLoan(num('cmp-b-amount') * wan, effRate('cmp-b-rate','cmp-b-bp') / 100, Math.round(num('cmp-b-years') * 12), getCmpMethod.b());
+    const ra = a.firstMonthly, rb = b.firstMonthly;
+    const pa = a.totalPayment / wan, pb = b.totalPayment / wan;
+    const ia = a.totalInterest / wan, ib = b.totalInterest / wan;
+    const fill = (el, r, m) => {
+      el.innerHTML =
+        '<div class="cmp-row"><span>月供</span><span>' + fmtYuan(m) + '</span></div>' +
+        '<div class="cmp-row"><span>还款总额</span><span>' + f2(r.totalPayment / wan) + '万</span></div>' +
+        '<div class="cmp-row"><span>支付利息</span><span>' + f2(r.totalInterest / wan) + '万</span></div>' +
+        '<div class="cmp-row"><span>贷款本金</span><span>' + f2(r.totalPrincipal / wan) + '万</span></div>';
+    };
+    fill($('cmp-a-out'), a, ra);
+    fill($('cmp-b-out'), b, rb);
+    const noteA = ia < ib ? '<div class="cmp-row win"><span>★ 利息更省</span><span>方案 A</span></div>' : '';
+    const noteB = ia >= ib ? '<div class="cmp-row win"><span>★ 利息更省</span><span>方案 B</span></div>' : '';
+    $('cmp-a-out').insertAdjacentHTML('beforeend', noteA);
+    $('cmp-b-out').insertAdjacentHTML('beforeend', noteB);
+    $('cmp-result').style.display = 'grid';
+
+    // P1-8: 差异对比
+    const diffInterest = Math.abs(ia - ib);
+    const diffPct = Math.min(ia, ib) > 0 ? (diffInterest / Math.min(ia, ib) * 100) : 0;
+    const winner = ia < ib ? 'A' : 'B';
+    const diffMonthly = Math.abs(ra - rb);
+    $('cmp-diff').style.display = 'block';
+    $('cmp-diff').innerHTML =
+      '<div class="cmp-row"><span>月供差额</span><span>' + fmtYuan(diffMonthly) + ' / 月</span></div>' +
+      '<div class="cmp-row"><span>利息差额</span><span>' + f2(diffInterest) + ' 万</span></div>' +
+      '<div class="cmp-row"><span>差异比例</span><span>' + f2(diffPct) + '%</span></div>' +
+      '<div class="cmp-row win"><span>★ 推荐方案 ' + winner + '</span><span>省 ' + f2(diffInterest) + ' 万利息</span></div>';
+
+    // 保存结果供复制 / 导出使用
+    cmpResult = {
+      a: { amount: num('cmp-a-amount'), years: num('cmp-a-years'), rate: effRate('cmp-a-rate','cmp-a-bp'), bp: num('cmp-a-bp'), method: getCmpMethod.a(), monthly: ra, res: a },
+      b: { amount: num('cmp-b-amount'), years: num('cmp-b-years'), rate: effRate('cmp-b-rate','cmp-b-bp'), bp: num('cmp-b-bp'), method: getCmpMethod.b(), monthly: rb, res: b },
+      diffMonthly, diffInterest, diffPct, winner
+    };
+    markComputed('cmp');
+    $('cmp-act-bar').style.display = 'flex';
+  } catch (e) {
+    cmpResult = null;
+    $('cmp-act-bar').style.display = 'none';
+    const box = $('cmp-result');
+    box.style.display = 'block';
+    box.innerHTML = '<div class="cmp-row" style="color:#ef4d6b">计算出错：' + (e && e.message ? e.message : e) + '</div>';
+  }
+};
+
+/* ===================== 提前还款 ===================== */
+let ppMethod = 'equal-installment';
+bindSeg('pp-method', v => ppMethod = v);
+
+/* P2-10: 多次提前还款时间线 */
+let prepayEntries = [{ month: 37, amount: 50 }];
+
+function renderTimeline() {
+  const c = $('pp-timeline');
+  c.innerHTML = prepayEntries.map((e, i) =>
+    '<div class="timeline-item" data-idx="' + i + '">' +
+    '<span class="tl-label">第</span>' +
+    '<input type="number" class="tl-input tl-month" value="' + e.month + '" min="1" />' +
+    '<span class="tl-label">月还</span>' +
+    '<input type="number" class="tl-input tl-amount" value="' + e.amount + '" min="0" step="1" />' +
+    '<span class="tl-label">万</span>' +
+    '<button class="btn danger tl-del" style="padding:3px 8px">✕</button>' +
+    '</div>'
+  ).join('');
+  c.querySelectorAll('.timeline-item').forEach(item => {
+    const idx = parseInt(item.dataset.idx, 10);
+    item.querySelector('.tl-month').oninput = (ev) => { prepayEntries[idx].month = parseInt(ev.target.value, 10) || 1; };
+    item.querySelector('.tl-amount').oninput = (ev) => { prepayEntries[idx].amount = parseFloat(ev.target.value) || 0; };
+    item.querySelector('.tl-del').onclick = () => { prepayEntries.splice(idx, 1); renderTimeline(); };
+  });
+}
+
+$('pp-add-entry').onclick = () => {
+  const last = prepayEntries[prepayEntries.length - 1];
+  prepayEntries.push({ month: (last ? last.month + 12 : 37), amount: 30 });
+  renderTimeline();
+};
+
+/* P2: 核心模拟 —— 支持多次提前还款 + 两种策略 */
+function simulatePrepay(principal, annualRate, totalMonths, method, entries, strategy) {
+  const r = annualRate / 12;
+  const original = computeLoan(principal, annualRate, totalMonths, method);
+  let balance = principal;
+  let totalInterest = 0;
+  let monthly = method === 'equal-installment' ? original.monthly : 0;
+  let basePrincipal = principal / totalMonths;
+  let actualMonths = 0;
+  const sorted = entries.filter(e => e.amount > 0 && e.month >= 1).sort((a, b) => a.month - b.month);
+  const prepayMap = {};
+  sorted.forEach(e => { prepayMap[e.month] = (prepayMap[e.month] || 0) + e.amount * wan; });
+
+  for (let i = 1; i <= totalMonths * 2 && balance > 0.01; i++) {
+    actualMonths = i;
+    const interest = balance * r;
+    let payPrincipal;
+    if (method === 'equal-installment') {
+      payPrincipal = monthly - interest;
+      if (payPrincipal > balance) payPrincipal = balance;
+    } else {
+      payPrincipal = Math.min(basePrincipal, balance);
+    }
+    balance -= payPrincipal;
+    totalInterest += interest;
+
+    if (prepayMap[i] && balance > 0) {
+      const prepay = Math.min(prepayMap[i], balance);
+      balance -= prepay;
+      if (balance > 0.01) {
+        if (strategy === 'reduce') {
+          const remaining = totalMonths - i;
+          if (remaining > 0) {
+            if (method === 'equal-installment') {
+              monthly = r > 0 ? balance * r * Math.pow(1 + r, remaining) / (Math.pow(1 + r, remaining) - 1) : balance / remaining;
+            } else {
+              basePrincipal = balance / remaining;
+            }
+          }
+        }
+        // shorten: 月供不变，自然缩短
+      }
+    }
+    if (balance <= 0.01) break;
+  }
+
+  const finalMonthly = method === 'equal-installment' ? monthly : (basePrincipal + balance * r);
+  return {
+    totalInterest,
+    actualMonths,
+    finalMonthly,
+    savedInterest: original.totalInterest - totalInterest,
+    originalMonthly: method === 'equal-installment' ? original.monthly : original.firstMonthly
+  };
+}
+
+function validatePrepay() {
+  const errs = [];
+  if (num('pp-amount') <= 0) errs.push('贷款本金需大于 0');
+  const years = num('pp-years');
+  if (years < 1 || years > 40) errs.push('贷款年限需在 1–40 年');
+  const rate = effRate('pp-rate', 'pp-bp') / 100;
+  if (rate <= 0 || rate > 0.2) errs.push('年利率需在 0–20%');
+  const paid = Math.round(num('pp-paid'));
+  if (prepayEntries.length === 0) errs.push('请至少添加一笔提前还款');
+  for (const e of prepayEntries) {
+    if (e.amount <= 0) { errs.push('提前还款金额需大于 0'); break; }
+    if (e.month < 1) { errs.push('还款月份需 ≥ 1'); break; }
+    if (e.month <= paid) { errs.push('第 ' + e.month + ' 月还款早于已还期数(' + paid + ')'); break; }
+  }
+  return errs;
+}
+
+let ppResult = null;
+
+$('pp-btn').onclick = () => {
+  const pErrs = validatePrepay();
+  if (pErrs.length) { showToast(pErrs[0]); return; }
+  const principal = num('pp-amount') * wan;
+  const rate = effRate('pp-rate', 'pp-bp') / 100;
+  const totalMonths = Math.round(num('pp-years') * 12);
+  const paid = Math.round(num('pp-paid'));
+  const entries = prepayEntries.map(e => ({ month: e.month, amount: e.amount }));
+  const investRate = num('pp-invest-rate') / 100;
+
+  const original = computeLoan(principal, rate, totalMonths, ppMethod);
+
+  // P2-9: 双策略并排
+  const shorten = simulatePrepay(principal, rate, totalMonths, ppMethod, entries, 'shorten');
+  const reduce = simulatePrepay(principal, rate, totalMonths, ppMethod, entries, 'reduce');
+
+  const fmtTerm = (m) => Math.floor(m / 12) + ' 年 ' + (m % 12) + ' 月';
+
+  $('pp-shorten-out').innerHTML =
+    '<div class="cmp-row"><span>原月供</span><span>' + fmtYuan(original.monthly || original.firstMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>月供（不变）</span><span>' + fmtYuan(shorten.originalMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>原总期限</span><span>' + fmtTerm(totalMonths) + '</span></div>' +
+    '<div class="cmp-row"><span>新总期限</span><span>' + fmtTerm(shorten.actualMonths) + '</span></div>' +
+    '<div class="cmp-row"><span>缩短</span><span>' + (totalMonths - shorten.actualMonths) + ' 期</span></div>' +
+    '<div class="cmp-row win"><span>节省利息</span><span>' + fmtYuan(shorten.savedInterest) + '</span></div>';
+
+  $('pp-reduce-out').innerHTML =
+    '<div class="cmp-row"><span>原月供</span><span>' + fmtYuan(original.monthly || original.firstMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>新月供</span><span>' + fmtYuan(reduce.finalMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>月供减少</span><span>' + fmtYuan((original.monthly || original.firstMonthly) - reduce.finalMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>期限（不变）</span><span>' + fmtTerm(totalMonths) + '</span></div>' +
+    '<div class="cmp-row win"><span>节省利息</span><span>' + fmtYuan(reduce.savedInterest) + '</span></div>';
+
+  // P2-11: vs 投资
+  const totalPrepay = entries.reduce((s, e) => s + e.amount * wan, 0);
+  let investFV = 0;
+  entries.forEach(e => {
+    const yearsRemaining = (totalMonths - e.month) / 12;
+    if (yearsRemaining > 0) investFV += e.amount * wan * Math.pow(1 + investRate, yearsRemaining);
+  });
+  const investGain = investFV - totalPrepay;
+  const betterPrepay = shorten.savedInterest > investGain;
+  const betterReduce = reduce.savedInterest > investGain;
+
+  $('pp-invest-out').innerHTML =
+    '<div class="cmp-row"><span>提前还款总额</span><span>' + fmtYuan(totalPrepay) + '</span></div>' +
+    '<div class="cmp-row"><span>缩短期限省利息</span><span>' + fmtYuan(shorten.savedInterest) + '</span></div>' +
+    '<div class="cmp-row"><span>减少月供省利息</span><span>' + fmtYuan(reduce.savedInterest) + '</span></div>' +
+    '<div class="cmp-row"><span>同等金额理财收益</span><span>' + fmtYuan(investGain) + '（' + (investRate * 100).toFixed(1) + '% 年化）</span></div>' +
+    '<div class="cmp-row"><span>理财终值</span><span>' + fmtYuan(investFV) + '</span></div>' +
+    (betterPrepay
+      ? '<div class="cmp-row win"><span>★ 结论</span><span>缩短期限更划算（多省 ' + fmtYuan(shorten.savedInterest - investGain) + '）</span></div>'
+      : '<div class="cmp-row win"><span>★ 结论</span><span>理财更划算（多赚 ' + fmtYuan(investGain - shorten.savedInterest) + '）</span></div>');
+
+  // 保存结果供复制 / 导出使用
+  ppResult = {
+    principal, rate, totalMonths, paid, method: ppMethod, entries,
+    original, shorten, reduce,
+    investRate, totalPrepay, investFV, investGain, betterPrepay, betterReduce
+  };
+  markComputed('pp');
+  $('pp-act-bar').style.display = 'flex';
+
+  // 滚动到结果
+  $('pp-shorten-out').scrollIntoView && $('pp-shorten-out').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+/* ===================== 浮动利率模拟 ===================== */
+let vrMethod = 'equal-installment';
+bindSeg('vr-method', v => vrMethod = v);
+
+/* 预设 LPR 历史数据（近年中国 5 年期 LPR 调整，近似值） */
+const LPR_PRESETS = {
+  recent: [
+    { month: 1, lpr: 4.20, bp: -20 },
+    { month: 13, lpr: 3.95, bp: -20 },
+    { month: 25, lpr: 3.85, bp: -20 },
+    { month: 37, lpr: 3.60, bp: -20 },
+    { month: 49, lpr: 3.50, bp: -30 }
+  ],
+  annual: [
+    { month: 1, lpr: 3.50, bp: -20 },
+    { month: 13, lpr: 3.40, bp: -20 },
+    { month: 25, lpr: 3.30, bp: -25 },
+    { month: 37, lpr: 3.20, bp: -25 }
+  ]
+};
+
+let vrEntries = JSON.parse(JSON.stringify(LPR_PRESETS.recent));
+
+function renderVrTimeline() {
+  const c = $('vr-timeline');
+  c.innerHTML = vrEntries.map((e, i) =>
+    '<div class="vr-tl-item" data-idx="' + i + '">' +
+    '<span class="tl-label">第</span>' +
+    '<input type="number" class="tl-input vr-month" value="' + e.month + '" min="1" />' +
+    '<span class="tl-label">月</span>' +
+    '<span class="tl-label" style="margin-left:4px">LPR</span>' +
+    '<input type="number" class="tl-input vr-lpr" value="' + e.lpr + '" step="0.05" />' +
+    '<span class="tl-label">%</span>' +
+    '<span class="tl-label" style="margin-left:2px">BP</span>' +
+    '<input type="number" class="tl-input vr-bp" value="' + e.bp + '" step="5" />' +
+    '<span class="tl-label" style="margin-left:4px">方式</span>' +
+    '<select class="tl-select vr-method-sel">' +
+      '<option value=""' + (!e.method ? ' selected' : '') + '>不变</option>' +
+      '<option value="equal-installment"' + (e.method === 'equal-installment' ? ' selected' : '') + '>等额本息</option>' +
+      '<option value="equal-principal"' + (e.method === 'equal-principal' ? ' selected' : '') + '>等额本金</option>' +
+    '</select>' +
+    '<button class="btn danger tl-del">✕</button>' +
+    '</div>'
+  ).join('');
+  c.querySelectorAll('.vr-tl-item').forEach(item => {
+    const idx = parseInt(item.dataset.idx, 10);
+    const enterToSim = (el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('vr-btn').click(); } });
+    item.querySelector('.vr-month').oninput = (ev) => { vrEntries[idx].month = parseInt(ev.target.value, 10) || 1; };
+    item.querySelector('.vr-lpr').oninput = (ev) => { vrEntries[idx].lpr = parseFloat(ev.target.value) || 0; };
+    item.querySelector('.vr-bp').oninput = (ev) => { vrEntries[idx].bp = parseFloat(ev.target.value) || 0; };
+    item.querySelector('.vr-method-sel').onchange = (ev) => { vrEntries[idx].method = ev.target.value; };
+    item.querySelector('.tl-del').onclick = () => { vrEntries.splice(idx, 1); renderVrTimeline(); };
+    enterToSim(item.querySelector('.vr-month'));
+    enterToSim(item.querySelector('.vr-lpr'));
+    enterToSim(item.querySelector('.vr-bp'));
+  });
+}
+
+$('vr-add-entry').onclick = () => {
+  const last = vrEntries[vrEntries.length - 1];
+  vrEntries.push({
+    month: last ? last.month + 12 : 13,
+    lpr: last ? last.lpr : 3.5,
+    bp: last ? last.bp : -20,
+    method: ''
+  });
+  renderVrTimeline();
+};
+$('vr-preset-recent').onclick = () => { if (vrEntries.length && !confirm('用"近3年LPR走势"覆盖当前时间线？')) return; vrEntries = JSON.parse(JSON.stringify(LPR_PRESETS.recent)); renderVrTimeline(); };
+$('vr-preset-annual').onclick = () => { if (vrEntries.length && !confirm('用"每年降10BP"覆盖当前时间线？')) return; vrEntries = JSON.parse(JSON.stringify(LPR_PRESETS.annual)); renderVrTimeline(); };
+$('vr-preset-clear').onclick = () => { if (vrEntries.length && !confirm('确定清空全部时间线节点？')) return; vrEntries = []; renderVrTimeline(); };
+
+function updateVrInitEff() {
+  const lpr = parseFloat($('vr-init-lpr').value) || 0;
+  const bp = parseFloat($('vr-init-bp').value) || 0;
+  $('vr-init-eff').textContent = '实际 ' + f2(lpr + bp / 100) + '%';
+}
+['vr-init-lpr', 'vr-init-bp'].forEach(id => { $(id).oninput = updateVrInitEff; });
+
+/* 核心：可变利率逐月模拟（支持中途切换还款方式） */
+function simulateVariableRate(principal, totalMonths, initMethod, initLpr, initBp, changes) {
+  const schedule = [];
+  let balance = principal;
+  let currentLpr = initLpr;
+  let currentBp = initBp;
+  let currentRate = (currentLpr + currentBp / 100) / 100;
+  let currentMethod = initMethod;
+  let monthly = 0;          // 等额本息月供
+  let basePrincipal = principal / totalMonths;  // 等额本金月本金
+
+  // 等额本息：初始月供
+  if (currentMethod === 'equal-installment') {
+    const r = currentRate / 12;
+    if (r === 0) monthly = principal / totalMonths;
+    else monthly = principal * r * Math.pow(1 + r, totalMonths) / (Math.pow(1 + r, totalMonths) - 1);
+  }
+
+  // 排序变化节点，建映射
+  const sorted = changes.filter(c => c.month >= 1).sort((a, b) => a.month - b.month);
+  const changeMap = {};
+  sorted.forEach(c => { changeMap[c.month] = c; });
+
+  for (let i = 1; i <= totalMonths * 2 && balance > 0.01; i++) {
+    // 检查本月是否有变化（利率 / 还款方式）
+    if (changeMap[i]) {
+      const c = changeMap[i];
+      const oldRate = currentRate;
+      const oldMethod = currentMethod;
+
+      if (c.lpr != null) currentLpr = c.lpr;
+      if (c.bp != null) currentBp = c.bp;
+      currentRate = (currentLpr + currentBp / 100) / 100;
+
+      // 还款方式切换
+      if (c.method && c.method !== currentMethod) {
+        currentMethod = c.method;
+        const remaining = totalMonths - (i - 1);
+        if (currentMethod === 'equal-installment') {
+          // 切到等额本息：基于剩余本金+剩余期限重算月供
+          if (remaining > 0 && balance > 0.01) {
+            const r = currentRate / 12;
+            if (r === 0) monthly = balance / remaining;
+            else monthly = balance * r * Math.pow(1 + r, remaining) / (Math.pow(1 + r, remaining) - 1);
+          }
+        } else {
+          // 切到等额本金：剩余本金均摊到剩余期数
+          if (remaining > 0) basePrincipal = balance / remaining;
+        }
+      } else if (currentMethod === 'equal-installment' && balance > 0.01) {
+        // 仅利率变化（等额本息需重算月供）
+        const remaining = totalMonths - (i - 1);
+        if (remaining > 0) {
+          const r = currentRate / 12;
+          if (r === 0) monthly = balance / remaining;
+          else monthly = balance * r * Math.pow(1 + r, remaining) / (Math.pow(1 + r, remaining) - 1);
+        }
+      }
+    }
+
+    const r = currentRate / 12;
+    const interest = balance * r;
+    let payPrincipal, payment;
+    if (currentMethod === 'equal-installment') {
+      payPrincipal = monthly - interest;
+      if (payPrincipal > balance) payPrincipal = balance;
+      if (payPrincipal < 0) payPrincipal = 0;
+      payment = payPrincipal + interest;
+    } else {
+      payPrincipal = Math.min(basePrincipal, balance);
+      payment = payPrincipal + interest;
+    }
+    balance -= payPrincipal;
+    if (balance < 0) balance = 0;
+    schedule.push({ period: i, payment, principal: payPrincipal, interest, balance, rate: currentRate * 100, lpr: currentLpr, bp: currentBp, method: currentMethod });
+    if (balance <= 0.01) break;
+  }
+
+  const totalInterest = schedule.reduce((s, r) => s + r.interest, 0);
+  const totalPayment = principal + totalInterest;
+  const firstMonthly = schedule.length ? schedule[0].payment : 0;
+  const lastMonthly = schedule.length ? schedule[schedule.length - 1].payment : 0;
+
+  // 提取变化点（利率变化 + 还款方式变化）
+  const changePoints = [];
+  let prevRate = schedule.length ? schedule[0].rate : 0;
+  let prevMethod = schedule.length ? schedule[0].method : initMethod;
+  for (let i = 1; i < schedule.length; i++) {
+    const rateChanged = Math.abs(schedule[i].rate - prevRate) > 0.001;
+    const methodChanged = schedule[i].method !== prevMethod;
+    if (rateChanged || methodChanged) {
+      changePoints.push({
+        month: schedule[i].period,
+        oldRate: prevRate,
+        newRate: schedule[i].rate,
+        lpr: schedule[i].lpr,
+        bp: schedule[i].bp,
+        oldMethod: prevMethod,
+        newMethod: schedule[i].method,
+        oldMonthly: schedule[i - 1].payment,
+        newMonthly: schedule[i].payment,
+        balance: schedule[i - 1].balance
+      });
+      prevRate = schedule[i].rate;
+      prevMethod = schedule[i].method;
+    }
+  }
+
+  return { schedule, totalInterest, totalPayment, totalPrincipal: principal, firstMonthly, lastMonthly, changePoints };
+}
+
+let vrResult = null;
+let vrPage = 1;
+
+function validateVr() {
+  const errs = [];
+  if (num('vr-amount') <= 0) errs.push('贷款本金需大于 0');
+  const years = num('vr-years');
+  if (years < 1 || years > 40) errs.push('贷款年限需在 1–40 年之间');
+  const totalMonths = Math.round(years * 12);
+  const seen = {};
+  for (const e of vrEntries) {
+    if (e.month < 1) { errs.push('时间线月份需 ≥ 1'); break; }
+    if (e.month > totalMonths) { errs.push('第 ' + e.month + ' 月超出总期限(' + totalMonths + ')'); break; }
+    if (seen[e.month]) { errs.push('第 ' + e.month + ' 月重复'); break; }
+    seen[e.month] = true;
+  }
+  return errs;
+}
+
+$('vr-btn').onclick = () => {
+  const vErrs = validateVr();
+  if (vErrs.length) { showToast(vErrs[0]); return; }
+  const principal = num('vr-amount') * wan;
+  const totalMonths = Math.round(num('vr-years') * 12);
+  const initLpr = parseFloat($('vr-init-lpr').value) || 0;
+  const initBp = parseFloat($('vr-init-bp').value) || 0;
+
+  vrResult = simulateVariableRate(principal, totalMonths, vrMethod, initLpr, initBp, vrEntries);
+  markComputed('vr');
+  vrPage = 1;
+
+  $('vr-init-monthly').textContent = fmtYuan(vrResult.firstMonthly);
+  $('vr-final-monthly').textContent = fmtYuan(vrResult.lastMonthly);
+  $('vr-total-interest').textContent = f2(vrResult.totalInterest / wan) + '万';
+
+  // 固定 vs 浮动对比
+  const fixedRate = (initLpr + initBp / 100) / 100;
+  const fixedRes = computeLoan(principal, fixedRate, totalMonths, vrMethod);
+  const diffInterest = vrResult.totalInterest - fixedRes.totalInterest;
+  $('vr-compare-card').style.display = 'block';
+  $('vr-act-bar').style.display = 'flex';
+  $('vr-compare-out').innerHTML =
+    '<div class="cmp-row"><span>固定利率总利息</span><span>' + fmtYuan(fixedRes.totalInterest) + '</span></div>' +
+    '<div class="cmp-row"><span>浮动利率总利息</span><span>' + fmtYuan(vrResult.totalInterest) + '</span></div>' +
+    '<div class="cmp-row ' + (diffInterest < 0 ? 'win' : '') + '"><span>利息差额</span><span>' + (diffInterest >= 0 ? '+' : '') + fmtYuan(Math.abs(diffInterest)) + (diffInterest < 0 ? ' 省' : ' 多') + '</span></div>' +
+    '<div class="cmp-row"><span>固定利率月供</span><span>' + fmtYuan(fixedRes.monthly || fixedRes.firstMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>浮动利率首月供</span><span>' + fmtYuan(vrResult.firstMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>浮动利率末月供</span><span>' + fmtYuan(vrResult.lastMonthly) + '</span></div>' +
+    '<div class="cmp-row"><span>总还款额</span><span>' + f2(vrResult.totalPayment / wan) + ' 万</span></div>';
+
+  // 利率变化节点表
+  const mLabel = { 'equal-installment': '等额本息', 'equal-principal': '等额本金' };
+  if (!vrResult.changePoints.length) {
+    $('vr-changes-thead').innerHTML = '';
+    $('vr-changes-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">无变化节点</td></tr>';
+  } else {
+    $('vr-changes-thead').innerHTML = '<tr><th>变化月份</th><th>原利率</th><th>新利率</th><th>LPR</th><th>BP</th><th>还款方式</th><th>新月供</th><th>月供变化</th></tr>';
+    $('vr-changes-tbody').innerHTML = vrResult.changePoints.map(cp => {
+      const delta = cp.newMonthly - cp.oldMonthly;
+      const tagClass = delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'same';
+      const methodTag = cp.oldMethod !== cp.newMethod
+        ? '<span class="vr-rate-tag">' + mLabel[cp.oldMethod] + ' → ' + mLabel[cp.newMethod] + '</span>'
+        : '<span style="color:var(--muted)">—</span>';
+      return '<tr><td>第 ' + cp.month + ' 月</td>' +
+        '<td>' + f2(cp.oldRate) + '%</td>' +
+        '<td><span class="vr-rate-tag ' + (cp.newRate > cp.oldRate ? 'up' : cp.newRate < cp.oldRate ? 'down' : 'same') + '">' + f2(cp.newRate) + '%</span></td>' +
+        '<td>' + f2(cp.lpr) + '%</td>' +
+        '<td>' + cp.bp + ' BP</td>' +
+        '<td>' + methodTag + '</td>' +
+        '<td>' + fmtYuan(cp.newMonthly) + '</td>' +
+        '<td><span class="vr-rate-tag ' + tagClass + '">' + (delta >= 0 ? '+' : '') + fmtYuan(Math.abs(delta)).replace('¥', '') + '</span></td></tr>';
+    }).join('');
+  }
+
+  renderVrTrend(vrResult.schedule);
+  renderVrRateChart(vrResult.schedule, vrResult.changePoints);
+  renderVrDetail();
+};
+
+function renderVrTrend(schedule) {
+  if (!schedule || !schedule.length) { $('vr-trend-chart').innerHTML = ''; return; }
+  const w = 280, h = 90, pad = 8;
+  const payments = schedule.map(r => r.payment);
+  const maxP = Math.max.apply(null, payments.concat([1]));
+  const minP = Math.min.apply(null, payments.concat([0]));
+  const n = schedule.length;
+  const step = Math.max(1, Math.floor(n / 80));
+  const pts = [];
+  const tipTexts = [];
+  for (let i = 0; i < n; i += step) {
+    const x = pad + (i / (n - 1)) * (w - pad * 2);
+    const y = h - pad - ((payments[i] - minP) / (maxP - minP || 1)) * (h - pad * 2 - 14);
+    pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    tipTexts.push('第 ' + (i + 1) + ' 期<br>月供 ' + fmtYuan(payments[i]) + '<br>利率 ' + f2(schedule[i].rate) + '%');
+  }
+  $('vr-trend-chart').innerHTML =
+    '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
+    '<line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" stroke="#e9ecf4" stroke-width="1"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#5b6ef5" stroke-width="2"/>' +
+    '<text x="' + pad + '" y="' + (pad + 8) + '" font-size="9" fill="#8b93a7">' + fmtYuan(maxP) + '</text>' +
+    '<text x="' + pad + '" y="' + (h - pad - 3) + '" font-size="9" fill="#8b93a7">' + fmtYuan(minP) + '</text>' +
+    '</svg>';
+  bindChartTip('vr-trend-chart', tipTexts, pad / w);
+}
+
+function renderVrRateChart(schedule, changePoints) {
+  if (!schedule || !schedule.length) { $('vr-rate-chart').innerHTML = ''; return; }
+  const w = 280, h = 90, pad = 8;
+  const rates = schedule.map(r => r.rate);
+  const maxR = Math.max.apply(null, rates.concat([1]));
+  const minR = Math.min.apply(null, rates.concat([0]));
+  const n = schedule.length;
+  const step = Math.max(1, Math.floor(n / 80));
+  const pts = [];
+  const tipTexts = [];
+  for (let i = 0; i < n; i += step) {
+    const x = pad + (i / (n - 1)) * (w - pad * 2);
+    const y = h - pad - ((rates[i] - minR) / (maxR - minR || 1)) * (h - pad * 2 - 14);
+    pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    tipTexts.push('第 ' + (i + 1) + ' 期<br>利率 ' + f2(rates[i]) + '%<br>LPR ' + f2(schedule[i].lpr) + '% · BP ' + schedule[i].bp);
+  }
+  let lines = '';
+  changePoints.forEach(cp => {
+    const x = pad + ((cp.month - 1) / (n - 1)) * (w - pad * 2);
+    lines += '<line x1="' + x.toFixed(1) + '" y1="' + pad + '" x2="' + x.toFixed(1) + '" y2="' + (h - pad) + '" stroke="#f5a524" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>';
+  });
+  $('vr-rate-chart').innerHTML =
+    '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' +
+    '<line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" stroke="#e9ecf4" stroke-width="1"/>' +
+    lines +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#f5a524" stroke-width="2"/>' +
+    '<text x="' + pad + '" y="' + (pad + 8) + '" font-size="9" fill="#8b93a7">' + f2(maxR) + '%</text>' +
+    '<text x="' + pad + '" y="' + (h - pad - 3) + '" font-size="9" fill="#8b93a7">' + f2(minR) + '%</text>' +
+    '</svg>';
+  bindChartTip('vr-rate-chart', tipTexts, pad / w);
+}
+
+function renderVrDetail() {
+  if (!vrResult) return;
+  const mode = $('vr-detail-mode').value;
+  const rows = vrResult.schedule;
+  const mShort = { 'equal-installment': '本息', 'equal-principal': '本金' };
+  let data = [];
+  if (mode === 'year') {
+    const groups = {};
+    rows.forEach(r => {
+      const y = Math.ceil(r.period / 12);
+      if (!groups[y]) groups[y] = { year: y, payment: 0, principal: 0, interest: 0, balance: 0, rate: r.rate, method: r.method };
+      groups[y].payment += r.payment; groups[y].principal += r.principal;
+      groups[y].interest += r.interest; groups[y].balance = r.balance; groups[y].rate = r.rate; groups[y].method = r.method;
+    });
+    data = Object.values(groups);
+    $('vr-thead').innerHTML = '<tr><th>年份</th><th>年还本息</th><th>年还本金</th><th>年还利息</th><th>年末利率</th><th>年末剩余</th><th>方式</th></tr>';
+  } else {
+    data = rows;
+    $('vr-thead').innerHTML = '<tr><th>期数</th><th>月供</th><th>本金</th><th>利息</th><th>利率</th><th>剩余本金</th><th>方式</th></tr>';
+  }
+  const total = Math.ceil(data.length / PAGE);
+  if (vrPage > total) vrPage = total;
+  const start = (vrPage - 1) * PAGE;
+  const slice = data.slice(start, start + PAGE);
+  $('vr-tbody').innerHTML = slice.map(r => {
+    const c0 = mode === 'year' ? r.year + ' 年' : r.period + ' 期';
+    return '<tr><td>' + c0 + '</td><td>' + fmtYuan(r.payment) + '</td><td>' + fmtYuan(r.principal) + '</td><td>' + fmtYuan(r.interest) + '</td><td>' + f2(r.rate) + '%</td><td>' + fmtYuan(r.balance) + '</td><td>' + (mShort[r.method] || '—') + '</td></tr>';
+  }).join('');
+  $('vr-page').textContent = vrPage + ' / ' + total;
+  $('vr-prev').disabled = vrPage <= 1;
+  $('vr-next').disabled = vrPage >= total;
+}
+
+$('vr-detail-mode').onchange = () => { vrPage = 1; renderVrDetail(); };
+$('vr-prev').onclick = () => { if (vrPage > 1) { vrPage--; renderVrDetail(); } };
+$('vr-next').onclick = () => { vrPage++; renderVrDetail(); };
+
+/* ===================== P0-1: 历史记录 ===================== */
+function loadHistory() {
+  try {
+    return JSON.parse(window.localStorage.getItem('loan-calculator-history') || '[]');
+  } catch (e) { return []; }
+}
+function saveHistory(list) {
+  try { window.localStorage.setItem('loan-calculator-history', JSON.stringify(list)); } catch (e) {}
+}
+
+const TYPE_LABELS = { commercial: '商业贷款', fund: '公积金', combo: '组合贷' };
+const METHOD_LABELS = { 'equal-installment': '等额本息', 'equal-principal': '等额本金' };
+
+function renderHistory() {
+  const list = loadHistory();
+  const c = $('hist-list');
+  if (!list.length) {
+    c.innerHTML = '<div class="hist-empty">暂无历史记录<br><span style="font-size:11px">在「房贷计算器」或「浮动利率」中点击「保存到历史」即可记录方案</span></div>';
+    return;
+  }
+  c.innerHTML = list.map((item, i) => {
+    const d = new Date(item.ts);
+    const ds = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+    const isVar = item.mode === 'variable';
+    const titleLabel = isVar ? '浮动利率' : (TYPE_LABELS[item.type] || item.type);
+    const methodLabel = METHOD_LABELS[item.method || item.initMethod] || (item.method || item.initMethod) || '';
+    const htLabel = (!isVar && item.houseType === 'second') ? ' · 二套' : (!isVar && item.houseType === 'first' ? ' · 首套' : '');
+    const monthVal = item.month || item.firstMonthly || 0;
+    const interestVal = (item.interest != null) ? item.interest : item.totalInterest;
+    return '<div class="hist-item">' +
+      '<div class="hist-info">' +
+        '<div class="hist-title">' + titleLabel + ' · ' + methodLabel + htLabel + '</div>' +
+        '<div class="hist-detail">' + item.amount + '万 / ' + item.years + '年 · 月供 ' + fmtYuan(monthVal) + ' · 总息 ' + f2(interestVal) + '万 · ' + ds + '</div>' +
+      '</div>' +
+      '<button class="btn" data-idx="' + i + '" data-act="refill">回填</button>' +
+      '<button class="btn danger" data-idx="' + i + '" data-act="del">删除</button>' +
+    '</div>';
+  }).join('');
+  c.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      const act = btn.dataset.act;
+      if (act === 'del') {
+        const l = loadHistory();
+        l.splice(idx, 1);
+        saveHistory(l);
+        renderHistory();
+      } else if (act === 'refill') {
+        const l = loadHistory();
+        const item = l[idx];
+        if (!item) return;
+        if (item.mode === 'variable') {
+          document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+          document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+          document.querySelector('.tab[data-tab="variable"]').classList.add('active');
+          $('variable').classList.add('active');
+          $('vr-amount').value = item.amount;
+          $('vr-years').value = item.years;
+          vrMethod = item.initMethod || 'equal-installment';
+          document.querySelectorAll('#vr-method button').forEach(b => b.classList.toggle('active', b.dataset.v === vrMethod));
+          $('vr-init-lpr').value = item.initLpr;
+          $('vr-init-bp').value = item.initBp;
+          updateVrInitEff();
+          vrEntries = JSON.parse(JSON.stringify(item.entries && item.entries.length ? item.entries : []));
+          renderVrTimeline();
+          $('vr-btn').click();
+          showToast('已回填浮动利率配置');
+          return;
+        }
+        // 回填到房贷计算器
+        calcState.type = item.type;
+        calcState.method = item.method;
+        document.querySelectorAll('#calc-type button').forEach(b => { b.classList.toggle('active', b.dataset.v === item.type); });
+        document.querySelectorAll('#calc-method button').forEach(b => { b.classList.toggle('active', b.dataset.v === item.method); });
+        $('calc-type').dispatchEvent && null; // seg 不用 event
+        // 手动触发 type 切换
+        refreshTypeUI(item.type);
+        $('calc-amount').value = item.amount;
+        $('calc-years').value = item.years;
+        if (item.houseType) { $('calc-house-type').value = item.houseType; applyHouseTypeBP(); }
+        // 切到计算器 Tab
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+        document.querySelector('.tab[data-tab="calc"]').classList.add('active');
+        $('calc').classList.add('active');
+        runCalc();
+      }
+    };
+  });
+}
+
+$('hist-clear').onclick = () => {
+  if (confirm('确定清空全部历史记录？')) {
+    saveHistory([]);
+    renderHistory();
+  }
+};
+
+/* 浮动利率：保存到历史 */
+$('vr-save').onclick = () => {
+  if (!vrResult) { showToast('请先开始模拟'); return; }
+  const item = {
+    ts: Date.now(),
+    mode: 'variable',
+    amount: num('vr-amount'),
+    years: num('vr-years'),
+    initMethod: vrMethod,
+    initLpr: parseFloat($('vr-init-lpr').value) || 0,
+    initBp: parseFloat($('vr-init-bp').value) || 0,
+    entries: JSON.parse(JSON.stringify(vrEntries)),
+    firstMonthly: vrResult.firstMonthly,
+    lastMonthly: vrResult.lastMonthly,
+    totalInterest: vrResult.totalInterest / wan,
+    totalPayment: vrResult.totalPayment / wan
+  };
+  const ok = saveHistoryItem(item);
+  showToast(ok ? '已保存到历史 ✓' : '保存失败');
+};
+
+/* ===================== 交互增强：复制 / 恢复默认 / 回车 ===================== */
+function bindEnter(panelId, btnId) {
+  const p = $(panelId); if (!p) return;
+  p.querySelectorAll('.input-wrap input, .tl-input, .bp-input').forEach(inp => {
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $(btnId).click(); } });
+  });
+}
+
+/* ===================== 跨页签缓存：自动保存/回填，切换与重载不丢数据 ===================== */
+const STATE_KEY = 'loan-calc-state-v1';
+let _saveTimer = null;
+const computed = { calc: false, cmp: false, pp: false, vr: false };
+function scheduleSave() { if (_saveTimer) clearTimeout(_saveTimer); _saveTimer = setTimeout(saveState, 250); }
+function saveState() {
+  _saveTimer = null;
+  try { window.localStorage.setItem(STATE_KEY, JSON.stringify(collectState())); } catch (e) {}
+}
+function markComputed(k) { computed[k] = true; scheduleSave(); }
+function setSeg(id, val) {
+  document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('active', b.dataset.v === val));
+}
+/* 组合贷：求一个等效固定年利率，使首月供与混合贷款一致（用于填入方案对比） */
+function equivalentRate(principal, months, targetMonthly, method) {
+  if (!(targetMonthly > 0) || months <= 0 || !(principal > 0)) return 0;
+  let lo = 0, hi = 0.2;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    const m = computeLoan(principal, mid, months, method).firstMonthly;
+    if (m > targetMonthly) hi = mid; else lo = mid;
+  }
+  return (lo + hi) / 2 * 100;
+}
+function collectState() {
+  const inputs = {};
+  document.querySelectorAll('#calc input, #calc select, #compare input, #compare select, #prepay input, #prepay select, #variable input, #variable select').forEach(el => {
+    if (el.id) inputs[el.id] = el.value;
+  });
+  const segs = {};
+  document.querySelectorAll('.seg').forEach(seg => {
+    const a = seg.querySelector('button.active');
+    if (seg.id) segs[seg.id] = a ? a.dataset.v : 'equal-installment';
+  });
+  return {
+    inputs, segs,
+    vrEntries: JSON.parse(JSON.stringify(vrEntries)),
+    prepayEntries: JSON.parse(JSON.stringify(prepayEntries)),
+    computed
+  };
+}
+function restoreState() {
+  let st;
+  try { st = JSON.parse(window.localStorage.getItem(STATE_KEY) || 'null'); } catch (e) { st = null; }
+  if (!st) return;
+  if (st.inputs) Object.keys(st.inputs).forEach(id => { const el = $(id); if (el) el.value = st.inputs[id]; });
+  if (st.segs) Object.keys(st.segs).forEach(id => setSeg(id, st.segs[id]));
+  if (st.vrEntries && st.vrEntries.length) { vrEntries = JSON.parse(JSON.stringify(st.vrEntries)); renderVrTimeline(); }
+  if (st.prepayEntries && st.prepayEntries.length) { prepayEntries = JSON.parse(JSON.stringify(st.prepayEntries)); renderTimeline(); }
+  calcState.type = getCalcType();
+  calcState.method = getCalcMethod();
+  const vm = document.querySelector('#vr-method button.active');
+  if (vm) vrMethod = vm.dataset.v;
+  refreshTypeUI(calcState.type);
+  if (st.computed) {
+    computed.calc = !!st.computed.calc; computed.cmp = !!st.computed.cmp;
+    computed.pp = !!st.computed.pp; computed.vr = !!st.computed.vr;
+  }
+}
+/* 房贷 → 方案对比：当前结果写入 A，原 A 移至 B（组合贷用等效利率） */
+$('calc-to-compare').onclick = () => {
+  if (!calcResult) runCalc();
+  if (!calcResult) { showToast('请先计算'); return; }
+  const total = calcState.type === 'combo' ? num('calc-combo-commercial') + num('calc-combo-fund') : num('calc-amount');
+  const years = num('calc-years');
+  const months = Math.round(years * 12);
+  const method = calcState.method;
+  // 原方案 A → B
+  $('cmp-b-amount').value = $('cmp-a-amount').value;
+  $('cmp-b-years').value = $('cmp-a-years').value;
+  $('cmp-b-rate').value = $('cmp-a-rate').value;
+  $('cmp-b-bp').value = $('cmp-a-bp').value;
+  setSeg('cmp-b-method', getCmpMethod.a());
+  // 当前计算结果 → A
+  $('cmp-a-amount').value = total;
+  $('cmp-a-years').value = years;
+  setSeg('cmp-a-method', method);
+  if (calcState.type === 'commercial') {
+    $('cmp-a-rate').value = num('calc-rate-commercial');
+    $('cmp-a-bp').value = num('calc-bp-commercial');
+  } else if (calcState.type === 'fund') {
+    $('cmp-a-rate').value = num('calc-rate-fund');
+    $('cmp-a-bp').value = num('calc-bp-fund');
+  } else {
+    $('cmp-a-rate').value = equivalentRate(total * wan, months, calcResult.firstMonthly, method).toFixed(2);
+    $('cmp-a-bp').value = 0;
+  }
+  updateEffHints();
+  const cErrs = validateCmp();
+  if (cErrs.length) { showToast(cErrs[0]); return; }
+  try { $('cmp-btn').onclick(); } catch (e) {}
+  switchTab('compare');
+  showToast('已加入方案对比（A），原方案 A 已移至 B');
+};
+/* 任何输入/选择/点击都自动缓存（防抖） */
+document.addEventListener('input', scheduleSave);
+document.addEventListener('change', scheduleSave);
+document.addEventListener('click', scheduleSave);
+
+$('calc-copy').onclick = () => {
+  if (!calcResult) { showToast('请先计算'); return; }
+  const method = calcState.method === 'equal-principal' ? '等额本金' : '等额本息';
+  const text = '【贷款计算器】\n月供：' + fmtYuan(calcResult.monthly || calcResult.firstMonthly) +
+    '\n还款总额：' + f2(calcResult.totalPayment / wan) + '万' +
+    '\n贷款本金：' + f2(calcResult.totalPrincipal / wan) + '万' +
+    '\n支付利息：' + f2(calcResult.totalInterest / wan) + '万' +
+    '\n还款方式：' + method;
+  copyText(text);
+};
+$('calc-reset').onclick = () => {
+  $('calc-house-type').value = 'first';
+  document.querySelectorAll('#calc-type button').forEach(b => b.classList.toggle('active', b.dataset.v === 'commercial'));
+  calcState.type = 'commercial';
+  $('calc-amount').value = 200;
+  $('calc-combo-commercial').value = 150;
+  $('calc-combo-fund').value = 50;
+  $('calc-years').value = 30;
+  $('calc-rate-mode').value = 'latest';
+  $('calc-rate-commercial').value = BASELINE.commercial;
+  $('calc-rate-fund').value = fundBaselineRate();
+  $('calc-bp-commercial').value = 0;
+  $('calc-bp-fund').value = 0;
+  $('calc-income').value = '';
+  document.querySelectorAll('#calc-method button').forEach(b => b.classList.toggle('active', b.dataset.v === 'equal-installment'));
+  calcState.method = 'equal-installment';
+  refreshTypeUI('commercial');
+  applyHouseTypeBP();
+  showCalcErr(validateCalc());
+  runCalc();
+  showToast('已恢复默认');
+};
+
+$('cmp-copy').onclick = () => {
+  if (!cmpResult) { showToast('请先对比'); return; }
+  const grab = (id) => { const el = $(id); return (el.innerText || el.textContent || '').replace(/\n{2,}/g, '\n').trim(); };
+  copyText('【方案对比】\n' + grab('cmp-a-out') + '\n' + grab('cmp-b-out') + '\n' + grab('cmp-diff'));
+};
+$('cmp-reset').onclick = () => {
+  $('cmp-a-amount').value = 200; $('cmp-a-years').value = 30; $('cmp-a-rate').value = 3.5; $('cmp-a-bp').value = 0;
+  $('cmp-b-amount').value = 150; $('cmp-b-years').value = 20; $('cmp-b-rate').value = 3.5; $('cmp-b-bp').value = 0;
+  document.querySelectorAll('#cmp-a-method button').forEach(b => b.classList.toggle('active', b.dataset.v === 'equal-installment'));
+  document.querySelectorAll('#cmp-b-method button').forEach(b => b.classList.toggle('active', b.dataset.v === 'equal-installment'));
+  updateEffHints();
+  cmpResult = null;
+  $('cmp-result').style.display = 'none'; $('cmp-diff').style.display = 'none'; $('cmp-act-bar').style.display = 'none';
+  computed.cmp = false; scheduleSave();
+  showToast('已恢复默认');
+};
+
+$('pp-copy').onclick = () => {
+  if (!ppResult) { showToast('请先分析'); return; }
+  const grab = (id) => { const el = $(id); return (el.innerText || el.textContent || '').replace(/\n{2,}/g, '\n').trim(); };
+  copyText('【提前还款】\n' + grab('pp-shorten-out') + '\n' + grab('pp-reduce-out') + '\n' + grab('pp-invest-out'));
+};
+$('pp-reset').onclick = () => {
+  $('pp-amount').value = 200; $('pp-years').value = 30; $('pp-rate').value = 3.5; $('pp-bp').value = 0;
+  $('pp-paid').value = 36; $('pp-invest-rate').value = 3.0;
+  document.querySelectorAll('#pp-method button').forEach(b => b.classList.toggle('active', b.dataset.v === 'equal-installment'));
+  prepayEntries = [{ month: 37, amount: 50 }];
+  renderTimeline();
+  updateEffHints();
+  $('pp-shorten-out').innerHTML = '<div class="hint">点击"分析提前还款"查看结果</div>';
+  $('pp-reduce-out').innerHTML = '<div class="hint">点击"分析提前还款"查看结果</div>';
+  $('pp-invest-out').innerHTML = '<div class="hint">点击"分析提前还款"查看对比</div>';
+  ppResult = null;
+  $('pp-act-bar').style.display = 'none';
+  computed.pp = false; scheduleSave();
+  showToast('已恢复默认');
+};
+
+$('vr-copy').onclick = () => {
+  if (!vrResult) { showToast('请先模拟'); return; }
+  const text = '【浮动利率】\n初始月供：' + fmtYuan(vrResult.firstMonthly) +
+    '\n最终月供：' + fmtYuan(vrResult.lastMonthly) +
+    '\n利息总额：' + f2(vrResult.totalInterest / wan) + '万' +
+    '\n总还款额：' + f2(vrResult.totalPayment / wan) + '万';
+  copyText(text);
+};
+$('vr-reset').onclick = () => {
+  $('vr-amount').value = 200; $('vr-years').value = 30;
+  vrMethod = 'equal-installment';
+  document.querySelectorAll('#vr-method button').forEach(b => b.classList.toggle('active', b.dataset.v === 'equal-installment'));
+  $('vr-init-lpr').value = 3.5; $('vr-init-bp').value = -20; updateVrInitEff();
+  vrEntries = JSON.parse(JSON.stringify(LPR_PRESETS.recent));
+  renderVrTimeline();
+  vrResult = null;
+  $('vr-init-monthly').textContent = '—'; $('vr-final-monthly').textContent = '—'; $('vr-total-interest').textContent = '—';
+  $('vr-act-bar').style.display = 'none';
+  $('vr-compare-card').style.display = 'none';
+  computed.vr = false; scheduleSave();
+  showToast('已恢复默认');
+};
+
+/* ===================== P2-10: 多 Tab 导出 CSV ===================== */
+const mLabel = (m) => METHOD_LABELS[m] || m || '';
+const termLabel = (m) => Math.floor(m / 12) + '年' + (m % 12) + '月';
+
+/* 方案对比：A/B 汇总 */
+$('cmp-export').onclick = () => {
+  if (!cmpResult) { showToast('请先对比'); return; }
+  const c = cmpResult;
+  const rows = [
+    ['项目', '方案 A', '方案 B', '差额'],
+    ['贷款本金(万)', f2(c.a.amount), f2(c.b.amount), f2(Math.abs(c.a.amount - c.b.amount))],
+    ['贷款年限(年)', c.a.years, c.b.years, Math.abs(c.a.years - c.b.years)],
+    ['执行利率(%)', f2(c.a.rate), f2(c.b.rate), f2(Math.abs(c.a.rate - c.b.rate))],
+    ['加点(BP)', c.a.bp, c.b.bp, Math.abs(c.a.bp - c.b.bp)],
+    ['还款方式', mLabel(c.a.method), mLabel(c.b.method), ''],
+    ['月供(元)', c.a.monthly.toFixed(2), c.b.monthly.toFixed(2), c.diffMonthly.toFixed(2)],
+    ['还款总额(万)', f2(c.a.res.totalPayment / wan), f2(c.b.res.totalPayment / wan), f2(Math.abs(c.a.res.totalPayment - c.b.res.totalPayment) / wan)],
+    ['支付利息(万)', f2(c.a.res.totalInterest / wan), f2(c.b.res.totalInterest / wan), f2(c.diffInterest)],
+    ['差异比例(%)', '', '', f2(c.diffPct)],
+    ['推荐方案', '', '', c.winner + '（省 ' + f2(c.diffInterest) + ' 万利息）']
+  ];
+  downloadCsv('方案对比.csv', toCsv(rows));
+};
+
+/* 提前还款：双策略 + vs 投资汇总 */
+$('pp-export').onclick = () => {
+  if (!ppResult) { showToast('请先分析'); return; }
+  const p = ppResult;
+  const om = p.original.monthly || p.original.firstMonthly;
+  const rows = [];
+  rows.push(['# 原贷款信息']);
+  rows.push(['项目', '数值']);
+  rows.push(['贷款本金(万)', f2(p.principal / wan)]);
+  rows.push(['贷款年限(年)', f2(p.totalMonths / 12)]);
+  rows.push(['执行年利率(%)', f2(p.rate * 100)]);
+  rows.push(['还款方式', mLabel(p.method)]);
+  rows.push(['已还期数', p.paid]);
+  rows.push(['原月供(元)', om.toFixed(2)]);
+  rows.push(['原总利息(万)', f2(p.original.totalInterest / wan)]);
+  rows.push([]);
+  rows.push(['# 提前还款计划']);
+  rows.push(['序号', '月份', '金额(万)']);
+  p.entries.forEach((e, i) => rows.push([i + 1, e.month, f2(e.amount)]));
+  rows.push(['合计', '', f2(p.totalPrepay / wan)]);
+  rows.push([]);
+  rows.push(['# 双策略对比']);
+  rows.push(['项目', '缩短期限', '减少月供']);
+  rows.push(['月供(元)', p.shorten.originalMonthly.toFixed(2), p.reduce.finalMonthly.toFixed(2)]);
+  rows.push(['月供变化(元)', '0.00', (p.reduce.finalMonthly - om).toFixed(2)]);
+  rows.push(['实际期限', termLabel(p.shorten.actualMonths), termLabel(p.totalMonths)]);
+  rows.push(['期限变化(期)', -(p.totalMonths - p.shorten.actualMonths), 0]);
+  rows.push(['总利息(万)', f2(p.shorten.totalInterest / wan), f2(p.reduce.totalInterest / wan)]);
+  rows.push(['节省利息(元)', p.shorten.savedInterest.toFixed(2), p.reduce.savedInterest.toFixed(2)]);
+  rows.push([]);
+  rows.push(['# 提前还款 vs 理财']);
+  rows.push(['项目', '数值']);
+  rows.push(['提前还款总额(元)', p.totalPrepay.toFixed(2)]);
+  rows.push(['理财年化(%)', f2(p.investRate * 100)]);
+  rows.push(['理财终值(元)', p.investFV.toFixed(2)]);
+  rows.push(['理财净收益(元)', p.investGain.toFixed(2)]);
+  rows.push(['缩短期限省息(元)', p.shorten.savedInterest.toFixed(2)]);
+  rows.push(['减少月供省息(元)', p.reduce.savedInterest.toFixed(2)]);
+  rows.push(['结论', p.betterPrepay
+    ? '缩短期限更划算，多省 ' + (p.shorten.savedInterest - p.investGain).toFixed(2) + ' 元'
+    : '理财更划算，多赚 ' + (p.investGain - p.shorten.savedInterest).toFixed(2) + ' 元']);
+  downloadCsv('提前还款分析.csv', toCsv(rows));
+};
+
+/* 浮动利率：逐月明细 + 变化节点 */
+$('vr-export').onclick = () => {
+  if (!vrResult) { showToast('请先模拟'); return; }
+  const rows = [];
+  rows.push(['# 浮动利率模拟汇总']);
+  rows.push(['项目', '数值']);
+  rows.push(['贷款本金(万)', f2(num('vr-amount'))]);
+  rows.push(['贷款年限(年)', f2(num('vr-years'))]);
+  rows.push(['初始还款方式', mLabel(vrMethod)]);
+  rows.push(['初始 LPR(%)', f2(num('vr-init-lpr'))]);
+  rows.push(['初始加点(BP)', num('vr-init-bp')]);
+  rows.push(['初始月供(元)', vrResult.firstMonthly.toFixed(2)]);
+  rows.push(['最终月供(元)', vrResult.lastMonthly.toFixed(2)]);
+  rows.push(['利息总额(万)', f2(vrResult.totalInterest / wan)]);
+  rows.push(['总还款额(万)', f2(vrResult.totalPayment / wan)]);
+  rows.push(['实际期数', vrResult.schedule.length]);
+  rows.push([]);
+  rows.push(['# 变化节点']);
+  rows.push(['月份', '原利率(%)', '新利率(%)', 'LPR(%)', '加点(BP)', '原方式', '新方式', '原月供(元)', '新月供(元)', '剩余本金(元)']);
+  vrResult.changePoints.forEach(cp => rows.push([
+    cp.month, f2(cp.oldRate), f2(cp.newRate), f2(cp.lpr), cp.bp,
+    mLabel(cp.oldMethod), mLabel(cp.newMethod),
+    cp.oldMonthly.toFixed(2), cp.newMonthly.toFixed(2), cp.balance.toFixed(2)
+  ]));
+  rows.push([]);
+  rows.push(['# 逐月明细']);
+  rows.push(['期数', '月供(元)', '本金(元)', '利息(元)', '剩余本金(元)', '执行利率(%)', 'LPR(%)', '加点(BP)', '还款方式']);
+  vrResult.schedule.forEach(r => rows.push([
+    r.period, r.payment.toFixed(2), r.principal.toFixed(2), r.interest.toFixed(2), r.balance.toFixed(2),
+    f2(r.rate), f2(r.lpr), r.bp, mLabel(r.method)
+  ]));
+  downloadCsv('浮动利率明细.csv', toCsv(rows));
+};
+
+bindEnter('calc', 'calc-btn');
+bindEnter('compare', 'cmp-btn');
+bindEnter('prepay', 'pp-btn');
+bindEnter('variable', 'vr-btn');
+
+/* ===================== 初始化 ===================== */
+renderTimeline();
+renderVrTimeline();
+restoreState();
+if ($('calc-rate-mode').value === 'latest') applyLatest();
+updateVrInitEff();
+updateEffHints();
+showCalcErr(validateCalc());
+runCalc();
+if (computed.cmp) { try { $('cmp-btn').onclick(); } catch (e) {} }
+if (computed.pp) { try { $('pp-btn').onclick(); } catch (e) {} }
+if (computed.vr) { try { $('vr-btn').onclick(); } catch (e) {} }
+</script>
+</body>
+</html>
