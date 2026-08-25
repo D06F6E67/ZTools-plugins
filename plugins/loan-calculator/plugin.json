@@ -1,0 +1,23 @@
+{
+  "name": "loan-calculator",
+  "title": "贷款计算器",
+  "pluginName": "贷款计算器",
+  "description": "房贷、方案对比、提前还款、浮动利率多功能贷款计算器",
+  "author": "ztocwst",
+  "homepage": "https://github.com/ZToolsCenter/ZTools-plugins/tree/main/plugins/loan-calculator",
+  "version": "1.7.0",
+  "main": "index.html",
+  "logo": "logo.png",
+  "preload": "preload.js",
+  "features": [
+    {
+      "code": "loan",
+      "explain": "贷款计算器",
+      "cmds": ["贷款计算器", "房贷", "loan"]
+    }
+  ],
+  "pluginSetting": {
+    "single": true,
+    "height": 640
+  }
+}
