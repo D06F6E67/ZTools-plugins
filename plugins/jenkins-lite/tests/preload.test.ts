@@ -94,4 +94,14 @@ describe('Jenkins folder traversal', () => {
     expect(requestedPaths).toContainEqual(expect.stringMatching(/^\/job\/team\/job\/deploy\/api\/json/))
     expect(requestedPaths).toContain('/job/team/job/deploy/build')
   })
+
+  it('fetches console text for a nested build with the same per-segment job path', async () => {
+    const { service, requestedPaths } = loadJenkinsService()
+
+    const result = await service.getBuildConsole('http://jenkins.example', 'user', 'token', 'team/deploy', 42)
+
+    expect(result.error).toBeNull()
+    expect(typeof result.data).toBe('string')
+    expect(requestedPaths).toContain('/job/team/job/deploy/42/consoleText')
+  })
 })

@@ -1,10 +1,15 @@
 <template>
-  <div class="job-item">
+  <div
+    class="job-item"
+    :class="{ 'is-keyboard-selected': props.isSelected }"
+    :data-job-path="job.fullName || job.name"
+  >
     <div class="job-info" @click="handleClick">
       <span
         v-if="isFolder"
         class="folder-arrow"
-        :class="{ expanded }"
+        :class="{ expanded: isExpanded }"
+        @click.stop="handleToggleExpand"
       ></span>
       <span class="job-name" :title="displayName">{{ displayName }}</span>
     </div>
@@ -28,39 +33,45 @@
     </div>
 
     <!-- 子 Jobs（Folder 展开） -->
-    <div v-if="job.jobs && job.jobs.length > 0 && expanded" class="job-children">
+    <div v-if="isFolder && job.jobs && job.jobs.length > 0 && isExpanded" class="job-children">
       <JobItem
         v-for="child in job.jobs"
         :key="child.url"
         :job="child"
         :favorited="false"
         :show-full-name="showFullName"
+        :expanded="props.expandedMap?.has(child.fullName || child.name) ?? false"
+        :expanded-map="props.expandedMap"
+        :selected-path="props.selectedPath"
         @toggle-favorite="emit('toggle-favorite', $event)"
         @build="emit('build', $event)"
         @click="emit('click', $event)"
+        @toggle-expand="emit('toggle-expand', $event)"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import type { JobInfo } from '../types'
-import { JOB_COLOR_MAP } from '../types'
 
 const props = defineProps<{
   job: JobInfo
   favorited: boolean
   showFullName?: boolean
+  expanded?: boolean
+  expandedMap?: Set<string>
+  selectedPath?: string | null
+  isSelected?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle-favorite', job: JobInfo): void
   (e: 'build', job: JobInfo): void
   (e: 'click', job: JobInfo): void
+  (e: 'toggle-expand', job: JobInfo): void
 }>()
-
-const expanded = ref(false)
 
 const displayName = computed(() => {
   return props.showFullName ? (props.job.fullName || props.job.name) : props.job.name
@@ -73,12 +84,23 @@ const isFolder = computed(() => {
   return Array.isArray(props.job.jobs) || /(?:Folder|MultiBranchProject)$/.test(props.job._class || '')
 })
 
+const isExpanded = computed(() => {
+  if (props.expandedMap) {
+    return props.expandedMap.has(props.job.fullName || props.job.name)
+  }
+  return !!props.expanded
+})
+
 const handleClick = () => {
   if (isFolder.value) {
-    expanded.value = !expanded.value
+    emit('toggle-expand', props.job)
     return
   }
   emit('click', props.job)
+}
+
+const handleToggleExpand = () => {
+  emit('toggle-expand', props.job)
 }
 </script>
 
@@ -92,11 +114,16 @@ const handleClick = () => {
   background: var(--bg-color, #fff);
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.15s;
 }
 
 .job-item:hover {
   background: var(--bg-hover, #f5f5f5);
+}
+
+.job-item.is-keyboard-selected {
+  background: var(--primary-bg, rgba(0, 120, 212, 0.15));
+  box-shadow: inset 2px 0 0 var(--primary-color, #0078d4);
 }
 
 .job-info {
@@ -115,6 +142,7 @@ const handleClick = () => {
   border-left: 5px solid var(--text-secondary, #888);
   transition: transform 0.15s;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .folder-arrow.expanded {
@@ -135,7 +163,8 @@ const handleClick = () => {
   transition: opacity 0.2s;
 }
 
-.job-item:hover .job-actions {
+.job-item:hover .job-actions,
+.job-item.is-keyboard-selected .job-actions {
   opacity: 1;
 }
 

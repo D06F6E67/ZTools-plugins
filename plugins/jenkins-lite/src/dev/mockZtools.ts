@@ -175,6 +175,30 @@ export const servicesMock = {
     testConnection: async (url: string, username: string, apiToken: string) => {
       await delay(800)
       return { success: true, error: null }
+    },
+    getBuildConsole: async (url: string, username: string, apiToken: string, jobName: string, buildNumber: number) => {
+      await delay(300)
+      const sample = [
+        `Started by user admin`,
+        `Running on Jenkins agent in workspace /var/jenkins_home/workspace/${jobName}`,
+        `[Pipeline] Start of Pipeline`,
+        `[Pipeline] node`,
+        `[Pipeline] { (Checkout)`,
+        `[Pipeline] echo 'Checking out source code'`,
+        `[Pipeline] sh 'git fetch origin'`,
+        `[Pipeline] sh 'git checkout main'`,
+        `[Pipeline] }`,
+        `[Pipeline] { (Build)`,
+        `[Pipeline] sh 'npm ci'`,
+        `[Pipeline] sh 'npm run build'`,
+        `[Pipeline] sh 'npm run test'`,
+        `[Pipeline] }`,
+        `[Pipeline] // node`,
+        `[Pipeline] End of Pipeline`,
+        `Finished: SUCCESS`,
+        ``
+      ].join('\n')
+      return { data: sample, error: null }
     }
   }
 }

@@ -4,7 +4,64 @@
 
 ---
 
-## v1.2.1 (最新)
+## v1.4.0 (最新)
+
+### 🆕 新增
+
+- **日志高亮 + 自动滚到底**：BuildLogModal 打开后日志自动滚到底部；含 `ERROR / Exception / FATAL / BUILD FAILURE / failed / Error:` 的行红字 + 浅红底 + 红色左边框
+- **复制错误日志**：弹窗底部新增「复制错误 (N)」按钮，仅复制含错误关键字的行，N 为错误行数
+- **日志滚动快捷键**：弹窗打开时 `↑ / ↓` 滚一行、`PgUp / PgDn` 翻页、`Home / End` 顶/底
+- **键盘操作提示**：Sidebar / JobsList / BuildHistory 各自下方加 `<kbd>` 风格的快捷键提示行
+- **Sidebar 视图即时切换**：`↑↓` 直接切视图，不再需要 `Enter` 确认
+- **JobsList 即时联动右侧**：`↑↓ / Shift+↑↓` 切换选中项时自动联动右侧构建历史
+- **弹窗 Enter 确认 / Esc 取消**：构建确认和收藏确认弹窗都支持 Enter 直接确认、Esc 取消
+- **Esc 后焦点还原**：弹窗关闭时焦点回到打开它的那条 Job / build，不再被强制弹到搜索框
+
+### 🎨 优化
+
+- **BuildLogModal 布局**：`.log-body` 去掉冲突的 `min/max-height` 限制，`.modal-footer` 加 `flex: 0 0 auto`，日志很长时 footer 始终可见
+- **键盘提示分隔符**：Sidebar 提示行加 `·` 分隔，多个快捷键之间不挤
+
+### 🐛 修复
+
+- **空白页**：根因是 Vue 3 `provide / inject` 在同组件内不自洽（provide 存到 `instance.provides`，同组件 inject 走 `appContext.provides`），App.vue 改用直接 import 模块级 ref
+- **JobItem 受控展开**：Folder 展开状态从组件内提升到 JobsList，便于键盘导航跨层操作
+
+### 🔧 内部
+
+- `useBuildPolling` 新增 `stopWatchingBuild(jobName?, buildNumber?)` 参数化清理
+- `useKeyboardNav` 模块级 ref export 给 App.vue 直接使用（绕过 provide/inject 同组件限制）
+- `tests/App.smoke.test.ts` 新增，捕获 App 根挂载类回归
+
+---
+
+## v1.3.0
+
+### 🆕 新增
+
+- **构建完成通知**：触发构建后自动监听该 build 直到结束，完成时弹出系统通知（成功 / 失败 / 不稳定 / 中止）
+- **构建日志弹窗**：右侧历史面板点击构建记录不再跳转 Jenkins，而是打开弹窗直接查看 console log
+  - 弹窗内仍提供「在 Jenkins 中打开」按钮，需要详细页面时一键跳转
+  - 支持「复制日志」到剪贴板
+- **键盘快捷键**：
+  - `←` / `→` 在 Sidebar / JobsList / BuildHistory 三个面板间循环切换（焦点默认在 Sidebar）
+  - `↑` / `↓` 在当前面板内上下移动选中项
+  - `Shift + ↑` / `Shift + ↓` 在 JobsList 中进入 Folder / 退出到父 Folder（同级导航走纯 ↑↓）
+  - `Enter` 触发当前选中项的主操作：Sidebar 切视图 / JobsList 触发构建（含二次确认）/ BuildHistory 打开构建日志
+  - `Cmd / Ctrl + Enter` 在 JobsList 收藏当前选中项（走二次确认，防误触）
+  - `Esc` 关闭弹窗
+  - 被聚焦的面板有蓝色描边，选中项左侧出现蓝色高亮条
+
+### 🔧 内部
+
+- `preload.js` 新增 `getBuildConsole` 接口（`/job/<segments>/<n>/consoleText`），沿用 Folder 嵌套路径分段规则
+- `useBuildPolling` 新增 `watchBuild(jobName, buildNumber, onComplete)`：独立定时器监听单个 build 完成，不影响右侧历史面板的轮询
+- 新增 `useKeyboardNav` composable：provide/inject 集中管面板焦点与选中索引
+- `JobItem` 的 Folder 展开状态从组件内提升到 `JobsList`，以便键盘导航能跨层操作
+
+---
+
+## v1.2.1
 
 ### 🎨 优化
 
