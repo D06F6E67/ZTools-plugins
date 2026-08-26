@@ -84,10 +84,10 @@ describe("ZTools shelf window geometry", () => {
       buildShelfWindowOptions(
         primaryDisplay,
         "bottom",
-        "/plugins/paste/preload.js",
+        "/plugins/pasteboard-pro/preload.js",
       ),
     ).toMatchObject({
-      webPreferences: { preload: "/plugins/paste/preload.js" },
+      webPreferences: { preload: "/plugins/pasteboard-pro/preload.js" },
     });
   });
 
