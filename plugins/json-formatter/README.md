@@ -2,6 +2,8 @@
 
 一个完全离线的 JSON/JSON5 格式化、校验与树形查看工具。项目结构参考同级的 `sql-formatter-ztools`，交互能力参考 JSON-handle，但实现为独立、无广告、无网络权限的 ZTools 插件。
 
+![JSON 格式化插件界面](docs/screenshot.png)
+
 ## 功能
 
 - 标准 JSON 与 JSON5（注释、尾逗号、未加引号 key）解析
