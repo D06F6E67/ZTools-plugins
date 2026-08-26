@@ -41,7 +41,7 @@ assert.equal(
 );
 assert.equal(
   normalizedWorkspace,
-  "packages:\n  - packages/*\n  - apps/*\n\nallowBuilds:\n  esbuild: true\n\noverrides:\n  brace-expansion: 2.1.4\n  nanoid: 3.3.18\n  postcss: 8.5.23\n",
+  "packages:\n  - packages/*\n  - apps/*\n\nallowBuilds:\n  esbuild: true\n",
 );
 assert.deepEqual(tsconfig.files, []);
 assert.equal(Array.isArray(tsconfig.references), true);
