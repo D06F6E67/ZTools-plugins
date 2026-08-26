@@ -51,7 +51,12 @@
       padding: 6px 12px;
       font-size: 12px;
       cursor: pointer;
+      outline: none;
+      box-shadow: none;
+      -webkit-tap-highlight-color: transparent;
     }
+    .refresh:focus { outline: none; box-shadow: none; }
+    .refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .card {
       background: var(--card);
       border-radius: 14px;
@@ -111,7 +116,7 @@
       cursor: pointer;
       white-space: normal;
     }
-    .side { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .side { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     select, .check {
       font-size: 12px;
       color: var(--text);
@@ -338,6 +343,10 @@
         '</span>'
       }
 
+      let lastNetKey = ''
+      let lastSitesKey = ''
+      let lastDnsKey = ''
+
       function renderNet() {
         const s = state || {}
         const lan = s.lan || {}
@@ -345,6 +354,14 @@
         const over = s.overseas || {}
         const loc = s.location || {}
         const ifaces = s.interfaces || []
+        const key = [
+          lan.ip, pub.ip, pub.geo, pub.loading,
+          over.ip, over.geo, over.loading,
+          loc.text, loc.loading, s.autoCopy, s.copiedKey, s.selectedIface,
+          ifaces.map(function (item) { return item.name }).join(',')
+        ].join('|')
+        if (key === lastNetKey) return
+        lastNetKey = key
         const options = ['<option value="auto">Auto</option>']
           .concat(ifaces.map(function (item) {
             return '<option value="' + esc(item.name) + '">' + esc(item.name) + '</option>'
@@ -368,7 +385,7 @@
           '</div>' +
           '<div class="row">' +
             '<div class="label">国外</div>' +
-            '<div>' + copyable(over.ip, 'overseas', 'ip', over.loading ? '检测中...' : '获取失败') + '</div>' +
+            '<div>' + copyable(over.ip || (!over.loading && pub.ip) || '', 'overseas', 'ip', over.loading ? '检测中...' : '获取失败') + '</div>' +
             '<div class="meta">' + esc(over.geo || '') + '</div>' +
           '</div>' +
           '<div class="row loc-row">' +
@@ -388,18 +405,29 @@
 
       function renderSites() {
         const sites = (state && state.sites) || []
+        const key = sites.map(function (site) {
+          return site.id + ':' + site.status + ':' + site.ms
+        }).join('|')
+        if (key === lastSitesKey) return
+        lastSitesKey = key
         sitesEl.innerHTML = sites.map(function (site) {
-          const value = site.status === 'loading' ? '...' : (site.ms == null ? '超时' : site.ms + 'ms')
+          const pending = site.status === 'loading'
+          const value = pending ? '...' : (site.ms == null ? '超时' : site.ms + 'ms')
           return '<div class="tile">' +
             '<div class="name">' + esc(site.name) + '</div>' +
             '<div class="region">' + esc(site.region) + '</div>' +
-            '<div class="ms ' + msClass(site.ms) + '">' + value + '</div>' +
+            '<div class="ms ' + (pending ? '' : msClass(site.ms)) + '">' + value + '</div>' +
           '</div>'
         }).join('')
       }
 
       function renderDns() {
         const rows = (state && state.dns) || []
+        const key = (state && state.dnsLoading ? '1' : '0') + '|' + rows.map(function (row) {
+          return row.ip + ':' + row.geo
+        }).join('|')
+        if (key === lastDnsKey) return
+        lastDnsKey = key
         if (state && state.dnsLoading && !rows.length) {
           dnsEl.innerHTML = '<div class="meta">正在读取 DNS...</div>'
           return
@@ -447,12 +475,87 @@
       }
 
       function render(next) {
+        const sites = (next && next.sites) || []
+        const allLoading = sites.length && sites.every(function (site) { return site.status === 'loading' })
+        if (allLoading) pagePingTried = {}
         state = next
         renderNet()
         renderSites()
         renderDns()
         fillKeysForm()
         syncHeight()
+        pingSitesInPage(sites)
+        pingOverseasInPage(next)
+      }
+
+      let pagePingTried = {}
+      let overseasPingToken = null
+
+      function cacheBust(url) {
+        return url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now()
+      }
+
+      function pingInPage(url, wait) {
+        return new Promise(function (resolve) {
+          const ctrl = new AbortController()
+          const timer = setTimeout(function () {
+            try { ctrl.abort() } catch (e) {}
+            resolve(null)
+          }, wait)
+          const t0 = performance.now()
+          fetch(cacheBust(url), {
+            method: 'GET',
+            cache: 'no-store',
+            mode: 'no-cors',
+            credentials: 'omit',
+            redirect: 'follow',
+            signal: ctrl.signal
+          }).then(function () {
+            clearTimeout(timer)
+            resolve(Math.max(1, Math.round(performance.now() - t0)))
+          }).catch(function () {
+            clearTimeout(timer)
+            resolve(null)
+          })
+        })
+      }
+
+      function pingSitesInPage(sites) {
+        if (!window.ipConfig || !window.ipConfig.reportSite) return
+        sites.forEach(function (site) {
+          if (site.status !== 'loading' || !site.needPage || pagePingTried[site.id]) return
+          const url = site.probe || site.url
+          if (!url) return
+          pagePingTried[site.id] = true
+          pingInPage(url, site.region === '境外网站' ? 8000 : 5000).then(function (ms) {
+            if (ms) {
+              window.ipConfig.reportSite(site.id, ms, site.token)
+              return
+            }
+            if (window.ipConfig.probeSite) window.ipConfig.probeSite(site.id, site.token)
+            else window.ipConfig.reportSite(site.id, null, site.token)
+          })
+        })
+      }
+
+      function pingOverseasInPage(s) {
+        if (!window.ipConfig || !window.ipConfig.reportOverseas) return
+        const over = (s && s.overseas) || {}
+        if (!over.token || overseasPingToken === over.token) return
+        overseasPingToken = over.token
+        const token = over.token
+        ;[
+          'https://api4.ipify.org?format=json',
+          'https://ipv4.icanhazip.com',
+          'https://api.ip.sb/ip'
+        ].forEach(function (url) {
+          fetch(url, { cache: 'no-store', credentials: 'omit' }).then(function (res) {
+            return res.text()
+          }).then(function (text) {
+            const match = String(text || '').match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/)
+            if (match) window.ipConfig.reportOverseas(match[1], token)
+          }).catch(function () {})
+        })
       }
 
       document.body.addEventListener('click', function (event) {
@@ -501,7 +604,13 @@
       ztools.onPluginEnter(function () {
         theme()
         try { ztools.removeSubInput() } catch (e) {}
+        try { ztools.subInputBlur && ztools.subInputBlur() } catch (e) {}
         window.ipConfig.start()
+        requestAnimationFrame(function () {
+          const refresh = document.getElementById('refresh')
+          if (refresh) refresh.blur()
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+        })
       })
     })()
   </script>

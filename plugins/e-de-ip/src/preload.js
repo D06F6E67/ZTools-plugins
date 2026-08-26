@@ -8,14 +8,14 @@ const { URL } = require('url');
 const { execFile } = require('child_process');
 
 const SITES = [
-    { id: 'baidu', name: '百度搜索', region: '境内网站', url: 'https://www.baidu.com' },
-    { id: 'netease', name: '网易云', region: '境内网站', url: 'https://music.163.com' },
-    { id: 'github', name: 'GitHub', region: '境外网站', url: 'https://github.com' },
-    { id: 'google', name: 'Google', region: '境外网站', url: 'https://www.google.com' },
-    { id: 'aliyun', name: '阿里云', region: '境内网站', url: 'https://www.aliyun.com' },
-    { id: 'tencent', name: '腾讯云', region: '境内网站', url: 'https://cloud.tencent.com' },
-    { id: 'chatgpt', name: 'ChatGPT', region: '境外网站', url: 'https://chatgpt.com' },
-    { id: 'cursor', name: 'Cursor', region: '境外网站', url: 'https://cursor.com' }
+    { id: 'baidu', name: '百度搜索', region: '境内网站', url: 'https://www.baidu.com', probe: 'https://www.baidu.com/favicon.ico' },
+    { id: 'netease', name: '网易云', region: '境内网站', url: 'https://music.163.com', probe: 'https://music.163.com/favicon.ico' },
+    { id: 'github', name: 'GitHub', region: '境外网站', url: 'https://github.com', probe: 'https://github.com/favicon.ico' },
+    { id: 'google', name: 'Google', region: '境外网站', url: 'https://www.google.com', probe: 'https://www.google.com/generate_204' },
+    { id: 'aliyun', name: '阿里云', region: '境内网站', url: 'https://www.aliyun.com', probe: 'https://www.aliyun.com/favicon.ico' },
+    { id: 'tencent', name: '腾讯云', region: '境内网站', url: 'https://cloud.tencent.com', probe: 'https://cloud.tencent.com/favicon.ico' },
+    { id: 'chatgpt', name: 'ChatGPT', region: '境外网站', url: 'https://chatgpt.com', probe: 'https://chatgpt.com/favicon.ico' },
+    { id: 'cursor', name: 'Cursor', region: '境外网站', url: 'https://cursor.com', probe: 'https://cursor.com/favicon.ico' }
 ];
 
 const UA = 'e-de-ip/1.0.4 (ztools plugin; +https://github.com/DoneVirtue)';
@@ -81,16 +81,8 @@ const TRAD_MAP = {
     '埗': '埗'
 };
 
-const LOCAL_PROXY_PORTS = [
-    [7890, 'http'], [7897, 'http'], [1087, 'http'], [6152, 'http'],
-    [20171, 'http'], [2080, 'http'], [7892, 'http'], [9091, 'http'],
-    [8888, 'http'], [8118, 'http'], [10809, 'http'], [12334, 'http'],
-    [7891, 'socks'], [1080, 'socks'], [6153, 'socks'], [10808, 'socks']
-];
-
 const PUBLIC_IP_URLS = [
     'https://my.ip.cn',
-    'https://api.ipgeolocation.io/getip',
     'http://ip.3322.net/',
     'https://ip.3322.net/',
     'http://members.3322.org/dyndns/getip',
@@ -112,18 +104,28 @@ const listeners = new Set();
 const copyTimers = {};
 let state = emptyState();
 let overseasProxy = null;
+let workId = 0;
+let geoFillTimer = null;
+let overseasPending = 0;
+let overseasAwaitProxy = false;
+
+function stillCurrent(id) {
+    return id === workId;
+}
 
 function emptyState() {
     return {
         interfaces: [],
         selectedIface: 'auto',
         autoCopy: false,
+        proxyLabel: '',
+        tun: false,
         copiedKey: '',
         lan: { ip: '', iface: '', label: '' },
         public: { ip: '', geo: '', loading: true },
-        overseas: { ip: '', geo: '', loading: true },
+        overseas: { ip: '', geo: '', loading: true, token: 0 },
         location: { text: '', loading: true },
-        sites: SITES.map((s) => ({...s, ms: null, status: 'loading' })),
+        sites: SITES.map((s) => ({...s, ms: null, status: 'loading', needPage: true, token: 0 })),
         dns: [],
         dnsLoading: true,
         keys: { amap: '', qq: '', ipgeo: '' }
@@ -170,6 +172,8 @@ function listInterfaces() {
             const family = String(net.family);
             if (net.internal) return;
             if (family !== 'IPv4' && family !== '4') return;
+            if (/^198\.1[89]\./.test(net.address)) return;
+            if (/^(utun|tun|wg)\d*$/i.test(name) || /wintun|clash|meta|mihomo|sing-box/i.test(name)) return;
             list.push({ name, address: net.address });
         });
     });
@@ -241,18 +245,53 @@ function formatCurlProxy(proxy) {
     return (proxy.type === 'socks' ? 'socks5h://' : 'http://') + proxy.host + ':' + proxy.port;
 }
 
-function tcpOpen(host, port, timeout) {
-    return new Promise((resolve) => {
-        const sock = net.connect({ host, port, timeout: timeout || 150 });
-        const done = (ok) => {
-            sock.removeAllListeners();
-            sock.destroy();
-            resolve(ok);
-        };
-        sock.once('connect', () => done(true));
-        sock.once('timeout', () => done(false));
-        sock.once('error', () => done(false));
-    });
+async function detectSystemProxy() {
+    const envProxy = parseProxyUrl(
+        process.env.ALL_PROXY || process.env.all_proxy ||
+        process.env.HTTPS_PROXY || process.env.https_proxy ||
+        process.env.HTTP_PROXY || process.env.http_proxy
+    );
+    if (process.platform === 'darwin') {
+        return parseScutilProxy(await runCmd('scutil', ['--proxy'])) || envProxy;
+    }
+    if (process.platform === 'win32') {
+        return parseWinProxy(await runCmd('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'])) || envProxy;
+    }
+    return envProxy;
+}
+
+async function detectTun() {
+    if (process.platform === 'darwin') {
+        const out = await runCmd('route', ['-n', 'get', '1.1.1.1']);
+        const iface = (out.match(/interface:\s+(\S+)/i) || [])[1] || '';
+        if (/^utun\d+$/i.test(iface)) return iface;
+    } else if (process.platform === 'win32') {
+        const out = await runCmd('powershell', [
+            '-NoProfile', '-Command',
+            '(Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric | Select-Object -First 1).InterfaceAlias'
+        ]);
+        const name = String(out || '').trim();
+        if (name && /clash|meta|mihomo|wintun|tun|sing-box|tap|wireguard/i.test(name)) return name;
+    } else {
+        const out = await runCmd('ip', ['-4', 'route', 'get', '1.1.1.1']);
+        const iface = (out.match(/\bdev\s+(\S+)/i) || [])[1] || '';
+        if (iface && /^(tun|wg|meta|clash)/i.test(iface)) return iface;
+    }
+    const nets = os.networkInterfaces() || {};
+    const names = Object.keys(nets);
+    for (let i = 0; i < names.length; i++) {
+        const addrs = nets[names[i]] || [];
+        for (let j = 0; j < addrs.length; j++) {
+            if (/^198\.1[89]\./.test(addrs[j].address || '')) return names[i];
+        }
+    }
+    return '';
+}
+
+function overseasEmptyHint() {
+    if (state.tun) return 'TUN';
+    if (state.proxyLabel) return '';
+    return '未走代理';
 }
 
 async function detectProxyCandidates() {
@@ -265,20 +304,7 @@ async function detectProxyCandidates() {
         seen.add(key);
         list.push(proxy);
     };
-
-    const localOpen = await Promise.all(LOCAL_PROXY_PORTS.map(async (item) => {
-        const open = await tcpOpen('127.0.0.1', item[0], 180);
-        return open ? { type: item[1], host: '127.0.0.1', port: item[0] } : null;
-    }));
-    localOpen.filter(Boolean).forEach(add);
-
-    add(parseProxyUrl(process.env.ALL_PROXY || process.env.all_proxy || process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy));
-
-    if (process.platform === 'darwin') {
-        add(parseScutilProxy(await runCmd('scutil', ['--proxy'])));
-    } else if (process.platform === 'win32') {
-        add(parseWinProxy(await runCmd('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'])));
-    }
+    add(await detectSystemProxy());
     return list;
 }
 
@@ -286,12 +312,16 @@ function curlRequest(url, options = {}) {
     const timeout = options.timeout || 7000;
     const method = options.method || 'GET';
     const args = [
-        '-sS', '-L', '--max-redirs', '3',
+        '-sS', '-L', '--max-redirs', '3', '--no-keepalive',
+        '--connect-timeout', String(Math.max(2, Math.min(8, Math.ceil(timeout / 1500)))),
         '-m', String(Math.max(2, Math.ceil(timeout / 1000))),
-        '-A', UA, '--ipv4', '-o', '-',
-        '-w', '\n__MS__%{time_total}',
-        '-H', 'Accept: */*'
+        '-A', UA, '-o', options.discardBody ? (process.platform === 'win32' ? 'NUL' : '/dev/null') : '-',
+        '-w', '\n__STAT__%{http_code} %{' + (options.ttfb ? 'time_starttransfer' : 'time_total') + '}',
+        '-H', 'Accept: */*',
+        '-H', 'Cache-Control: no-cache',
+        '-H', 'Pragma: no-cache'
     ];
+    if (options.forceIpv4 !== false) args.splice(args.indexOf('-A'), 0, '--ipv4');
     if (method === 'HEAD') args.push('-I');
     else if (method !== 'GET') args.push('-X', method);
     if (options.proxy) args.push('-x', formatCurlProxy(options.proxy));
@@ -299,18 +329,20 @@ function curlRequest(url, options = {}) {
     return new Promise((resolve, reject) => {
         execFile('curl', args, { timeout: timeout + 800, maxBuffer: 512 * 1024 }, (err, stdout) => {
             const text = String(stdout || '');
-            if (err && !text) {
-                reject(err);
+            const idx = text.lastIndexOf('\n__STAT__');
+            const body = idx >= 0 ? text.slice(0, idx) : text;
+            const meta = idx >= 0 ? text.slice(idx + 8).trim().split(/\s+/) : ['0', '0'];
+            const status = parseInt(meta[0], 10) || 0;
+            const sec = parseFloat(meta[1]) || 0;
+            if (status === 0) {
+                reject(err || new Error('unreachable'));
                 return;
             }
-            const idx = text.lastIndexOf('\n__MS__');
-            const body = idx >= 0 ? text.slice(0, idx) : text;
-            const sec = idx >= 0 ? parseFloat(text.slice(idx + 7)) : 0;
             resolve({
-                status: err ? 0 : 200,
+                status,
                 buffer: Buffer.from(body),
                 body,
-                ms: Math.max(1, Math.round((sec || 0) * 1000))
+                ms: Math.max(1, Math.round(sec * 1000))
             });
         });
     });
@@ -424,6 +456,8 @@ function writeHttp(socket, parsed, method, options) {
         'Host: ' + parsed.hostname,
         'User-Agent: ' + UA,
         'Accept: */*',
+        'Cache-Control: no-cache',
+        'Pragma: no-cache',
         'Connection: close',
         '',
         ''
@@ -470,6 +504,8 @@ function requestViaNodeProxy(url, options, hops) {
                     Host: parsed.host,
                     'User-Agent': UA,
                     Accept: '*/*',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
                     'Proxy-Connection': 'close'
                 }, options.headers || {})
             }, (res) => {
@@ -521,7 +557,9 @@ function request(url, options = {}, hops = 0) {
                 timeout,
                 headers: Object.assign({
                     'User-Agent': UA,
-                    'Accept': '*/*'
+                    'Accept': '*/*',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
                 }, options.headers || {})
             };
             if (options.family) reqOpts.family = options.family;
@@ -557,6 +595,14 @@ function request(url, options = {}, hops = 0) {
         };
         go(url);
     });
+}
+
+function parseJson(text) {
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
 }
 
 function decodeText(buffer, charset) {
@@ -727,7 +773,7 @@ async function lookupAmapRegeo(lon, lat) {
         'https://www.amap.com/service/regeo?longitude=' + encodeURIComponent(lon) + '&latitude=' + encodeURIComponent(lat),
         { timeout: 5000, headers: { Referer: 'https://www.amap.com/' } }
     );
-    const json = JSON.parse(res.body);
+    const json = parseJson(res.body);
     const data = json && (json.data || json);
     if (!data || (data.code !== '1' && data.result !== 'true' && !data.province)) return null;
     const out = {
@@ -760,7 +806,7 @@ function looksGarbled(text) {
 }
 
 function toSimplified(text) {
-    return String(text || '').replace(/[區圍園國門東灣島觀樂麗處場遊業廣臺裡裏陽龍鄉鎮縣學館廟橋點號顯與餘術]/g, (ch) => TRAD_MAP[ch] || ch);
+    return String(text || '').replace(/[區圍園國門東灣島觀樂麗處場遊業廣臺裡裏陽龍鄉鎮縣學館廟橋點號顯與餘術頭徑]/g, (ch) => TRAD_MAP[ch] || ch);
 }
 
 function flagEmoji(code) {
@@ -980,7 +1026,7 @@ async function lookupIpApi(ip, lang) {
     const res = await request(
         'http://ip-api.com/json/' + encodeURIComponent(ip) + '?lang=' + encodeURIComponent(lang || 'zh-CN') + '&fields=' + fields, { timeout: 5000 }
     );
-    const json = JSON.parse(res.body);
+    const json = parseJson(res.body);
     if (!json || json.status !== 'success') return null;
     const info = emptyInfo();
     info.countryCode = json.countryCode || '';
@@ -1061,7 +1107,7 @@ async function lookupPhotonReverse(lat, lon) {
         'https://photon.komoot.io/reverse?lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon),
         { timeout: 5000 }
     );
-    const json = JSON.parse(res.body);
+    const json = parseJson(res.body);
     const props = json && json.features && json.features[0] && json.features[0].properties;
     if (!props) return null;
     return {
@@ -1281,6 +1327,30 @@ function buildLocationText(amap, qq, photon, info, landmark) {
     return pickLonger(built, formatted) || built;
 }
 
+async function fillReverseGeo(info) {
+    if (!info || info.lat == null || info.lon == null) return info;
+    const [landmark, amapWeb, amapKey, qqKey, photon] = await Promise.all([
+        findNearbyLandmark(info.lat, info.lon, info.city || info.district || info.cityEn).catch(() => ''),
+        lookupAmapRegeo(info.lon, info.lat).catch(() => null),
+        lookupAmapRegeoKey(info.lon, info.lat).catch(() => null),
+        lookupQqRegeo(info.lat, info.lon).catch(() => null),
+        lookupPhotonReverse(info.lat, info.lon).catch(() => null)
+    ]);
+    info.landmark = (amapKey && amapKey.poi) || (qqKey && qqKey.poi) || landmark || (photon && (photon.name || photon.street)) || '';
+    const amap = amapKey || (amapWeb ? {
+        country: amapWeb.country || '',
+        province: amapWeb.province,
+        city: amapWeb.city,
+        district: amapWeb.district,
+        township: amapWeb.township || '',
+        formatted: amapWeb.formatted || '',
+        desc: amapWeb.desc || '',
+        poi: info.landmark
+    } : null);
+    info.locationText = buildLocationText(amap, qqKey, photon, info, info.landmark);
+    return info;
+}
+
 async function lookupGeo(ip, options) {
     if (!ip) return null;
     const opts = options || {};
@@ -1288,42 +1358,32 @@ async function lookupGeo(ip, options) {
     if (geoCache.has(cacheKey)) return geoCache.get(cacheKey);
     const pending = (async() => {
         const rich = !!opts.rich;
-        const tasks = [
-            lookupIpApi(ip, 'zh-CN'),
-            rich ? lookupIpApi(ip, 'en') : Promise.resolve(null),
-            rich ? lookupCz88(ip) : Promise.resolve(null),
-            lookupPconline(ip),
-            rich ? lookupAmapIp(ip) : Promise.resolve(null),
-            rich ? lookupQqIp(ip) : Promise.resolve(null),
-            rich ? lookupIpGeoIo(ip) : Promise.resolve(null)
-        ];
-        const [zh, en, cz, pc, amapIp, qqIp, ipgeo] = await Promise.all(tasks.map((p) => p.catch(() => null)));
+        const zhPromise = lookupIpApi(ip, 'zh-CN').catch(() => null);
+        const extraPromise = Promise.all([
+            rich ? lookupIpApi(ip, 'en').catch(() => null) : Promise.resolve(null),
+            rich ? lookupCz88(ip).catch(() => null) : Promise.resolve(null),
+            lookupPconline(ip).catch(() => null),
+            rich ? lookupAmapIp(ip).catch(() => null) : Promise.resolve(null),
+            rich ? lookupQqIp(ip).catch(() => null) : Promise.resolve(null),
+            rich ? lookupIpGeoIo(ip).catch(() => null) : Promise.resolve(null)
+        ]);
+        const zh = await zhPromise;
+        const reversePromise = (rich && zh && zh.lat != null && zh.lon != null)
+            ? fillReverseGeo(Object.assign(emptyInfo(), zh)).catch(() => zh)
+            : Promise.resolve(null);
+        const [en, cz, pc, amapIp, qqIp, ipgeo] = await extraPromise;
         let info = mergeInfo(mergeInfo(amapIp, qqIp), zh);
         info = mergeInfo(info, cz);
         info = mergeInfo(info, pc);
         info = mergeInfo(info, ipgeo);
         info = mergeInfo(info, en);
         if (!info.country && !info.countryEn) return null;
-        if (rich && info.lat != null && info.lon != null) {
-            const [landmark, amapWeb, amapKey, qqKey, photon] = await Promise.all([
-                findNearbyLandmark(info.lat, info.lon, info.city || info.district || info.cityEn).catch(() => ''),
-                lookupAmapRegeo(info.lon, info.lat).catch(() => null),
-                lookupAmapRegeoKey(info.lon, info.lat).catch(() => null),
-                lookupQqRegeo(info.lat, info.lon).catch(() => null),
-                lookupPhotonReverse(info.lat, info.lon).catch(() => null)
-            ]);
-            info.landmark = (amapKey && amapKey.poi) || (qqKey && qqKey.poi) || landmark || (photon && (photon.name || photon.street)) || '';
-            const amap = amapKey || (amapWeb ? {
-                country: amapWeb.country || '',
-                province: amapWeb.province,
-                city: amapWeb.city,
-                district: amapWeb.district,
-                township: amapWeb.township || '',
-                formatted: amapWeb.formatted || '',
-                desc: amapWeb.desc || '',
-                poi: info.landmark
-            } : null);
-            info.locationText = buildLocationText(amap, qqKey, photon, info, info.landmark);
+        const reversed = await reversePromise;
+        if (reversed && reversed.locationText) {
+            info.landmark = reversed.landmark || info.landmark;
+            info.locationText = reversed.locationText;
+        } else if (rich && info.lat != null && info.lon != null) {
+            info = await fillReverseGeo(info);
         }
         return info;
     })();
@@ -1387,13 +1447,8 @@ async function fetchOneEdns() {
 }
 
 async function collectEdnsDns() {
-    const batches = [0, 1];
-    const rows = [];
-    for (let b = 0; b < batches.length; b++) {
-        const part = await Promise.all(Array.from({ length: 4 }, () => fetchOneEdns().catch(() => null)));
-        part.filter(Boolean).forEach((row) => rows.push(row));
-    }
-    return rows;
+    const part = await Promise.all(Array.from({ length: 4 }, () => fetchOneEdns().catch(() => null)));
+    return part.filter(Boolean);
 }
 
 async function fetchSurfsharkDns() {
@@ -1411,7 +1466,7 @@ async function fetchSurfsharkDns() {
 }
 
 async function collectSurfsharkDns() {
-    const part = await Promise.all(Array.from({ length: 8 }, () => fetchSurfsharkDns().catch(() => [])));
+    const part = await Promise.all(Array.from({ length: 4 }, () => fetchSurfsharkDns().catch(() => [])));
     const rows = [];
     part.forEach((arr) => arr.forEach((row) => rows.push(row)));
     return rows;
@@ -1455,10 +1510,9 @@ async function collectBashDnsLeak() {
 }
 
 async function collectDnsServers() {
-    const [edns, surfshark, leak, system] = await Promise.all([
+    const [edns, surfshark, system] = await Promise.all([
         collectEdnsDns().catch(() => []),
         collectSurfsharkDns().catch(() => []),
-        collectBashDnsLeak().catch(() => []),
         collectSystemDns().catch(() => [])
     ]);
     const rows = [];
@@ -1470,28 +1524,60 @@ async function collectDnsServers() {
     };
     edns.forEach((row) => add(row.ip, row.geo));
     surfshark.forEach((row) => add(row.ip, row.geo));
-    leak.forEach((row) => add(row.ip, row.geo));
+    if (!rows.length) {
+        const leak = await collectBashDnsLeak().catch(() => []);
+        leak.forEach((row) => add(row.ip, row.geo));
+    }
     if (!rows.length) {
         system.forEach((ip) => add(ip, ''));
     }
     return rows.slice(0, 40);
 }
 
-async function measureSite(site) {
-    const proxy = site.region === '境外网站' ? overseasProxy : null;
-    const tryOnce = async(method) => {
-        const res = await request(site.url, { method, timeout: 6000, proxy: proxy || undefined });
-        return res.ms;
+function siteReachable(res) {
+    return res && res.status > 0 && res.ms > 0;
+}
+
+function siteProbes(site) {
+    const list = [];
+    const add = (url) => {
+        if (url && list.indexOf(url) < 0) list.push(url);
     };
-    try {
-        return await tryOnce('HEAD');
-    } catch (e) {
-        try {
-            return await tryOnce('GET');
-        } catch (err) {
-            return null;
+    (site.probes || []).forEach(add);
+    add(site.probe);
+    if (site.id === 'google') {
+        add('https://www.google.com/generate_204');
+        add('https://www.gstatic.com/generate_204');
+    }
+    return list;
+}
+
+async function curlProbe(url, timeout, proxy) {
+    const res = await curlRequest(url, {
+        method: 'GET',
+        timeout,
+        proxy,
+        forceIpv4: false,
+        discardBody: true,
+        ttfb: true
+    });
+    if (!siteReachable(res)) throw new Error('unreachable');
+    return res.ms;
+}
+
+async function measureSite(site) {
+    const proxy = site.region === '境外网站' ? overseasProxy : undefined;
+    const timeout = site.region === '境外网站' ? 8000 : 5000;
+    const probes = siteProbes(site);
+    const hops = proxy ? [proxy, undefined] : [undefined];
+    for (let i = 0; i < probes.length; i++) {
+        for (let j = 0; j < hops.length; j++) {
+            try {
+                return await curlProbe(probes[i], timeout, hops[j]);
+            } catch (e) {}
         }
     }
+    return null;
 }
 
 function copyText(text) {
@@ -1526,86 +1612,134 @@ function applyLan() {
     state.lan = pickLan(state.interfaces, state.selectedIface);
 }
 
-function fetchFirstOverseas(proxies, getDomestic) {
-    const list = [null].concat(proxies || []);
-    return new Promise((resolve) => {
-        if (!list.length) {
-            resolve(null);
-            return;
+function scheduleFillGeo(id) {
+    if (geoFillTimer) clearTimeout(geoFillTimer);
+    geoFillTimer = setTimeout(() => {
+        geoFillTimer = null;
+        fillNetworkGeo(null, '', id).catch(() => {
+            if (!stillCurrent(id)) return;
+            state.location.loading = false;
+            emit();
+        });
+    }, 80);
+}
+
+function applyOverseasIp(ip, proxy, id) {
+    if (!stillCurrent(id) || !ip || isPrivateIp(ip)) return false;
+    const domestic = state.public.ip;
+    const current = state.overseas.ip;
+    const currentDistinct = current && (!domestic || current !== domestic);
+    const incomingDistinct = !domestic || ip !== domestic;
+    if (currentDistinct && incomingDistinct && current === ip) {
+        if (proxy) overseasProxy = proxy;
+        return false;
+    }
+    if (currentDistinct && !incomingDistinct) return false;
+    const upgraded = current && !currentDistinct && incomingDistinct;
+    if (!current || upgraded) {
+        state.overseas.ip = ip;
+        if (proxy) overseasProxy = proxy;
+        if (upgraded) {
+            state.overseas.geo = '';
+            state.location.loading = true;
+            state.location.text = '';
         }
-        let left = list.length;
-        let settled = false;
-        const finish = (row) => {
-            if (settled) return;
-            if (row && row.ip) {
-                settled = true;
-                resolve(row);
-                return;
-            }
-            if (left <= 0) {
-                settled = true;
-                resolve(null);
-            }
-        };
-        list.forEach((proxy) => {
-            fetchIPv4(OVERSEAS_IP_URLS, {
+        emit();
+        if (domestic && incomingDistinct) scheduleFillGeo(id);
+        return true;
+    }
+    return false;
+}
+
+function finishOverseasLookups(id) {
+    if (!stillCurrent(id)) return;
+    if (overseasAwaitProxy || overseasPending > 0) return;
+    if (!state.overseas.ip && state.public.ip) state.overseas.ip = state.public.ip;
+    state.overseas.loading = false;
+    if (!state.overseas.ip || state.overseas.ip === state.public.ip) {
+        if (!state.overseas.geo) state.overseas.geo = overseasEmptyHint();
+    }
+    emit();
+    scheduleFillGeo(id);
+}
+
+function startOverseasLookups(proxies, id) {
+    const hops = (proxies && proxies.length) ? proxies.slice() : [null];
+    const n = hops.length * OVERSEAS_IP_URLS.length;
+    if (!n) {
+        finishOverseasLookups(id);
+        return;
+    }
+    overseasPending += n;
+    hops.forEach((proxy) => {
+        OVERSEAS_IP_URLS.forEach((url) => {
+            request(url, {
+                timeout: 3500,
                 family: 4,
-                timeout: 4000,
                 proxy: proxy || undefined
-            }).then((ip) => {
-                left -= 1;
-                if (!ip) {
-                    finish(null);
-                    return;
-                }
-                const domestic = getDomestic();
-                if (domestic && ip === domestic) {
-                    finish(null);
-                    return;
-                }
-                if (!domestic && !proxy) {
-                    finish(null);
-                    return;
-                }
-                finish({ ip, proxy });
-            }).catch(() => {
-                left -= 1;
-                finish(null);
+            }).then((res) => {
+                const ip = extractPublicIPv4(res.body);
+                if (ip) applyOverseasIp(ip, proxy, id);
+            }).catch(() => {}).then(() => {
+                overseasPending -= 1;
+                finishOverseasLookups(id);
             });
         });
     });
 }
 
-async function fillNetworkGeo(myIp, ipv6) {
-    const [publicGeo, overseasGeo] = await Promise.all([
-        lookupGeo(state.public.ip, { rich: true }),
-        lookupGeo(state.overseas.ip, { rich: true })
-    ]);
-    if (!state.public.geo) state.public.geo = formatGeo(publicGeo, 'public') || '';
+async function fillNetworkGeo(myIp, ipv6, id) {
     if (myIp && myIp.cnLine) state.public.geo = myIp.cnLine;
     if (ipv6 && state.public.ip && ipv6 !== state.public.ip && String(state.public.ip).indexOf(':') < 0) {
         if (state.public.geo.indexOf('IPv6 ') < 0) {
             state.public.geo = (state.public.geo ? state.public.geo + ' · ' : '') + 'IPv6 ' + ipv6;
         }
     }
+    const overIp = state.overseas.ip;
+    const hasOverseas = overIp && overIp !== state.public.ip;
+    if (!hasOverseas) {
+        if (state.overseas.loading) {
+            emit();
+            return;
+        }
+        state.overseas.geo = overseasEmptyHint();
+        if (!state.public.ip) {
+            state.location.text = '';
+            state.location.loading = false;
+            emit();
+            return;
+        }
+        const publicGeo = await lookupGeo(state.public.ip, { rich: true }).catch(() => null);
+        if (!stillCurrent(id)) return;
+        if (state.overseas.ip && state.overseas.ip !== state.public.ip) {
+            return fillNetworkGeo(myIp, ipv6, id);
+        }
+        if (myIp && myIp.cnLine) state.public.geo = myIp.cnLine;
+        else if (!state.public.geo) state.public.geo = formatGeo(publicGeo, 'public') || '';
+        const publicLine = state.public.geo && state.public.geo.indexOf('IPv6') < 0 ? state.public.geo : '';
+        state.location.text = formatLocation(publicGeo) || (myIp && myIp.cnLine) || publicLine || '';
+        state.location.loading = false;
+        emit();
+        return;
+    }
+    const [publicGeo, overseasGeo] = await Promise.all([
+        state.public.geo ? Promise.resolve(null) : lookupGeo(state.public.ip, { rich: false }).catch(() => null),
+        lookupGeo(overIp, { rich: true }).catch(() => null)
+    ]);
+    if (!stillCurrent(id)) return;
+    if (!(state.overseas.ip && state.overseas.ip !== state.public.ip)) {
+        return fillNetworkGeo(myIp, ipv6, id);
+    }
+    if (!state.public.geo) state.public.geo = formatGeo(publicGeo, 'public') || '';
+    if (myIp && myIp.cnLine) state.public.geo = myIp.cnLine;
     state.overseas.geo = formatGeo(overseasGeo, 'overseas') || '';
-    const locSource = overseasGeo || publicGeo;
-    state.location.text = formatLocation(locSource) || formatGeo(locSource) || '';
+    if (!state.overseas.geo) state.overseas.geo = overseasEmptyHint();
+    state.location.text = formatLocation(overseasGeo) || '';
     state.location.loading = false;
     emit();
 }
 
-async function loadNetwork(proxies) {
-    state.public.loading = true;
-    state.overseas.loading = true;
-    state.location.loading = true;
-    state.public.ip = '';
-    state.public.geo = '';
-    state.overseas.ip = '';
-    state.overseas.geo = '';
-    state.location.text = '';
-    emit();
-
+async function loadNetwork(id) {
     const myIpPromise = fetchMyIpCn().catch(() => null);
     const publicPromise = fetchIPv4(PUBLIC_IP_URLS, { family: 4, timeout: 4000 });
     const ipv6Promise = fetchIPv6([
@@ -1613,38 +1747,30 @@ async function loadNetwork(proxies) {
         'https://6.ipw.cn/',
         'https://api64.ipify.org'
     ]);
-    const overseasPromise = fetchFirstOverseas(proxies, () => state.public.ip);
+    startOverseasLookups([], id);
 
     myIpPromise.then((info) => {
-        if (!info || !info.ip || state.public.ip) return;
+        if (!stillCurrent(id) || !info || !info.ip || state.public.ip) return;
         state.public.ip = info.ip;
         state.public.loading = false;
         if (info.cnLine) state.public.geo = info.cnLine;
         emit();
+        if (state.overseas.ip && state.overseas.ip !== info.ip) scheduleFillGeo(id);
     }).catch(() => {});
 
     publicPromise.then((ip) => {
-        if (!ip || state.public.ip) return;
+        if (!stillCurrent(id) || !ip || state.public.ip) return;
         state.public.ip = ip;
         state.public.loading = false;
         emit();
+        if (state.overseas.ip && state.overseas.ip !== ip) scheduleFillGeo(id);
     }).catch(() => {});
 
-    overseasPromise.then((hit) => {
-        if (hit && hit.ip && hit.ip !== state.public.ip) {
-            state.overseas.ip = hit.ip;
-            if (hit.proxy) overseasProxy = hit.proxy;
-        }
-        state.overseas.loading = false;
-        emit();
-    }).catch(() => {
-        state.overseas.loading = false;
-        emit();
-    });
-
     const myIp = await myIpPromise;
+    if (!stillCurrent(id)) return;
     if (!state.public.ip) {
         const publicIp = await publicPromise.catch(() => '');
+        if (!stillCurrent(id)) return;
         state.public.ip = publicIp || '';
         state.public.loading = false;
         emit();
@@ -1654,41 +1780,55 @@ async function loadNetwork(proxies) {
         emit();
     }
 
-    const hit = await overseasPromise.catch(() => null);
-    if (hit && hit.ip && hit.ip !== state.public.ip && !state.overseas.ip) {
-        state.overseas.ip = hit.ip;
-        if (hit.proxy) overseasProxy = hit.proxy;
+    if (state.overseas.ip && state.public.ip && state.overseas.ip === state.public.ip) {
+        if (!state.overseas.geo) state.overseas.geo = overseasEmptyHint();
     }
-    state.overseas.loading = false;
-    emit();
+    if (!state.overseas.ip && !state.overseas.loading && state.public.ip) {
+        state.overseas.ip = state.public.ip;
+        state.overseas.geo = overseasEmptyHint();
+        emit();
+    }
 
     const ipv6 = await ipv6Promise.catch(() => '');
-    fillNetworkGeo(myIp, ipv6).catch(() => {
+    fillNetworkGeo(myIp, ipv6, id).catch(() => {
+        if (!stillCurrent(id)) return;
         state.location.loading = false;
         emit();
     });
 }
 
-async function loadSites() {
-    await Promise.all(SITES.map(async(site, index) => {
-        state.sites[index].status = 'loading';
-        emit();
-        const ms = await measureSite(site);
-        state.sites[index].ms = ms;
-        state.sites[index].status = ms == null ? 'timeout' : 'ok';
-        emit();
-    }));
+function applySiteResult(id, ms, work) {
+    const row = state.sites.find((site) => site.id === id);
+    if (!row || row.status === 'ok') return false;
+    if (work != null && row.token !== work) return false;
+    row.needPage = false;
+    row.ms = ms;
+    row.status = ms == null ? 'timeout' : 'ok';
+    emit();
+    return true;
 }
 
-async function loadDns() {
+function loadSites() {
+    SITES.forEach((_, index) => {
+        state.sites[index].status = 'loading';
+        state.sites[index].ms = null;
+        state.sites[index].needPage = true;
+        state.sites[index].token = workId;
+    });
+    emit();
+}
+
+async function loadDns(id) {
     state.dnsLoading = true;
     emit();
     const servers = await collectDnsServers();
+    if (!stillCurrent(id)) return;
     const rows = await Promise.all(servers.map(async(row) => {
         if (row.geo) return { ip: row.ip, geo: row.geo };
         const geo = await lookupGeo(row.ip);
         return { ip: row.ip, geo: formatGeo(geo, 'dns') || '未知' };
     }));
+    if (!stillCurrent(id)) return;
     state.dns = rows;
     state.dnsLoading = false;
     emit();
@@ -1702,9 +1842,31 @@ async function refresh(full) {
         if (copyText(state.lan.ip)) markCopied('lan');
     }
     if (full === false) return;
-    const proxies = await detectProxyCandidates();
+    const id = ++workId;
+    geoCache.clear();
+    overseasPending = 0;
+    overseasAwaitProxy = true;
+    state.public.loading = true;
+    state.public.ip = '';
+    state.public.geo = '';
+    state.overseas.loading = true;
+    state.overseas.ip = '';
+    state.overseas.geo = '';
+    state.overseas.token = id;
+    state.location.text = '';
+    state.location.loading = true;
+    loadSites();
+    const netPromise = loadNetwork(id);
+    const [proxies, tun] = await Promise.all([detectProxyCandidates(), detectTun().catch(() => '')]);
+    if (!stillCurrent(id)) return;
+    state.tun = !!tun;
     overseasProxy = proxies[0] || null;
-    await Promise.all([loadNetwork(proxies), loadSites(), loadDns()]);
+    state.proxyLabel = overseasProxy ? (overseasProxy.host + ':' + overseasProxy.port) : (tun ? 'TUN' : '');
+    emit();
+    if (overseasProxy) startOverseasLookups([overseasProxy], id);
+    overseasAwaitProxy = false;
+    finishOverseasLookups(id);
+    await Promise.all([netPromise, loadDns(id)]);
 }
 
 window.ipConfig = {
@@ -1760,5 +1922,24 @@ window.ipConfig = {
         const ok = copyText(text);
         if (ok) markCopied(key || text);
         return ok;
+    },
+    reportOverseas(ip, token) {
+        if (token != null && state.overseas.token !== token) return false;
+        const cleaned = extractPublicIPv4(String(ip || ''));
+        if (!cleaned) return false;
+        return applyOverseasIp(cleaned, null, token != null ? token : workId);
+    },
+    reportSite(id, ms, token) {
+        return applySiteResult(id, ms, token);
+    },
+    probeSite(id, token) {
+        const site = SITES.find((item) => item.id === id);
+        const row = state.sites.find((item) => item.id === id);
+        if (!site || !row || row.status === 'ok') return false;
+        if (token != null && row.token !== token) return false;
+        row.needPage = false;
+        const work = row.token;
+        measureSite(site).then((ms) => applySiteResult(id, ms, work)).catch(() => applySiteResult(id, null, work));
+        return true;
     }
 };
