@@ -188,6 +188,8 @@ async function startServer() {
     onPairingChanged() {
       void serverStatus().then((status) => emit('server:changed', status)).catch(() => {})
     },
+    protectCredential: seal,
+    unprotectCredential: unseal,
   })
   const status = await serverStatus()
   emit('server:changed', status)
@@ -325,7 +327,7 @@ window.deviceLink = {
   async getState() {
     const running = await startServer()
     const connected = new Set(server?.connectedDevices() || [])
-    const devices = (await repository.listDevices()).map((device) => ({ ...device, connected: connected.has(device.id) }))
+    const devices = (await repository.listDevices()).map(({ resumeCredential: _resumeCredential, ...device }) => ({ ...device, connected: connected.has(device.id) }))
     return {
       settings: await publicSettings(),
       server: running,

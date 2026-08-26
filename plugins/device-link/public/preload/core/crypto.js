@@ -34,6 +34,12 @@ function pairingProof(key, sessionId, challenge) {
   return crypto.createHmac('sha256', key).update(`device-link-pair-v1:${sessionId}:${challenge}`).digest('base64url')
 }
 
+function resumeProof(secret, challengeId, challenge) {
+  const key = Buffer.from(String(secret || ''), 'base64url')
+  if (key.length !== KEY_BYTES) throw new TypeError('设备凭据无效')
+  return crypto.createHmac('sha256', key).update(`device-link-resume-v1:${challengeId}:${challenge}`).digest('base64url')
+}
+
 function secureEqual(left, right) {
   const a = Buffer.from(String(left))
   const b = Buffer.from(String(right))
@@ -95,6 +101,7 @@ module.exports = {
   pairingProof,
   randomDigits,
   randomId,
+  resumeProof,
   secureEqual,
   sha256,
   sha256File,
