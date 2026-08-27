@@ -90,11 +90,32 @@ export function reorderArray<T>(list: T[], fromIndex: number, toIndex: number): 
   return result;
 }
 
-export function buildEverythingQuery(keyword: string, category: FinderCategory): string {
-  const trimmedKeyword = keyword.trim();
+/**
+ * 构建发送给 Everything 搜索引擎的最终查询语句。
+ *
+ * 组合逻辑：
+ * 1. `prefix`（可选）：限制搜索的目标前缀目录。
+ *    - 若前缀包含空格（如 `C:\Program Files\App`），根据 Everything 语法规则必须用双引号包裹 `"${prefix}"`，
+ *      否则空格会被解析为 AND 运算符导致拆词检索失效；若已有双引号则保留。
+ * 2. `keyword`：用户在输入框中键入的搜索词。
+ * 3. `category.rule`：当前分类的筛选规则（如 `ext:pdf`、`folder:` 等）。
+ */
+export function buildEverythingQuery(
+  keyword: string,
+  category: FinderCategory,
+  prefix: string = "",
+): string {
   const rule = normalizeCategoryRule(category.rule);
+  const trimmedPrefix = prefix.trim();
+  const formattedPrefix = trimmedPrefix
+    ? trimmedPrefix.startsWith('"') && trimmedPrefix.endsWith('"')
+      ? trimmedPrefix
+      : /\s/.test(trimmedPrefix)
+        ? `"${trimmedPrefix}"`
+        : trimmedPrefix
+    : "";
 
-  return [trimmedKeyword, rule].filter(Boolean).join(" ");
+  return [formattedPrefix, keyword.trim(), rule].filter(Boolean).join(" ");
 }
 
 export function getNextVisibleCount(current: number, total: number, pageSize: number): number {
@@ -113,6 +134,30 @@ export function getNextSelectedPath(
 
   const nextIndex = Math.max(0, Math.min(paths.length - 1, currentIndex + direction));
   return paths[nextIndex];
+}
+
+/**
+ * 循环切换分类列表。
+ *
+ * @param categories 启用的分类列表
+ * @param currentCategoryId 当前激活的分类 ID
+ * @param direction 切换方向：1 为向下切换（末尾循环至首项），-1 为向上切换（首项循环至末尾）
+ * @returns 切换后的目标分类对象，列表为空时返回 undefined
+ */
+export function getNextCyclicCategory<T extends { id: string }>(
+  categories: T[],
+  currentCategoryId: string,
+  direction: -1 | 1,
+): T | undefined {
+  if (categories.length === 0) return undefined;
+
+  const currentIndex = categories.findIndex((category) => category.id === currentCategoryId);
+  if (currentIndex === -1) {
+    return direction === 1 ? categories[0] : categories[categories.length - 1];
+  }
+
+  const nextIndex = (currentIndex + direction + categories.length) % categories.length;
+  return categories[nextIndex];
 }
 
 export function getRestoredSelectedPath(results: FinderResult[], currentPath: string): string {
@@ -195,4 +240,41 @@ function normalizeCategoryRule(rule: string): string {
     .filter(Boolean);
 
   return extensions.length > 0 ? `ext:${extensions.join(";")}` : "";
+}
+
+export type MatchPathQueryPlan =
+  | { mode: "single"; matchPath: false }
+  | { mode: "single"; matchPath: true }
+  | { mode: "dual" };
+
+/**
+ * 决定当前查询是否需要 MatchPath 以及具体的执行计划。
+ *
+ * 优化策略：
+ * 1. 若用户禁用了 matchPathEnabled，始终单次查询（matchPath: false）。
+ * 2. 若用户输入的关键词为空（例如仅点击切换分类，无 keyword）：
+ *    此时 matchPath=true 与 matchPath=false 的 Everything 返回结果严格一致，执行单次查询（matchPath: false）即可，
+ *    避免无意义的双重 IPC 检索与数百个重复对象的序列化。
+ * 3. 若用户输入的关键词包含路径分隔符（`\` 或 `/`）：
+ *    因为纯文件名中不可能包含路径字符，直接单次查询（matchPath: true），免去一次注定命中为空的 matchPath: false 查询。
+ * 4. 普通纯词搜索：执行两阶段双重查询并合并，优先呈现文件名命中的项。
+ */
+export function getMatchPathQueryPlan(
+  matchPathEnabled: boolean,
+  keyword: string,
+): MatchPathQueryPlan {
+  if (!matchPathEnabled) {
+    return { mode: "single", matchPath: false };
+  }
+
+  const trimmed = keyword.trim();
+  if (!trimmed) {
+    return { mode: "single", matchPath: false };
+  }
+
+  if (trimmed.includes("\\") || trimmed.includes("/")) {
+    return { mode: "single", matchPath: true };
+  }
+
+  return { mode: "dual" };
 }
