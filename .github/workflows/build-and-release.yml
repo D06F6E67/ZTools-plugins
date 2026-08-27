@@ -219,11 +219,12 @@ jobs:
           fi
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.detect.outputs.release_version }}
           name: Release v${{ needs.detect.outputs.release_version }}
           body_path: release/release-body.md
+          preserve_order: true
           files: |
             release/*.zip
             release/plugins.json
