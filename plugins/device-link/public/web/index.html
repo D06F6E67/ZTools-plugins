@@ -18,14 +18,14 @@
     <section class="pair-card">
       <div class="mark">↗</div>
       <h1>连接到 <span id="serverName">电脑</span></h1>
-      <p>输入电脑端显示的匹配码，建立加密会话。</p>
+      <p>扫码或直接打开电脑地址，再输入匹配码建立加密会话。</p>
       <label for="deviceName">这台设备的名称</label>
       <input id="deviceName" class="field" maxlength="60">
       <label for="pairCode">匹配码</label>
       <input id="pairCode" class="field code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="••••••">
       <button id="pairButton" class="primary">安全连接</button>
       <div id="pairError" class="error" role="alert"></div>
-      <p class="hint">二维码中的一次性密钥与匹配码共同验证身份；匹配码不会直接上传。</p>
+      <p class="hint">扫码使用一次性高熵密钥；手动连接受匹配码与错误锁定保护。首次授权后，本浏览器再次访问会自动连接。</p>
     </section>
   </main>
 

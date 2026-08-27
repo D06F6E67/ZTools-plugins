@@ -14,16 +14,19 @@ const {
   encryptJson,
   pairingProof,
   randomId,
+  resumeProof,
   secureEqual,
 } = require('./crypto')
 const { cleanDeviceName, cleanText, detectKind, isPrivateAddress, safeFilename } = require('./validation')
 
 const PAIRING_TTL_MS = 30 * 60 * 1000
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000
+const RESUME_CHALLENGE_TTL_MS = 2 * 60 * 1000
 const TRANSFER_TTL_MS = 30 * 60 * 1000
 const LOCKOUT_MS = 10 * 60 * 1000
 const MAX_PAIR_ATTEMPTS = 5
 const MAX_SESSIONS = 128
+const MAX_RESUME_CHALLENGES = 256
 const MAX_ACTIVE_TRANSFERS = 16
 const MAX_ACTIVE_TRANSFERS_PER_SESSION = 4
 const JSON_BODY_LIMIT = 256 * 1024
@@ -77,6 +80,7 @@ function messageConversationId(message, desktopDeviceId) {
 function createPairingState(pairingCode, ttlMs = PAIRING_TTL_MS) {
   return {
     secret: randomId(32),
+    manualKey: randomId(32),
     code: pairingCode,
     sessionId: randomId(16),
     salt: randomId(16),
@@ -155,9 +159,12 @@ async function createDeviceLinkServer(options) {
     onPairingExpired = async (currentCode) => currentCode,
     pairingTtlMs = PAIRING_TTL_MS,
     transferTtlMs = TRANSFER_TTL_MS,
+    protectCredential = (value) => value,
+    unprotectCredential = (value) => value,
   } = options
   const sessions = new Map()
   const attempts = new Map()
+  const resumeChallenges = new Map()
   const transfers = new Map()
   let pairing = createPairingState(pairingCode, pairingTtlMs)
   let status = null
@@ -227,6 +234,34 @@ async function createDeviceLinkServer(options) {
     return auth
   }
 
+  function publicDevice(device, connected = Boolean(device.connected)) {
+    const { resumeCredential: _resumeCredential, ...value } = device
+    return { ...value, connected }
+  }
+
+  function revokeDeviceSessions(pairedDeviceId, reason) {
+    for (const [existingToken, existingSession] of sessions) {
+      if (existingSession.deviceId === pairedDeviceId) revokeSession(existingToken, existingSession, 4000, reason)
+    }
+  }
+
+  function createSession(device, resumeCredential) {
+    return {
+      token: randomId(32),
+      key: Buffer.from(randomId(32), 'base64url'),
+      deviceId: device.id,
+      deviceName: cleanDeviceName(device.name || '移动设备'),
+      platform: cleanDeviceName(device.platform || 'browser'),
+      pairedAt: device.pairedAt || new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+      expiresAt: Date.now() + SESSION_TTL_MS,
+      permissions: device.permissions || { text: true, files: true, clipboard: true, autoDownload: false },
+      resumeCredential,
+      socket: null,
+      activeTransfers: new Set(),
+    }
+  }
+
   async function registerDevice(session) {
     const now = new Date().toISOString()
     const device = {
@@ -237,9 +272,20 @@ async function createDeviceLinkServer(options) {
       pairedAt: session.pairedAt,
       lastSeenAt: now,
       permissions: session.permissions,
+      resumeCredential: session.resumeCredential,
     }
     await repository.putDevice(device)
-    try { onEvent('device:changed', device) } catch {}
+    try { onEvent('device:changed', publicDevice(device, true)) } catch {}
+  }
+
+  async function activateSession(session) {
+    sessions.set(session.token, session)
+    try {
+      await registerDevice(session)
+    } catch (error) {
+      sessions.delete(session.token)
+      throw error
+    }
   }
 
   function sessionEnvelope(session, type, data) {
@@ -372,8 +418,10 @@ async function createDeviceLinkServer(options) {
         sessionId: pairing.sessionId,
         salt: pairing.salt,
         challenge: pairing.challenge,
+        manualKey: pairing.manualKey,
         expiresAt: new Date(pairing.expiresAt).toISOString(),
         deviceName,
+        serverDeviceId: deviceId,
         iterations: 210000,
       })
       return
@@ -387,7 +435,8 @@ async function createDeviceLinkServer(options) {
       if (pairing.expiresAt < Date.now() || body.sessionId !== pairing.sessionId) throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
       let pairKey
       try {
-        pairKey = derivePairKey(pairing.secret, pairing.code, pairing.salt)
+        const pairingSecret = body.mode === 'manual' ? pairing.manualKey : pairing.secret
+        pairKey = derivePairKey(pairingSecret, pairing.code, pairing.salt)
         const expected = pairingProof(pairKey, pairing.sessionId, pairing.challenge)
         if (!secureEqual(expected, body.proof)) throw new Error('proof mismatch')
       } catch {
@@ -401,36 +450,87 @@ async function createDeviceLinkServer(options) {
         throw new HttpError(401, '匹配码不正确')
       }
       attempts.delete(address)
-      const token = randomId(32)
       const pairedDeviceId = typeof body.deviceId === 'string' && body.deviceId.length >= 12 ? body.deviceId.slice(0, 100) : randomId(16)
-      for (const [existingToken, existingSession] of sessions) {
-        if (existingSession.deviceId === pairedDeviceId) revokeSession(existingToken, existingSession, 4000, 'Device paired again')
-      }
+      revokeDeviceSessions(pairedDeviceId, 'Device paired again')
       if (sessions.size >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
-      const session = {
-        token,
-        key: Buffer.from(randomId(32), 'base64url'),
-        deviceId: pairedDeviceId,
-        deviceName: cleanDeviceName(body.deviceName || '移动设备'),
-        platform: cleanDeviceName(body.platform || 'browser'),
-        pairedAt: new Date().toISOString(),
-        lastSeenAt: new Date().toISOString(),
-        expiresAt: Date.now() + SESSION_TTL_MS,
-        permissions: { text: true, files: true, clipboard: true, autoDownload: false },
-        socket: null,
-        activeTransfers: new Set(),
-      }
-      sessions.set(token, session)
-      await registerDevice(session)
+      const resumeSecret = randomId(32)
+      const resumeCredential = protectCredential(resumeSecret)
+      if (typeof resumeCredential !== 'string' || !resumeCredential) throw new HttpError(500, '无法保存设备授权')
+      const session = createSession({
+        id: pairedDeviceId,
+        name: body.deviceName,
+        platform: body.platform,
+      }, resumeCredential)
+      await activateSession(session)
       replacePairing(pairing.code, true)
       sendJson(response, 200, {
         package: encryptJson(pairKey, {
-          token,
+          token: session.token,
           sessionKey: session.key.toString('base64url'),
+          resumeSecret,
           deviceId: session.deviceId,
           serverDeviceId: deviceId,
           expiresAt: new Date(session.expiresAt).toISOString(),
         }, `pair:${body.sessionId}`),
+      })
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/resume/challenge') {
+      const body = await readJson(request)
+      const resumeDeviceId = typeof body.deviceId === 'string' ? body.deviceId.slice(0, 100) : ''
+      if (resumeDeviceId.length < 12) throw new HttpError(400, '设备标识无效')
+      const stored = (await repository.listDevices()).find((item) => item.id === resumeDeviceId)
+      if (!stored?.resumeCredential) throw new HttpError(401, '该设备需要重新配对')
+      const challenge = {
+        id: randomId(16),
+        value: randomId(24),
+        deviceId: resumeDeviceId,
+        address,
+        expiresAt: Date.now() + RESUME_CHALLENGE_TTL_MS,
+      }
+      if (resumeChallenges.size >= MAX_RESUME_CHALLENGES) resumeChallenges.delete(resumeChallenges.keys().next().value)
+      resumeChallenges.set(challenge.id, challenge)
+      sendJson(response, 200, {
+        challengeId: challenge.id,
+        challenge: challenge.value,
+        expiresAt: new Date(challenge.expiresAt).toISOString(),
+        serverDeviceId: deviceId,
+      })
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/resume') {
+      const body = await readJson(request)
+      const resumeDeviceId = typeof body.deviceId === 'string' ? body.deviceId.slice(0, 100) : ''
+      const challengeId = typeof body.challengeId === 'string' ? body.challengeId : ''
+      const challenge = resumeChallenges.get(challengeId)
+      resumeChallenges.delete(challengeId)
+      if (!challenge || challenge.deviceId !== resumeDeviceId || challenge.address !== address || challenge.expiresAt < Date.now()) {
+        throw new HttpError(401, '自动连接凭据已失效，请重新配对')
+      }
+      const stored = (await repository.listDevices()).find((item) => item.id === resumeDeviceId)
+      let resumeSecret
+      try {
+        resumeSecret = unprotectCredential(stored?.resumeCredential || '')
+        const expected = resumeProof(resumeSecret, challenge.id, challenge.value)
+        if (!secureEqual(expected, body.proof)) throw new Error('proof mismatch')
+      } catch {
+        throw new HttpError(401, '自动连接凭据已失效，请重新配对')
+      }
+      revokeDeviceSessions(resumeDeviceId, 'Device resumed elsewhere')
+      if (sessions.size >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
+      const session = createSession(stored, stored.resumeCredential)
+      await activateSession(session)
+      const resumeKey = Buffer.from(resumeSecret, 'base64url')
+      sendJson(response, 200, {
+        package: encryptJson(resumeKey, {
+          token: session.token,
+          sessionKey: session.key.toString('base64url'),
+          deviceId: session.deviceId,
+          serverDeviceId: deviceId,
+          expiresAt: new Date(session.expiresAt).toISOString(),
+        }, `resume:${session.deviceId}:${challenge.id}`),
       })
       return
     }
@@ -689,7 +789,7 @@ async function createDeviceLinkServer(options) {
       if (session.socket === socket) session.socket = null
       const stored = (await repository.listDevices()).find((item) => item.id === session.deviceId)
       if (stored) {
-        try { onEvent('device:changed', { ...stored, connected: false }) } catch {}
+        try { onEvent('device:changed', publicDevice(stored, false)) } catch {}
       }
     })
   })
@@ -701,6 +801,9 @@ async function createDeviceLinkServer(options) {
     }
     for (const [address, attempt] of attempts) {
       if (attempt.lockedUntil < now && attempt.lastAttemptAt + LOCKOUT_MS < now) attempts.delete(address)
+    }
+    for (const [challengeId, challenge] of resumeChallenges) {
+      if (challenge.expiresAt < now) resumeChallenges.delete(challengeId)
     }
     for (const transfer of transfers.values()) {
       if (!transfer.busy && transfer.lastActivityAt + transferTtlMs < now) void removeTransfer(transfer)
@@ -756,6 +859,7 @@ async function createDeviceLinkServer(options) {
       await Promise.all([...transfers.values()].map(removeTransfer))
       for (const session of sessions.values()) session.socket?.close(1001, 'Server stopped')
       sessions.clear()
+      resumeChallenges.clear()
       await new Promise((resolve) => wss.close(() => resolve()))
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
       status = { running: false, port, lanIPs: [], selectedIP: '', accessUrl: '' }

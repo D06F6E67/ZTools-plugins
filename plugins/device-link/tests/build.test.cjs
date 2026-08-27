@@ -27,4 +27,8 @@ test('pairing links and mobile client refresh the pairing generation', () => {
   assert.match(mobileApp, /await loadPairing\(\)/)
   assert.match(mobileApp, /window\.addEventListener\(["']hashchange["'],\s*refreshPairing\)/)
   assert.match(mobileApp, /requestedSessionId\s*!==\s*latestPairing\.sessionId/)
+  assert.match(mobileApp, /mode\s*=\s*["']manual["']/)
+  assert.match(mobileApp, /deviceLinkTrustedDevice/)
+  assert.match(mobileApp, /\/api\/resume\/challenge/)
+  assert.match(preload, /protectCredential:\s*seal/)
 })

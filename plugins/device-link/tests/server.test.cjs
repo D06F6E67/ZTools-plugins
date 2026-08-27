@@ -8,7 +8,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { WebSocket } = require('ws')
 const { CHUNK_SIZE, createDeviceLinkServer } = require('../public/preload/core/server')
-const { decryptJson, derivePairKey, encryptBytes, encryptJson, pairingProof, sha256 } = require('../public/preload/core/crypto')
+const { decryptJson, derivePairKey, encryptBytes, encryptJson, pairingProof, resumeProof, sha256 } = require('../public/preload/core/crypto')
 
 async function freePort() {
   const socket = net.createServer()
@@ -42,14 +42,15 @@ function memoryRepository(root) {
   }
 }
 
-async function pairTestDevice(server, base, code, deviceId, deviceName) {
+async function pairTestDevice(server, base, code, deviceId, deviceName, mode = 'qr') {
   const state = await (await fetch(`${base}/api/pairing`)).json()
-  const pairKey = derivePairKey(server.pairing.secret, code, state.salt)
+  const pairingSecret = mode === 'manual' ? state.manualKey : server.pairing.secret
+  const pairKey = derivePairKey(pairingSecret, code, state.salt)
   const proof = pairingProof(pairKey, state.sessionId, state.challenge)
   const response = await fetch(`${base}/api/pair`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId: state.sessionId, proof, deviceName, deviceId, platform: 'test' }),
+    body: JSON.stringify({ sessionId: state.sessionId, mode, proof, deviceName, deviceId, platform: 'test' }),
   })
   assert.equal(response.status, 200)
   const body = await response.json()
@@ -439,4 +440,82 @@ test('two phones pair independently and only shared conversations cross device b
   const attachmentForB = await fetch(`${base}/api/attachments/attachment-private-a/meta`, { headers: { Authorization: `Bearer ${phoneB.token}` } })
   assert.equal(attachmentForA.status, 200)
   assert.equal(attachmentForB.status, 404)
+})
+
+test('manual pairing persists a trusted device that resumes after server restart', async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-resume-test-'))
+  const repository = memoryRepository(root)
+  const port = await freePort()
+  const protectCredential = (value) => `sealed:${[...value].reverse().join('')}`
+  const unprotectCredential = (value) => String(value).startsWith('sealed:') ? [...String(value).slice(7)].reverse().join('') : ''
+  const events = []
+  let server
+  const start = () => createDeviceLinkServer({
+    repository,
+    deviceId: 'desktop-device',
+    deviceName: 'Test Desktop',
+    port,
+    pairingCode: '834921',
+    maxIncomingFileBytes: 10 * 1024 * 1024,
+    protectCredential,
+    unprotectCredential,
+    onEvent(type, data) { events.push({ type, data }) },
+  })
+  context.after(async () => {
+    if (server?.status.running) await server.close()
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  server = await start()
+  const base = `http://127.0.0.1:${port}`
+  const paired = await pairTestDevice(server, base, '834921', 'trusted-phone-1234', 'Trusted Phone', 'manual')
+  assert.equal(typeof paired.resumeSecret, 'string')
+  assert.equal(Buffer.from(paired.resumeSecret, 'base64url').length, 32)
+  assert.match(repository.devices[0].resumeCredential, /^sealed:/)
+  assert.equal(repository.devices[0].resumeCredential.includes(paired.resumeSecret), false)
+  const connectedEvent = events.find((event) => event.type === 'device:changed')
+  assert.equal(Object.hasOwn(connectedEvent.data, 'resumeCredential'), false)
+  const originalPairedAt = repository.devices[0].pairedAt
+
+  await server.close()
+  server = await start()
+  const challengeResponse = await fetch(`${base}/api/resume/challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId: paired.deviceId }),
+  })
+  assert.equal(challengeResponse.status, 200)
+  const challenge = await challengeResponse.json()
+  const proof = resumeProof(paired.resumeSecret, challenge.challengeId, challenge.challenge)
+  const resumeResponse = await fetch(`${base}/api/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId: paired.deviceId, challengeId: challenge.challengeId, proof }),
+  })
+  assert.equal(resumeResponse.status, 200)
+  const resumeBody = await resumeResponse.json()
+  const resumed = decryptJson(Buffer.from(paired.resumeSecret, 'base64url'), resumeBody.package, `resume:${paired.deviceId}:${challenge.challengeId}`)
+  assert.equal(resumed.deviceId, paired.deviceId)
+  assert.notEqual(resumed.token, paired.token)
+  assert.equal(repository.devices[0].pairedAt, originalPairedAt)
+
+  const historyResponse = await fetch(`${base}/api/messages`, { headers: { Authorization: `Bearer ${resumed.token}` } })
+  assert.equal(historyResponse.status, 200)
+  const historyBody = await historyResponse.json()
+  assert.deepEqual(decryptJson(Buffer.from(resumed.sessionKey, 'base64url'), historyBody.data, `messages:${resumed.deviceId}`), [])
+
+  const replayResponse = await fetch(`${base}/api/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId: paired.deviceId, challengeId: challenge.challengeId, proof }),
+  })
+  assert.equal(replayResponse.status, 401)
+
+  repository.devices.splice(0)
+  const removedDeviceResponse = await fetch(`${base}/api/resume/challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId: paired.deviceId }),
+  })
+  assert.equal(removedDeviceResponse.status, 401)
 })
