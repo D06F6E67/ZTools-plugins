@@ -17,5 +17,5 @@ onMounted(() => {
 </script>
 
 <template>
-  <Reminder v-if="route === 'reminder'" :enter-action="enterAction" />
+  <Reminder v-if="route === 'easyreminder'" :enter-action="enterAction" />
 </template>
