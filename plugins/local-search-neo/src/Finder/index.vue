@@ -93,6 +93,7 @@ const {
   enabledCategories,
   allCategories,
   selectCategory,
+  cycleCategory,
   handleReorderCategories,
   handleResetCategoryOrder,
   handleAddCustomCategory,
@@ -103,7 +104,7 @@ const {
 const { showSettingsDrawer, openSettingsDrawer, closeSettingsDrawer } = useFinderSettings({
   focusSubInput,
 });
-const { buildFilteredEverythingQuery } = useFinderQuery();
+const { buildFilteredEverythingQuery, prefixFilter, queryText } = useFinderQuery();
 const isFolderQuery = computed(() => /(?:^|\s)folder:/i.test(buildFilteredEverythingQuery()));
 const finderSearch = useFinderSearch({
   pageSize: PAGE_SIZE,
@@ -111,6 +112,7 @@ const finderSearch = useFinderSearch({
   sortMode,
   matchPathEnabled,
   buildQuery: buildFilteredEverythingQuery,
+  queryKeyword: () => queryText.value,
 });
 
 const resultStatusText = computed(() => {
@@ -146,6 +148,10 @@ useFinderKeyboard({
   closeTransientOverlays: contextMenu.close,
   focusSubInput,
   moveSelection: finderSearch.moveSelection,
+  cycleCategory: (direction) => {
+    cycleCategory(direction);
+    releaseFinderFocus();
+  },
   openSelection: () => resultActions.open(finderSearch.selectedItems.value),
   showSelectionInFolder: () => resultActions.showInFolder(finderSearch.selectedItems.value),
   scrollSelectedIntoView: finderSearch.scrollSelectedIntoView,
@@ -240,6 +246,7 @@ function setActiveCategory(category: FinderCategory) {
         :selected-items="finderSearch.selectedItems.value"
         :is-loading="resultLoading"
         :status-text="resultStatusText"
+        :prefix="prefixFilter"
         :preview-open="previewEnabled"
         :is-folder-query="isFolderQuery"
         :actions="resultActions"
