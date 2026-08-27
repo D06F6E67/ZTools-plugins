@@ -117,11 +117,24 @@ test('keeps record selection unchanged after dragging to select text', () => {
   const { selection } = createSelection([first, second])
 
   selection.toggleItem(1)
+  let handled
   withSelection({ rangeCount: 1, isCollapsed: false }, () => {
-    selection.handleItemClick(clickEvent(), 0)
+    handled = selection.handleItemClick(clickEvent(), 0)
   })
 
+  assert.equal(handled, false)
   assert.deepEqual(selection.selectedItems.value, [first, second])
+})
+
+test('reports a regular item click as handled', () => {
+  const first = { type: 'text', content: 'first' }
+  const second = { type: 'text', content: 'second' }
+  const { selection } = createSelection([first, second])
+
+  const handled = selection.handleItemClick(clickEvent(), 1)
+
+  assert.equal(handled, true)
+  assert.deepEqual(selection.selectedItems.value, [second])
 })
 
 test('lets an explicit Ctrl+click replace a stale browser text selection', () => {

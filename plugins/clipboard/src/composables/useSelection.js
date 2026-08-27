@@ -89,14 +89,14 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
 
   const toggleItem = (index) => {
     const item = filteredData.value[index]
-    if (!item) return
+    if (!item) return false
 
     clearNativeTextSelection()
 
     const currentItems = selectedItems.value
     if (currentItems.length > 0 && currentItems[0].type !== item.type) {
       selectSingle(index)
-      return
+      return true
     }
 
     const nextSelection = new Set(selectedItemSet.value)
@@ -112,19 +112,21 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     }
 
     selectedItemSet.value = nextSelection
+    return true
   }
 
   const handleItemClick = (event, index) => {
     // A text drag emits click after mouseup; keep both the DOM selection and record selection intact.
-    if (hasNativeTextSelection() && !event.metaKey && !event.ctrlKey) return
+    if (hasNativeTextSelection() && !event.metaKey && !event.ctrlKey) return false
 
     if (event.shiftKey) {
       selectRange(index)
     } else if (event.metaKey || event.ctrlKey) {
-      toggleItem(index)
+      return toggleItem(index)
     } else {
       selectSingle(index)
     }
+    return true
   }
 
   const handleContextSelection = (index) => {

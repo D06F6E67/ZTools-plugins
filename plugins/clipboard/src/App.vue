@@ -245,6 +245,23 @@ const focusSearchInput = () => {
   })
 }
 
+const handleListItemClick = (event, index) => {
+  if (handleItemClick(event, index)) {
+    focusSearchInput()
+  }
+}
+
+const handleListToggleSelection = (index) => {
+  if (toggleItem(index)) {
+    focusSearchInput()
+  }
+}
+
+const handleListDoubleClick = (index) => {
+  void handleDoubleClick(index)
+  focusSearchInput()
+}
+
 const resetSearchAndFocus = async () => {
   searchText.value = ''
   try {
@@ -313,9 +330,9 @@ onUnmounted(() => {
         :active-tab="activeTab"
         :expanded-items="expandedItems"
         :needs-expand="needsExpand"
-        @select="handleItemClick"
-        @toggle-selection="toggleItem"
-        @dblclick="handleDoubleClick"
+        @select="handleListItemClick"
+        @toggle-selection="handleListToggleSelection"
+        @dblclick="handleListDoubleClick"
         @contextmenu="handleContextMenu"
         @toggle-expand="toggleExpand"
         @delete-favorite="handleDeleteFavorite"
