@@ -132,7 +132,7 @@ function rerun() {
 function handleEnter(action: { code: string; type: string; payload: unknown; option: unknown; from?: string }) {
   reload()
   if (action.code === 'setting') {
-    // 仅设置页需要撑高并移除 ZTools 默认顶部子输入框（原版 uTools 无此栏）；
+    // 仅设置页需要撑高并移除 ZTools 默认顶部子输入框；
     // 脚本运行入口不动窗口，与原版对齐
     window.ztools.setExpendHeight(560)
     if (typeof window.ztools.removeSubInput === 'function') window.ztools.removeSubInput()

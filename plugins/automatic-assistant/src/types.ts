@@ -55,11 +55,11 @@ export const CMD_TYPE_NAMES: Record<string, string> = {
 
 // 点击匹配类指令时的说明提示（与原版一致）
 export const CMD_TYPE_TIPS: Record<string, string> = {
-  over: '【匹配任意文本】uTools 万能搜索框输入任意文本或选中任意文本弹出超级面板',
-  regex: '【匹配特定文本】uTools 万能搜索框输入特定文本或选中特定文本弹出超级面板',
-  img: '【匹配图像】uTools 万能搜索框粘贴截图或截图后弹出超级面板',
-  files: '【匹配文件】uTools 万能搜索框粘贴文件或选中文件弹出超级面板',
-  window: '【匹配窗口】在特定窗口下呼出 uTools 万能搜索框或弹出超级面板'
+  over: '【匹配任意文本】ZTools 搜索面板输入任意文本或选中任意文本弹出超级面板',
+  regex: '【匹配特定文本】ZTools 搜索面板输入特定文本或选中特定文本弹出超级面板',
+  img: '【匹配图像】ZTools 搜索面板粘贴截图或截图后弹出超级面板',
+  files: '【匹配文件】ZTools 搜索面板粘贴文件或选中文件弹出超级面板',
+  window: '【匹配窗口】在特定窗口下呼出 ZTools 搜索面板或弹出超级面板'
 }
 
 export const PLATFORMS = [

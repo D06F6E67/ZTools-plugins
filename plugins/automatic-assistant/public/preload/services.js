@@ -2,8 +2,8 @@ const vm = require('vm')
 const fs = require('fs')
 const path = require('path')
 
-// ZTools 环境入口（window.ztools），兼容 window.utools 命名
-const zt = window.ztools || window.utools
+// ZTools 环境入口
+const zt = window.ztools
 
 // 同步阻塞等待，用于模拟按键前等主窗口隐藏、剪贴板就绪
 const sleepMs = (ms) => {
@@ -61,7 +61,7 @@ for (const name of PASSTHROUGH_APIS) {
 }
 
 // hideMainWindowPaste* / hideMainWindowTypeString：
-// 原生优先——ZTools 已实现则直接透传，语义与 uTools 完全一致；
+// 原生优先——ZTools 已实现则直接透传；
 // 未实现时才降级为「复制到剪贴板 → 隐藏主窗口 → 模拟 Ctrl/Cmd+V 粘贴」。
 // 注意 typeString 原生语义是"模拟键入"、不碰剪贴板，降级实现会覆写剪贴板，
 // 故仅在原生缺失时启用。
@@ -101,9 +101,7 @@ nativeOrFallback('hideMainWindowPasteImage', (image) => {
 })
 
 const SCRIPT_CONTEXT = {
-  // 脚本内统一使用 ztools；utools 作为别名保留，便于直接粘贴既有脚本
   ztools: sandboxApi,
-  utools: sandboxApi,
   Buffer,
   require,
   process,
