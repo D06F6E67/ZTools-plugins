@@ -61,6 +61,51 @@ function getStreamFlushDelay(totalLength: number) {
   return 100
 }
 
+function asErrorRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null
+}
+
+function parseErrorPayload(value: unknown): Record<string, any> | null {
+  const record = asErrorRecord(value)
+  if (record) return record
+  if (typeof value !== 'string') return null
+
+  try {
+    return asErrorRecord(JSON.parse(value.trim()))
+  } catch {
+    return null
+  }
+}
+
+/** 保留宿主或服务端返回的可读错误消息，兼容旧版 API 的不同包装方式。 */
+function getAiErrorMessage(error: unknown): string {
+  const source = asErrorRecord(error)
+  const response = asErrorRecord(source?.response)
+  const responseData = parseErrorPayload(response?.data)
+  const responseBody = parseErrorPayload(
+    source?.responseBody ?? source?.body ?? response?.body ?? response?.text
+  )
+  const payloads = [
+    source,
+    parseErrorPayload(source?.message),
+    parseErrorPayload(source?.error),
+    responseData,
+    parseErrorPayload(responseData?.error),
+    responseBody,
+    parseErrorPayload(responseBody?.error)
+  ].filter((payload): payload is Record<string, any> => Boolean(payload))
+
+  const messages = payloads
+    .flatMap(payload => [payload.message, payload.errorMessage, payload.detail])
+    .filter(value => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean)
+
+  return messages[0] || '请求失败，请重试'
+}
+
 function publishStreamState(
   messageId: string,
   phase: StreamPhase,
@@ -273,7 +318,7 @@ async function sendMessage(content: string, images?: string[]) {
     if (e?.name !== 'AbortError') {
       const stream = activeStream
       if (stream?.message === assistantMsg && !stream.content) {
-        stream.content = '请求失败，请重试'
+        stream.content = getAiErrorMessage(e)
         stream.phase = 'answering'
       }
     }
