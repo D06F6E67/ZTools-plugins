@@ -9,6 +9,8 @@ import type {
 import type { SaveSyncConfigurationInput } from "../preload/sync-config";
 import type { SyncSettings } from "../preload/sync-store";
 import type { WindowPreferences } from "../preload/window-preferences";
+import type { ListOrders } from "../preload/list-order-store";
+import type { ClearClipboardHistoryResult } from "../preload/clear-history";
 import type { PasteStackState } from "@pasteboard-pro/core";
 
 declare global {
@@ -69,6 +71,10 @@ declare global {
       retrySync(): Promise<SyncSettings>;
       getWindowPreferences(): Promise<WindowPreferences>;
       saveWindowPreferences(settings: WindowPreferences): Promise<WindowPreferences>;
+      selectThemeBackgroundImage(): Promise<string | undefined>;
+      clearClipboardHistory(): Promise<ClearClipboardHistoryResult>;
+      getListOrders(): Promise<ListOrders>;
+      saveListOrder(scope: string, itemIds: readonly string[]): Promise<ListOrders>;
       getPasteStack(): Promise<PasteStackState>;
       savePasteStack(state: PasteStackState): Promise<PasteStackState>;
       openPanel(

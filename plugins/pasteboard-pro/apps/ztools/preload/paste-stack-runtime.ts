@@ -208,6 +208,10 @@ export class PasteStackRuntime {
   private persistence = Promise.resolve();
   private persistenceFailed = false;
   private hookRestartTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  private hookRestartAttempt = 0;
+  private hookBlockedForPermission = false;
+  private persistenceRetryTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  private persistenceRetryAttempt = 0;
 
   constructor(
     private readonly stackStore: ZToolsPasteStackStore,
@@ -225,6 +229,8 @@ export class PasteStackRuntime {
   async replace(input: PasteStackState, persist = true): Promise<PasteStackState> {
     const generation = ++this.generation;
     const normalized = normalizePasteStackState(input);
+    this.hookBlockedForPermission = false;
+    this.hookRestartAttempt = 0;
     const entries = await Promise.all(
       normalized.itemIds.map(async (itemId) => {
         const record = await this.clipboardStore.findRecordByItemId(itemId);
@@ -278,12 +284,19 @@ export class PasteStackRuntime {
       globalThis.clearTimeout(this.hookRestartTimer);
       this.hookRestartTimer = undefined;
     }
+    if (this.persistenceRetryTimer !== undefined) {
+      globalThis.clearTimeout(this.persistenceRetryTimer);
+      this.persistenceRetryTimer = undefined;
+    }
     if (this.hookStarted) this.hook?.stop();
     this.hookStarted = false;
   }
 
   private syncHook(): void {
-    const shouldStart = this.state.itemIds.length > 0 && this.hook !== undefined;
+    const shouldStart =
+      this.state.itemIds.length > 0 &&
+      this.hook !== undefined &&
+      !this.hookBlockedForPermission;
     if (shouldStart && !this.hookStarted) {
       this.hookStarted = true;
       try {
@@ -304,13 +317,27 @@ export class PasteStackRuntime {
     this.hookStarted = false;
     if (this.state.itemIds.length === 0) return;
     if (this.hookRestartTimer !== undefined) globalThis.clearTimeout(this.hookRestartTimer);
+    if (reason === "accessibility-required") {
+      this.hookBlockedForPermission = true;
+      this.hookRestartTimer = undefined;
+      return;
+    }
+    const delay = Math.min(1_000 * 2 ** this.hookRestartAttempt, 30_000);
+    this.hookRestartAttempt += 1;
     this.hookRestartTimer = globalThis.setTimeout(() => {
       this.hookRestartTimer = undefined;
       this.syncHook();
-    }, reason === "accessibility-required" ? 5_000 : 1_000);
+    }, delay);
+  }
+
+  retryGlobalHook(): void {
+    this.hookBlockedForPermission = false;
+    this.hookRestartAttempt = 0;
+    this.syncHook();
   }
 
   private handlePasteRequest(): boolean {
+    this.hookRestartAttempt = 0;
     return this.consumeCurrent();
   }
 
@@ -339,9 +366,25 @@ export class PasteStackRuntime {
       try {
         await this.stackStore.put(snapshot);
         this.persistenceFailed = false;
+        this.persistenceRetryAttempt = 0;
+        if (this.persistenceRetryTimer !== undefined) {
+          globalThis.clearTimeout(this.persistenceRetryTimer);
+          this.persistenceRetryTimer = undefined;
+        }
       } catch {
         this.persistenceFailed = true;
+        this.schedulePersistenceRetry();
       }
     });
+  }
+
+  private schedulePersistenceRetry(): void {
+    if (this.persistenceRetryTimer !== undefined) return;
+    const delay = Math.min(250 * 2 ** this.persistenceRetryAttempt, 30_000);
+    this.persistenceRetryAttempt += 1;
+    this.persistenceRetryTimer = globalThis.setTimeout(() => {
+      this.persistenceRetryTimer = undefined;
+      this.persistSnapshot(structuredClone(this.state));
+    }, delay);
   }
 }

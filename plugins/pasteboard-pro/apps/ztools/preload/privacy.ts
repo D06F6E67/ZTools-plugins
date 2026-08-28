@@ -58,6 +58,10 @@ export type RetentionPrunePlan = Readonly<{
 
 export type ClipboardWriteContent =
   | Readonly<{ type: "text"; content: string }>
+  | Readonly<{
+      type: "html";
+      content: Readonly<{ text: string; html: string }>;
+    }>
   | Readonly<{ type: "image"; content: string }>
   | Readonly<{ type: "file"; content: string | readonly string[] }>;
 

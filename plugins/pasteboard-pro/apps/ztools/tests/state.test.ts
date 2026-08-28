@@ -155,6 +155,22 @@ describe("Vue canonical state", () => {
     ).toEqual({ type: "preview", itemId: secondId });
   });
 
+  it("resets search-to-list handoff to the first visible item", () => {
+    const state = createPasteboardState({ items: historyFixture });
+    const orderedIds = state.visibleItems.map((item) => item.id);
+    state.replaceSelection(orderedIds[2]!);
+
+    expect(state.selectFirst(orderedIds)).toBe(orderedIds[0]);
+    expect(state.selection).toEqual({
+      selected: [orderedIds[0]!],
+      anchor: orderedIds[0],
+      focus: orderedIds[0],
+    });
+
+    expect(state.selectFirst([])).toBeUndefined();
+    expect(state.selection).toEqual({ selected: [] });
+  });
+
   it("uses range direction and explicit selection order as the automatic paste queue", () => {
     const state = createPasteboardState({ items: historyFixture });
     const [firstId, secondId, thirdId] = state.visibleItems.map((item) => item.id);

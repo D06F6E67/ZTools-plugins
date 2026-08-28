@@ -3,7 +3,11 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { mergeEntity, type Tombstone } from "@pasteboard-pro/sync-protocol";
+import {
+  compareClock,
+  mergeEntity,
+  type Tombstone,
+} from "@pasteboard-pro/sync-protocol";
 
 import {
   documentsFromAllDocs,
@@ -12,6 +16,10 @@ import {
 } from "./clipboard-store";
 import { ZToolsPinboardStore } from "./pinboard-store";
 import type { SyncBlob, SyncEntity, SyncEntityRepository } from "./sync-runtime";
+import {
+  ZToolsWindowPreferencesStore,
+  type SyncedWindowPreferences,
+} from "./window-preferences";
 
 const TOMBSTONE_PREFIX = "pasteboard-pro:tombstone:";
 const MAX_BLOB_BYTES = 100 * 1_024 * 1_024;
@@ -74,12 +82,20 @@ function parsedTombstone(value: unknown): Tombstone | undefined {
 
 function identity(entity: SyncEntity): string {
   if ("deleted" in entity) return `${entity.entityType}\0${entity.id}`;
+  if ("entityType" in entity) return `${entity.entityType}\0${entity.id}`;
   return `${"kind" in entity ? "paste_item" : "pinboard"}\0${entity.id}`;
+}
+
+function isWindowPreferences(
+  entity: SyncEntity,
+): entity is SyncedWindowPreferences {
+  return !("deleted" in entity) && "entityType" in entity;
 }
 
 export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   private readonly clipboard: ZToolsCanonicalClipboardStore;
   private readonly pinboards: ZToolsPinboardStore;
+  private readonly preferences: ZToolsWindowPreferencesStore;
 
   constructor(
     private readonly database: ZToolsDocumentDatabase,
@@ -93,6 +109,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   ) {
     this.clipboard = new ZToolsCanonicalClipboardStore(database, { deviceId });
     this.pinboards = new ZToolsPinboardStore(database, { deviceId });
+    this.preferences = new ZToolsWindowPreferencesStore(database, { deviceId });
   }
 
   private async tombstones(): Promise<Tombstone[]> {
@@ -113,21 +130,30 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async listEntities(): Promise<SyncEntity[]> {
+    const preferences = await this.preferences.getSyncEntity();
     const entities: SyncEntity[] = [
       ...(await this.clipboard.listRecords()).map((record) => record.item),
       ...(await this.pinboards.list()),
+      ...(preferences === undefined ? [] : [preferences]),
       ...(await this.tombstones()),
     ];
     const merged = new Map<string, SyncEntity>();
     for (const entity of entities) {
       const key = identity(entity);
       const current = merged.get(key);
-      merged.set(
-        key,
-        current === undefined
-          ? entity
-          : (mergeEntity(current, entity) as SyncEntity),
-      );
+      if (current === undefined) {
+        merged.set(key, entity);
+      } else if (isWindowPreferences(current) || isWindowPreferences(entity)) {
+        if (!isWindowPreferences(current) || !isWindowPreferences(entity)) {
+          throw new RangeError("Sync entity identity contains incompatible entity types");
+        }
+        merged.set(
+          key,
+          compareClock(current.clock, entity.clock) >= 0 ? current : entity,
+        );
+      } else {
+        merged.set(key, mergeEntity(current, entity) as SyncEntity);
+      }
     }
     return [...merged.values()].map((entity) => structuredClone(entity));
   }
@@ -178,6 +204,8 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
           await this.pinboards.removeSynced(entity.id);
         }
         await this.putTombstone(entity);
+      } else if ("entityType" in entity) {
+        await this.preferences.putSynced(entity);
       } else if ("kind" in entity) {
         await this.removeTombstone("paste_item", entity.id);
         await this.clipboard.putSyncedItem(entity);

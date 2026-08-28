@@ -16,6 +16,7 @@ import {
   type SyncEntity,
   type SyncEntityRepository,
 } from "../preload/sync-runtime";
+import type { SyncedWindowPreferences } from "../preload/window-preferences";
 
 class MemoryRepository implements SyncEntityRepository {
   private readonly blobs = new Map<string, SyncBlob>();
@@ -54,6 +55,14 @@ class MemoryRepository implements SyncEntityRepository {
   blob(blobId: string): SyncBlob | undefined {
     const blob = this.blobs.get(blobId);
     return blob === undefined ? undefined : structuredClone(blob);
+  }
+
+  preferences(): SyncedWindowPreferences | undefined {
+    const value = this.entities.find(
+      (entity): entity is SyncedWindowPreferences =>
+        "entityType" in entity && entity.entityType === "window_preferences",
+    );
+    return value === undefined ? undefined : structuredClone(value);
   }
 }
 
@@ -196,5 +205,41 @@ describe("ZTools encrypted vault runtime", () => {
 
     expect(hostB.blob(blob.id)).toEqual(blob);
     expect(hostB.item()).toEqual(item);
+  });
+
+  it("round-trips local appearance preferences through the encrypted vault", async () => {
+    const transport = webDavMemoryTransport();
+    const client = () =>
+      createWebDavVaultClient({
+        baseUrl: "https://dav.example.com/PasteboardPro/v1/",
+        credentials: async () => ({ username: "alice", password: "dav-secret" }),
+        queue: new MemorySyncQueue(),
+        transport,
+      });
+    const preferences: SyncedWindowPreferences = {
+      id: "window",
+      entityType: "window_preferences",
+      settings: {
+        dockEdge: "bottom",
+        multiPasteMode: "batch",
+        theme: {
+          accentColor: "#345678",
+          background: {
+            type: "image",
+            imageDataUrl: "data:image/png;base64,iVBORw==",
+          },
+        },
+      },
+      updatedAt: "2026-08-25T08:00:00.000Z",
+      sourceDeviceId: "host-a",
+      clock: { wallMs: 1_777_104_000_000, counter: 0, deviceId: "host-a" },
+    };
+    const hostA = new MemoryRepository([preferences]);
+    const hostB = new MemoryRepository([]);
+
+    await syncZToolsVault({ client: client(), key: new Uint8Array(32).fill(4), repository: hostA });
+    await syncZToolsVault({ client: client(), key: new Uint8Array(32).fill(4), repository: hostB });
+
+    expect(hostB.preferences()).toEqual(preferences);
   });
 });

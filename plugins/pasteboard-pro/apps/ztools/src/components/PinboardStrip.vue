@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 
 import type { Pinboard } from "@pasteboard-pro/core";
+import type { SmartPinboard } from "../smart-pinboards";
+import { containContextMenuKeydown } from "../context-menu-keyboard";
 
-defineProps<{ pinboards: readonly Pinboard[]; activeId: string | undefined }>();
+const props = defineProps<{
+  pinboards: readonly Pinboard[];
+  smartPinboards: readonly SmartPinboard[];
+  activeId: string | undefined;
+}>();
 const emit = defineEmits<{
   select: [id: string | undefined];
   create: [name: string];
@@ -16,8 +22,13 @@ const emit = defineEmits<{
 
 const creating = ref(false);
 const editingId = ref<string>();
-const managingId = ref<string>();
 const draft = ref("");
+const managementMenu = ref<{ pinboardId: string; x: number; y: number }>();
+const managedPinboard = computed(() =>
+  managementMenu.value === undefined
+    ? undefined
+    : props.pinboards.find((pinboard) => pinboard.id === managementMenu.value?.pinboardId),
+);
 
 function beginCreate(): void {
   editingId.value = undefined;
@@ -32,8 +43,44 @@ function beginRename(pinboard: Pinboard): void {
 }
 
 function beginRenameFromMenu(pinboard: Pinboard): void {
-  managingId.value = undefined;
+  closeManagementMenu();
   beginRename(pinboard);
+}
+
+function closeManagementMenu(): void {
+  document.removeEventListener("pointerdown", closeManagementMenu);
+  window.removeEventListener("keydown", closeManagementMenuOnEscape);
+  managementMenu.value = undefined;
+}
+
+function closeManagementMenuOnEscape(event: KeyboardEvent): void {
+  if (event.key === "Escape") closeManagementMenu();
+}
+
+function handleManagementMenuKeydown(event: KeyboardEvent): void {
+  containContextMenuKeydown(event, closeManagementMenu);
+}
+
+function openManagementMenu(event: MouseEvent, pinboard: Pinboard): void {
+  const trigger = event.currentTarget;
+  const bounds = trigger instanceof HTMLElement
+    ? trigger.getBoundingClientRect()
+    : undefined;
+  const fromContextMenu = event.type === "contextmenu";
+  if (!fromContextMenu && managementMenu.value?.pinboardId === pinboard.id) {
+    closeManagementMenu();
+    return;
+  }
+  const requestedX = fromContextMenu ? event.clientX : (bounds?.right ?? event.clientX) - 184;
+  const requestedY = fromContextMenu ? event.clientY : (bounds?.bottom ?? event.clientY) + 5;
+  closeManagementMenu();
+  managementMenu.value = {
+    pinboardId: pinboard.id,
+    x: Math.max(8, Math.min(requestedX, window.innerWidth - 192)),
+    y: Math.max(8, Math.min(requestedY, window.innerHeight - 248)),
+  };
+  document.addEventListener("pointerdown", closeManagementMenu);
+  window.addEventListener("keydown", closeManagementMenuOnEscape);
 }
 
 function cancelEdit(): void {
@@ -63,14 +110,23 @@ function changeColor(event: Event, id: string): void {
   const target = event.target;
   if (target instanceof HTMLInputElement) {
     emit("updateColor", { id, color: target.value });
-    managingId.value = undefined;
+    closeManagementMenu();
   }
 }
 
 function moveFromMenu(id: string, direction: -1 | 1): void {
-  managingId.value = undefined;
+  closeManagementMenu();
   emit("move", { id, direction });
 }
+
+function deleteFromMenu(id: string): void {
+  closeManagementMenu();
+  emit("delete", id);
+}
+
+defineExpose({ beginCreate });
+
+onBeforeUnmount(closeManagementMenu);
 </script>
 
 <template>
@@ -84,12 +140,24 @@ function moveFromMenu(id: string, direction: -1 | 1): void {
     >
       全部
     </button>
+    <button
+      v-for="pinboard in smartPinboards"
+      :key="pinboard.id"
+      type="button"
+      class="smart-pinboard"
+      :class="{ active: activeId === pinboard.id }"
+      :title="`${pinboard.name}会根据全部历史中的内容类型自动同步`"
+      @click="emit('select', pinboard.id)"
+    >
+      <span class="smart-pinboard__icon" :style="{ color: pinboard.color }" aria-hidden="true">{{ pinboard.icon === "text" ? "T" : "▧" }}</span>
+      <span>{{ pinboard.name }}</span>
+    </button>
     <div
       v-for="pinboard in pinboards"
       :key="pinboard.id"
       class="pinboard-chip"
       :class="{ 'pinboard-chip--active': activeId === pinboard.id }"
-      @contextmenu.prevent="managingId = managingId === pinboard.id ? undefined : pinboard.id"
+      @contextmenu.prevent.stop="openManagementMenu($event, pinboard)"
       @dragover.prevent
       @drop.prevent="dropItem($event, pinboard.id)"
     >
@@ -107,7 +175,10 @@ function moveFromMenu(id: string, direction: -1 | 1): void {
         type="button"
         class="manage-button"
         :aria-label="`管理 ${pinboard.name}`"
-        @click.stop="managingId = managingId === pinboard.id ? undefined : pinboard.id"
+        aria-haspopup="menu"
+        :aria-expanded="managementMenu?.pinboardId === pinboard.id"
+        @pointerdown.stop
+        @click.stop="openManagementMenu($event, pinboard)"
       >•••</button>
       <input
         v-else
@@ -120,30 +191,6 @@ function moveFromMenu(id: string, direction: -1 | 1): void {
         @keydown.escape.prevent="cancelEdit"
         @blur="commitRename(pinboard.id)"
       />
-      <div v-if="managingId === pinboard.id" class="chip-controls" :aria-label="`${pinboard.name} 管理选项`">
-        <button type="button" @click="beginRenameFromMenu(pinboard)">重命名</button>
-        <label class="color-action">
-          <input
-            class="color-input"
-            type="color"
-            :value="pinboard.color"
-            aria-label="分组颜色"
-            @change="changeColor($event, pinboard.id)"
-          />
-          <span>颜色</span>
-        </label>
-        <button
-          v-if="pinboards[0]?.id !== pinboard.id"
-          type="button"
-          @click="moveFromMenu(pinboard.id, -1)"
-        >← 移到左侧</button>
-        <button
-          v-if="pinboards.at(-1)?.id !== pinboard.id"
-          type="button"
-          @click="moveFromMenu(pinboard.id, 1)"
-        >移到右侧 →</button>
-        <button type="button" class="danger-button" @click="managingId = undefined; emit('delete', pinboard.id)">删除</button>
-      </div>
     </div>
     <input
       v-if="creating"
@@ -159,6 +206,49 @@ function moveFromMenu(id: string, direction: -1 | 1): void {
     <button v-else type="button" class="add-button" aria-label="新建分组" @click="beginCreate">+</button>
     <span class="pinboards__hint">⌘ 1–9 快捷粘贴</span>
   </nav>
+  <Teleport to="body">
+    <div
+      v-if="managementMenu && managedPinboard"
+      class="pinboard-manage-menu glass-surface"
+      role="menu"
+      :aria-label="`${managedPinboard.name} 管理选项`"
+      :style="{ left: `${managementMenu.x}px`, top: `${managementMenu.y}px` }"
+      @pointerdown.stop
+      @contextmenu.prevent
+      @keydown="handleManagementMenuKeydown"
+    >
+      <strong>{{ managedPinboard.name }}</strong>
+      <button type="button" role="menuitem" @click="beginRenameFromMenu(managedPinboard)">重命名</button>
+      <label class="color-action" role="menuitem">
+        <input
+          class="color-input"
+          type="color"
+          :value="managedPinboard.color"
+          aria-label="分组颜色"
+          @change="changeColor($event, managedPinboard.id)"
+        />
+        <span>更换颜色</span>
+      </label>
+      <button
+        v-if="pinboards[0]?.id !== managedPinboard.id"
+        type="button"
+        role="menuitem"
+        @click="moveFromMenu(managedPinboard.id, -1)"
+      >← 移到左侧</button>
+      <button
+        v-if="pinboards.at(-1)?.id !== managedPinboard.id"
+        type="button"
+        role="menuitem"
+        @click="moveFromMenu(managedPinboard.id, 1)"
+      >移到右侧 →</button>
+      <button
+        type="button"
+        role="menuitem"
+        class="danger-button"
+        @click="deleteFromMenu(managedPinboard.id)"
+      >删除分组</button>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -197,6 +287,22 @@ button.active {
   color: var(--pb-violet);
 }
 
+.smart-pinboard {
+  gap: 5px;
+}
+
+.smart-pinboard__icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  place-items: center;
+}
+
 .pinboard-chip {
   position: relative;
   display: inline-flex;
@@ -220,19 +326,6 @@ button.active {
   opacity: 1;
 }
 
-.chip-controls {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  padding-right: 4px;
-}
-
-.chip-controls button {
-  min-width: max-content;
-  min-height: 23px;
-  padding: 0 7px;
-}
-
 .color-action {
   display: inline-flex;
   gap: 5px;
@@ -244,6 +337,52 @@ button.active {
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
+}
+
+.pinboard-manage-menu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  width: 184px;
+  padding: 7px;
+  border: 1px solid var(--pb-line);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--pb-glass-strong) 96%, transparent);
+  box-shadow: 0 18px 48px var(--pb-shadow);
+}
+
+.pinboard-manage-menu > strong {
+  padding: 7px 9px;
+  overflow: hidden;
+  color: var(--pb-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinboard-manage-menu > button,
+.pinboard-manage-menu > .color-action {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  border-radius: 9px;
+  color: var(--pb-ink);
+}
+
+.pinboard-manage-menu > button:hover,
+.pinboard-manage-menu > button:focus-visible,
+.pinboard-manage-menu > .color-action:hover,
+.pinboard-manage-menu > .color-action:focus-within {
+  background: color-mix(in srgb, var(--pb-violet) 12%, transparent);
+  outline: 0;
+}
+
+.pinboard-manage-menu > .danger-button {
+  margin-top: 4px;
+  border-top: 1px solid var(--pb-line);
+  border-radius: 0 0 9px 9px;
+  color: #d94b57;
 }
 
 .color-action:hover {

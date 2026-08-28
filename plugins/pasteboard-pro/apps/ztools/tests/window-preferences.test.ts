@@ -33,10 +33,15 @@ describe("ZTools window preferences", () => {
       },
     });
 
-    await store.put({ dockEdge: "left", multiPasteMode: "queue" });
+    await store.put({
+      dockEdge: "left",
+      multiPasteMode: "queue",
+      theme: defaultWindowPreferences.theme,
+    });
     await expect(store.get()).resolves.toEqual({
       dockEdge: "left",
       multiPasteMode: "queue",
+      theme: defaultWindowPreferences.theme,
     });
   });
 
@@ -51,6 +56,7 @@ describe("ZTools window preferences", () => {
     await expect(store.get()).resolves.toEqual({
       dockEdge: "top",
       multiPasteMode: "batch",
+      theme: defaultWindowPreferences.theme,
     });
   });
 

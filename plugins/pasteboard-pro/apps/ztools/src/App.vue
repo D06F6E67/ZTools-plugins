@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import {
   PinboardSchema,
@@ -10,6 +10,7 @@ import {
 } from "@pasteboard-pro/core";
 import type { DockEdge } from "@pasteboard-pro/design-tokens";
 import type { SaveSyncConfigurationInput } from "../preload/sync-config";
+import type { ListOrders } from "../preload/list-order-store";
 import {
   defaultPrivacySettings,
   type PrivacySettings,
@@ -31,6 +32,20 @@ import {
   pasteStackSnapshot,
   type PasteboardKeyboardEffect,
 } from "./state";
+import { queryAfterTypeToSearch } from "./type-to-search";
+import { isListNavigationKey, shouldResumeListControl } from "./list-control-key";
+import { themeCssVariables } from "./theme";
+import {
+  applyListOrder,
+  listOrderScope,
+  reorderItemGroupIds,
+  type ListReorderRequest,
+} from "./list-order";
+import {
+  defaultSmartPinboards,
+  filterSmartPinboardItems,
+  isSmartPinboardId,
+} from "./smart-pinboards";
 
 const params = new URLSearchParams(window.location.search);
 const panel = params.get("panel");
@@ -61,14 +76,24 @@ const pinboards = ref<Pinboard[]>([]);
 const query = ref("");
 const paused = ref(false);
 const activePinboardId = ref<string>();
+const listOrders = ref<ListOrders>({});
+const listOrderSaving = ref(false);
 const previewItemId = ref<string>();
 const status = ref("本地历史已就绪");
 const syncSettings = ref<SyncSettings>(structuredClone(defaultSyncSettings));
 const privacySettings = ref<PrivacySettings>(structuredClone(defaultPrivacySettings));
 const windowPreferences = ref<WindowPreferences>(structuredClone(defaultWindowPreferences));
+const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const prefersDark = ref(colorScheme.matches);
+const themeStyle = computed(() =>
+  themeCssVariables(windowPreferences.value.theme, prefersDark.value),
+);
+const hasImageBackground = computed(
+  () => windowPreferences.value.theme.background.type === "image",
+);
 const settingsOpen = ref(false);
 const settingsSaving = ref(false);
-const settingsInitialTab = ref<"general" | "privacy" | "sync">("general");
+const settingsInitialTab = ref<"general" | "appearance" | "privacy" | "sync">("general");
 const editor = ref<{
   mode: "create" | "edit" | "rename";
   itemId?: string;
@@ -80,6 +105,14 @@ const editorSaving = ref(false);
 let shelfHasFocused = false;
 let nativeDialogOpen = false;
 let pasteStackPersistence = Promise.resolve();
+let reorderedLatestItemId: string | undefined;
+
+function suppressReorderLatestFocus(itemId: string): void {
+  reorderedLatestItemId = itemId;
+  window.setTimeout(() => {
+    if (reorderedLatestItemId === itemId) reorderedLatestItemId = undefined;
+  }, 0);
+}
 
 async function loadDevelopmentFixtures(): Promise<void> {
   if (!import.meta.env.DEV) return;
@@ -92,10 +125,18 @@ async function loadDevelopmentFixtures(): Promise<void> {
 
 const visibleItems = computed(() => {
   const items = state.visibleItems;
-  return activePinboardId.value === undefined
+  const pinboardId = activePinboardId.value;
+  const filtered = pinboardId === undefined
     ? items
-    : items.filter((item) => item.pinboardId === activePinboardId.value);
+    : isSmartPinboardId(pinboardId)
+    ? filterSmartPinboardItems(items, pinboardId)
+    : items.filter((item) => item.pinboardId === pinboardId);
+  const scope = listOrderScope(pinboardId);
+  return applyListOrder(filtered, listOrders.value[scope] ?? []);
 });
+const reorderEnabled = computed(
+  () => query.value.trim().length === 0 && visibleItems.value.length > 1 && !listOrderSaving.value,
+);
 const previewItem = computed(() =>
   visibleItems.value.find((item) => item.id === previewItemId.value),
 );
@@ -127,10 +168,24 @@ function selectItem(itemId: string, extend: boolean, toggle: boolean): void {
 }
 
 function focusLatestItem(itemId: string): void {
+  if (reorderedLatestItemId === itemId) {
+    reorderedLatestItemId = undefined;
+    return;
+  }
   if (query.value.trim().length > 0 || activePinboardId.value !== undefined) return;
   if (visibleItems.value.some((item) => item.id === itemId)) {
     state.replaceSelection(itemId);
   }
+}
+
+function focusListCard(itemId: string | undefined): void {
+  if (itemId === undefined) return;
+  void nextTick(() => {
+    const card = [...document.querySelectorAll<HTMLElement>("[data-pb-item-id]")]
+      .find((candidate) => candidate.dataset.pbItemId === itemId);
+    card?.focus({ preventScroll: true });
+    card?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
 }
 
 async function pasteItem(
@@ -198,7 +253,7 @@ async function copySelection(plainText = false): Promise<void> {
 function createTextItem(): void {
   window.pasteboardPro?.openPanel("editor", {
     mode: "create",
-    ...(activePinboardId.value === undefined
+    ...(activePinboardId.value === undefined || isSmartPinboardId(activePinboardId.value)
       ? {}
       : { pinboardId: activePinboardId.value }),
   });
@@ -322,6 +377,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
   if (!isShelfMode) return;
+  if (settingsOpen.value) return;
   if (event.metaKey && event.key.toLowerCase() === "f") {
     event.preventDefault();
     document.querySelector<HTMLInputElement>("[data-pb-search]")?.focus();
@@ -334,9 +390,35 @@ function onKeydown(event: KeyboardEvent): void {
   }
   const isTextControl =
     event.target instanceof HTMLInputElement ||
-    event.target instanceof HTMLTextAreaElement;
-  if (isTextControl && event.key !== "Enter") {
+    event.target instanceof HTMLTextAreaElement ||
+    (event.target instanceof HTMLElement && event.target.isContentEditable);
+  const searchInput =
+    event.target instanceof HTMLInputElement &&
+    event.target.matches("[data-pb-search]")
+      ? event.target
+      : undefined;
+  const resumeListControl =
+    searchInput !== undefined && shouldResumeListControl(event);
+  if (isTextControl && !resumeListControl) {
     return;
+  }
+  if (resumeListControl) {
+    searchInput.blur();
+    const previousSelection = state.selection.selected.join("\0");
+    const firstItemId = state.selectFirst(
+      visibleItems.value.map((item) => item.id),
+    );
+    if (
+      state.selection.selected.join("\0") !== previousSelection &&
+      state.pasteStack.itemIds.length > 0
+    ) {
+      void updatePasteStack({ type: "clear" });
+    }
+    focusListCard(firstItemId);
+    if (isListNavigationKey(event.key)) {
+      event.preventDefault();
+      return;
+    }
   }
   if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "c") {
     event.preventDefault();
@@ -356,6 +438,25 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "r" && focusedItem.value !== undefined) {
     event.preventDefault();
     renameItem(focusedItem.value.id);
+    return;
+  }
+  const isSpaceActivation =
+    event.key === " " &&
+    event.target instanceof Element &&
+    event.target.closest(
+      "button, a[href], summary, [role='button'], [role='menuitem']",
+    ) !== null;
+  const nextQuery = isSpaceActivation
+    ? undefined
+    : queryAfterTypeToSearch(query.value, event);
+  if (nextQuery !== undefined) {
+    event.preventDefault();
+    const input = document.querySelector<HTMLInputElement>("[data-pb-search]");
+    updateQuery(nextQuery);
+    input?.focus();
+    void nextTick(() =>
+      input?.setSelectionRange(nextQuery.length, nextQuery.length),
+    );
     return;
   }
   const previousSelection = state.selection.selected.join("\0");
@@ -378,6 +479,9 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (selectionChanged && state.pasteStack.itemIds.length > 0) {
     void updatePasteStack({ type: "clear" });
+  }
+  if (selectionChanged && isListNavigationKey(event.key)) {
+    focusListCard(state.selection.focus ?? state.selection.selected[0]);
   }
   void handleEffect(effect);
 }
@@ -408,12 +512,55 @@ function selectPinboard(pinboardId: string | undefined): void {
   state.restoreSelection(visibleItems.value.map((item) => item.id));
 }
 
+async function reorderVisibleItems(value: ListReorderRequest): Promise<void> {
+  if (!reorderEnabled.value) return;
+  const scope = listOrderScope(activePinboardId.value);
+  const currentIds = visibleItems.value.map((item) => item.id);
+  const nextIds = reorderItemGroupIds(
+    currentIds,
+    value.sourceIds,
+    value.targetId,
+    value.position,
+  );
+  if (nextIds.every((id, index) => id === currentIds[index])) return;
+  const previousOrders = listOrders.value;
+  if (
+    activePinboardId.value === undefined &&
+    nextIds[0] !== undefined &&
+    nextIds[0] !== currentIds[0]
+  ) {
+    suppressReorderLatestFocus(nextIds[0]);
+  }
+  listOrders.value = { ...previousOrders, [scope]: nextIds };
+  state.restoreSelection(nextIds);
+  listOrderSaving.value = true;
+  try {
+    const saved = await window.pasteboardPro?.saveListOrder(scope, nextIds);
+    if (saved !== undefined) listOrders.value = saved;
+    status.value = "列表顺序已保存";
+  } catch (error) {
+    if (
+      activePinboardId.value === undefined &&
+      currentIds[0] !== undefined &&
+      currentIds[0] !== nextIds[0]
+    ) {
+      suppressReorderLatestFocus(currentIds[0]);
+    }
+    listOrders.value = previousOrders;
+    state.restoreSelection(visibleItems.value.map((item) => item.id));
+    status.value = error instanceof Error ? error.message : "列表排序保存失败";
+  } finally {
+    listOrderSaving.value = false;
+  }
+}
+
 async function loadPinboards(): Promise<void> {
   const values = await window.pasteboardPro?.listPinboards();
   if (values !== undefined) {
     pinboards.value = values.map((value) => PinboardSchema.parse(value));
     if (
       activePinboardId.value !== undefined &&
+      !isSmartPinboardId(activePinboardId.value) &&
       !pinboards.value.some((pinboard) => pinboard.id === activePinboardId.value)
     ) {
       selectPinboard(undefined);
@@ -541,7 +688,7 @@ async function quickLookItem(itemId: string): Promise<void> {
   }
 }
 
-type SettingsTab = "general" | "privacy" | "sync";
+type SettingsTab = "general" | "appearance" | "privacy" | "sync";
 
 async function loadSettings(tab: SettingsTab): Promise<void> {
   const [privacy, preferences, sync] = await Promise.all([
@@ -615,6 +762,15 @@ async function saveSettings(
   }
 }
 
+async function onHistoryCleared(): Promise<void> {
+  state.setPasteStack({
+    itemIds: [],
+    direction: "forward",
+  });
+  await loadHistory();
+  status.value = "剪贴板历史已清空";
+}
+
 function closeSettings(): void {
   if (panelMode === "privacy" || panelMode === "sync") {
     window.close();
@@ -638,10 +794,27 @@ function onWindowBlur(): void {
   if (isShelfMode && shelfHasFocused && !nativeDialogOpen) window.close();
 }
 
+function onColorSchemeChange(event: MediaQueryListEvent): void {
+  prefersDark.value = event.matches;
+}
+
+async function onWindowPreferencesChanged(): Promise<void> {
+  const preferences = await window.pasteboardPro?.getWindowPreferences();
+  if (preferences !== undefined) windowPreferences.value = preferences;
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:paste-stack-changed", onPasteStackChanged);
+  window.addEventListener(
+    "pasteboard-pro:window-preferences-changed",
+    onWindowPreferencesChanged,
+  );
+  colorScheme.addEventListener("change", onColorSchemeChange);
   await loadDevelopmentFixtures();
+  const preferences = await window.pasteboardPro?.getWindowPreferences();
+  windowPreferences.value =
+    preferences ?? structuredClone(defaultWindowPreferences);
   if (isShelfMode) {
     shelfHasFocused = document.hasFocus();
     window.addEventListener("focus", onWindowFocus);
@@ -652,8 +825,8 @@ onMounted(async () => {
     await loadSettings(
       panelMode === "sync"
         ? "sync"
-        : requestedTab === "privacy"
-          ? "privacy"
+        : requestedTab === "appearance" || requestedTab === "privacy"
+          ? requestedTab
           : "general",
     );
     return;
@@ -694,8 +867,12 @@ onMounted(async () => {
   if (!isShelfMode) return;
   window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
   window.addEventListener("pasteboard-pro:history-changed", loadHistory);
-  const settings = await window.pasteboardPro?.getPrivacySettings();
+  const [settings, savedListOrders] = await Promise.all([
+    window.pasteboardPro?.getPrivacySettings(),
+    window.pasteboardPro?.getListOrders(),
+  ]);
   paused.value = settings?.pause.paused ?? false;
+  listOrders.value = savedListOrders ?? {};
   const pasteStack = await window.pasteboardPro?.getPasteStack();
   const platformCapabilities = window.pasteboardPro?.getPlatformCapabilities();
   if (
@@ -720,21 +897,29 @@ onBeforeUnmount(() => {
   window.removeEventListener("blur", onWindowBlur);
   window.removeEventListener("pasteboard-pro:history-mirrored", onMirrored);
   window.removeEventListener("pasteboard-pro:history-changed", loadHistory);
+  window.removeEventListener(
+    "pasteboard-pro:window-preferences-changed",
+    onWindowPreferencesChanged,
+  );
+  colorScheme.removeEventListener("change", onColorSchemeChange);
 });
 </script>
 
 <template>
   <main
     class="stage"
+    :style="themeStyle"
     :class="{
       'stage--panel': panelMode !== undefined,
       'stage--primary': !isShelfMode && panelMode === undefined,
+      'stage--image-background': hasImageBackground,
     }"
   >
     <Shelf
       v-if="isShelfMode"
       :items="visibleItems"
       :pinboards="pinboards"
+      :smart-pinboards="defaultSmartPinboards"
       :selected-ids="state.selection.selected"
       :focused-item-id="state.selection.focus"
       :query="query"
@@ -744,6 +929,7 @@ onBeforeUnmount(() => {
       :active-pinboard-id="activePinboardId"
       :paste-stack-count="state.pasteStack.itemIds.length"
       :paste-stack-direction="state.pasteStack.direction"
+      :reorder-enabled="reorderEnabled"
       @update:query="updateQuery"
       @select="selectItem"
       @paste="pasteItem"
@@ -764,6 +950,7 @@ onBeforeUnmount(() => {
       @create-text="createTextItem"
       @edit-item="editItem"
       @rename-item="renameItem"
+      @reorder="reorderVisibleItems"
     />
     <SettingsPanel
       v-if="settingsOpen && (panelMode === undefined || panelMode === 'privacy' || panelMode === 'sync')"
@@ -776,6 +963,7 @@ onBeforeUnmount(() => {
       @close="closeSettings"
       @save="saveSettings"
       @retry="retrySync"
+      @history-cleared="onHistoryCleared"
     />
     <TextEditor
       v-if="panelMode === 'editor' && editor"
@@ -814,6 +1002,11 @@ onBeforeUnmount(() => {
   min-height: 100%;
   padding: 0;
   place-items: end center;
+  background-color: var(--pb-theme-background-color, var(--pb-window-bg));
+  background-image: var(--pb-theme-background-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 .stage--panel {
@@ -822,7 +1015,20 @@ onBeforeUnmount(() => {
   min-height: 0;
   padding: 0;
   place-items: center;
-  background: var(--pb-window-bg);
+}
+
+.stage--image-background .shelf.glass-surface {
+  background-color: var(--pb-theme-background-color, var(--pb-window-bg));
+  background-image: var(--pb-theme-background-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  box-shadow:
+    inset 0 0 0 999px color-mix(in srgb, var(--pb-glass) 32%, transparent),
+    0 24px 80px var(--pb-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .stage--primary {

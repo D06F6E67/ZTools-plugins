@@ -6,6 +6,7 @@ import {
   copyCanonicalRecord,
   directPasteTarget,
   pasteCanonicalRecord,
+  withRichClipboard,
 } from "../preload/paste-item";
 
 function record(overrides: Partial<CanonicalClipboardRecord> = {}): CanonicalClipboardRecord {
@@ -34,8 +35,39 @@ describe("canonical direct paste", () => {
   it("uses the canonical source content instead of the disposable host record", () => {
     expect(directPasteTarget(record())).toEqual({
       type: "content",
-      content: { type: "text", content: "Plain fallback" },
+      content: {
+        type: "html",
+        content: {
+          text: "Plain fallback",
+          html: "<strong>Rich value</strong>",
+        },
+      },
     });
+  });
+
+  it("writes canonical HTML and returns focus before simulating paste", async () => {
+    const calls: string[] = [];
+    const baseHost = {
+      write: vi.fn(async () => false),
+      writeContent: vi.fn(async () => ({ success: true })),
+    };
+    const write = vi.fn(() => calls.push("write"));
+    const host = withRichClipboard(baseHost, {
+      write,
+      leavePlugin: () => calls.push("leave"),
+      waitForTarget: async () => { calls.push("wait"); },
+      simulatePaste: () => calls.push("paste"),
+    });
+
+    await expect(pasteCanonicalRecord(record(), host)).resolves.toEqual({
+      status: "pasted",
+    });
+    expect(write).toHaveBeenCalledWith({
+      text: "Plain fallback",
+      html: "<strong>Rich value</strong>",
+    });
+    expect(calls).toEqual(["write", "leave", "wait", "paste"]);
+    expect(baseHost.writeContent).not.toHaveBeenCalled();
   });
 
   it("uses canonical text for Shift-Return and Shift-Command quick paste", () => {
@@ -97,7 +129,7 @@ describe("canonical direct paste", () => {
         .mockRejectedValueOnce(new Error("denied"))
         .mockResolvedValueOnce({ success: true }),
     };
-    await expect(pasteCanonicalRecord(record(), host)).resolves.toEqual({
+    await expect(pasteCanonicalRecord(record(), host, true)).resolves.toEqual({
       status: "accessibility_required",
       directPasteError: "denied",
     });
@@ -114,7 +146,7 @@ describe("canonical direct paste", () => {
       writeContent: vi.fn(async () => ({ success: true })),
     };
 
-    await expect(pasteCanonicalRecord(record(), host)).resolves.toEqual({
+    await expect(pasteCanonicalRecord(record(), host, true)).resolves.toEqual({
       status: "pasted",
     });
     expect(host.writeContent).toHaveBeenCalledWith(
@@ -129,7 +161,7 @@ describe("canonical direct paste", () => {
       write: vi.fn(async () => true),
       writeContent: vi.fn(async () => ({ success: true })),
     };
-    await copyCanonicalRecord(record(), host);
+    await copyCanonicalRecord(record(), host, true);
     expect(host.writeContent).toHaveBeenCalledWith(
       { type: "text", content: "Plain fallback" },
       false,
@@ -143,7 +175,7 @@ describe("canonical direct paste", () => {
       writeContent: vi.fn(async () => ({ success: false })),
     };
 
-    await expect(copyCanonicalRecord(record(), host)).rejects.toThrow(
+    await expect(copyCanonicalRecord(record(), host, true)).rejects.toThrow(
       "ZTools 未能复制所选剪贴板内容",
     );
   });

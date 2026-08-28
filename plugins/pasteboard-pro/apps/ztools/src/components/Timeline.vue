@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 import type { PasteItem, Pinboard } from "@pasteboard-pro/core";
 
+import {
+  collapsedDragSourcesShifts,
+  LIST_REORDER_MIME,
+  reorderItemGroupShifts,
+  type ListDropPosition,
+  type ListReorderRequest,
+} from "../list-order";
 import PasteCard from "./PasteCard.vue";
 
 const props = withDefaults(
@@ -13,8 +20,9 @@ const props = withDefaults(
     focusedId: string | undefined;
     vertical?: boolean;
     compact?: boolean;
+    reorderEnabled?: boolean;
   }>(),
-  { vertical: false, compact: false },
+  { vertical: false, compact: false, reorderEnabled: true },
 );
 
 const emit = defineEmits<{
@@ -23,10 +31,32 @@ const emit = defineEmits<{
   preview: [itemId: string];
   latestVisible: [itemId: string];
   assignPinboard: [pinboardId: string | undefined, itemId: string];
+  createPinboard: [];
+  reorder: [value: ListReorderRequest];
 }>();
 const track = ref<HTMLElement>();
 const followLatest = ref(true);
+const draggedItemIds = ref<readonly string[]>([]);
+const draggedItemIdSet = computed(() => new Set(draggedItemIds.value));
+const reorderTarget = ref<Readonly<{ itemId: string; position: ListDropPosition }>>();
 const LEADING_EDGE_THRESHOLD = 8;
+const reorderShifts = computed(() => {
+  const sourceIds = draggedItemIds.value;
+  const target = reorderTarget.value;
+  if (sourceIds.length === 0) return new Map<string, number>();
+  if (target === undefined) {
+    return collapsedDragSourcesShifts(
+      props.items.map((item) => item.id),
+      sourceIds,
+    );
+  }
+  return reorderItemGroupShifts(
+    props.items.map((item) => item.id),
+    sourceIds,
+    target.itemId,
+    target.position,
+  );
+});
 
 type VisibleAnchor = Readonly<{ itemId: string; offset: number }>;
 
@@ -47,6 +77,60 @@ function updateFollowLatest(): void {
   const element = track.value;
   if (element === undefined) return;
   followLatest.value = scrollOffset(element) <= LEADING_EDGE_THRESHOLD;
+}
+
+function beginReorder(itemId: string): void {
+  if (!props.reorderEnabled) return;
+  draggedItemIds.value = props.selectedIds.includes(itemId)
+    ? props.items
+        .map((item) => item.id)
+        .filter((candidateId) => props.selectedIds.includes(candidateId))
+    : [itemId];
+}
+
+function clearReorder(): void {
+  draggedItemIds.value = [];
+  reorderTarget.value = undefined;
+}
+
+function reorderItemIdsFor(itemId: string): readonly string[] {
+  if (!props.selectedIds.includes(itemId)) return [itemId];
+  return props.items
+    .map((item) => item.id)
+    .filter((candidateId) => props.selectedIds.includes(candidateId));
+}
+
+function updateReorderTarget(event: DragEvent): void {
+  if (!props.reorderEnabled || draggedItemIds.value.length === 0) return;
+  if (!event.dataTransfer?.types.includes(LIST_REORDER_MIME)) return;
+  const target = event.target instanceof Element
+    ? event.target.closest<HTMLElement>("[data-pb-item-id]")
+    : null;
+  const itemId = target?.dataset.pbItemId;
+  if (target === null || itemId === undefined || draggedItemIdSet.value.has(itemId)) {
+    if (reorderTarget.value !== undefined) {
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+    }
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  const bounds = target.getBoundingClientRect();
+  const position: ListDropPosition = props.vertical
+    ? event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
+    : event.clientX < bounds.left + bounds.width / 2 ? "before" : "after";
+  reorderTarget.value = { itemId, position };
+}
+
+function commitReorder(event: DragEvent): void {
+  const sourceIds = draggedItemIds.value;
+  const target = reorderTarget.value;
+  if (sourceIds.length > 0 && target !== undefined) {
+    event.preventDefault();
+    emit("reorder", { sourceIds, targetId: target.itemId, position: target.position });
+  }
+  clearReorder();
 }
 
 function captureVisibleAnchor(element: HTMLElement): VisibleAnchor | undefined {
@@ -196,6 +280,10 @@ onMounted(() => {
       role="listbox"
       aria-multiselectable="true"
       @scroll.passive="updateFollowLatest"
+      @dragover="updateReorderTarget"
+      @drop="commitReorder"
+      @dragend="clearReorder"
+      @dragleave.self="reorderTarget = undefined"
     >
       <PasteCard
         v-for="(item, index) in props.items"
@@ -206,10 +294,18 @@ onMounted(() => {
         :selected="props.selectedIds.includes(item.id)"
         :vertical="props.vertical"
         :compact="props.compact"
+        :reorder-enabled="props.reorderEnabled"
+        :reorder-active="draggedItemIds.length > 0"
+        :reorder-hidden="draggedItemIdSet.has(item.id)"
+        :reorder-item-ids="reorderItemIdsFor(item.id)"
+        :reorder-shift="reorderShifts.get(item.id) ?? 0"
         @select="forwardSelect"
         @paste="emit('paste', $event)"
         @preview="emit('preview', $event)"
         @assign-pinboard="emit('assignPinboard', $event.pinboardId, $event.itemId)"
+        @create-pinboard="emit('createPinboard')"
+        @reorder-drag-start="beginReorder"
+        @reorder-drag-end="clearReorder"
       />
     </div>
   </section>
@@ -223,6 +319,7 @@ onMounted(() => {
 }
 
 .timeline__track {
+  --pb-reorder-gap: 12px;
   display: flex;
   gap: 12px;
   min-height: 150px;
@@ -259,6 +356,7 @@ onMounted(() => {
 }
 
 .timeline--vertical.timeline--compact .timeline__track {
+  --pb-reorder-gap: 8px;
   gap: 8px;
   padding: 3px 3px 9px;
 }

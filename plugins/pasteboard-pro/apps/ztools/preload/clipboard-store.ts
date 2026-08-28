@@ -75,6 +75,10 @@ export type MirrorHostHistoryOptions = Readonly<{
     rawItem: unknown,
     record: CanonicalClipboardRecord,
   ) => boolean | Promise<boolean>;
+  prepareRecord?: (
+    rawItem: unknown,
+    record: CanonicalClipboardRecord,
+  ) => CanonicalClipboardRecord | Promise<CanonicalClipboardRecord>;
 }>;
 
 export type MirrorHostHistoryResult = Readonly<{
@@ -621,9 +625,11 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
             .sort(compareStableOrder);
     let previousOrderKey = existingBoardItems.at(-1)?.orderKey;
     const updatedRecords: CanonicalClipboardRecord[] = [];
+    const originalRecords: CanonicalClipboardRecord[] = [];
 
     for (const id of requestedIds) {
       const record = recordsById.get(id)!;
+      originalRecords.push(record);
       const timestamp = this.validTimestamp();
       const clock = (counter: number): HybridClock => ({
         wallMs: timestamp,
@@ -648,12 +654,58 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
         },
       });
       const updated = { item, origin: record.origin };
-      await this.put(updated);
       updatedRecords.push(updated);
       previousOrderKey = nextOrderKey;
     }
 
+    await this.putRecordsWithRollback(updatedRecords, originalRecords);
     return updatedRecords;
+  }
+
+  async restoreRecords(records: readonly CanonicalClipboardRecord[]): Promise<void> {
+    const requestedIds = new Set(records.map((record) => record.item.id));
+    if (requestedIds.size !== records.length) {
+      throw new RangeError("Clipboard records to restore must have unique ids");
+    }
+    const current = await this.listRecords();
+    const currentById = new Map(current.map((record) => [record.item.id, record]));
+    const originals = records.map((record) => {
+      const existing = currentById.get(record.item.id);
+      if (existing === undefined) {
+        throw new RangeError(`Clipboard item ${record.item.id} does not exist`);
+      }
+      return existing;
+    });
+    await this.putRecordsWithRollback(records, originals);
+  }
+
+  private async putRecordsWithRollback(
+    updatedRecords: readonly CanonicalClipboardRecord[],
+    originalRecords: readonly CanonicalClipboardRecord[],
+  ): Promise<void> {
+    const applied: CanonicalClipboardRecord[] = [];
+    try {
+      for (let index = 0; index < updatedRecords.length; index += 1) {
+        await this.put(updatedRecords[index]!);
+        applied.push(originalRecords[index]!);
+      }
+    } catch (error) {
+      const rollbackErrors: unknown[] = [];
+      for (const original of applied.reverse()) {
+        try {
+          await this.put(original);
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...rollbackErrors],
+          "Clipboard batch update and rollback both failed",
+        );
+      }
+      throw error;
+    }
   }
 
   async updateOcrText(
@@ -1063,7 +1115,10 @@ export async function mirrorHostHistory(
         continue;
       }
 
-      await store.put(record);
+      const preparedRecord = options.prepareRecord === undefined
+        ? record
+        : await options.prepareRecord(rawItem, record);
+      await store.put(preparedRecord);
       imported += 1;
     }
 

@@ -351,6 +351,13 @@ export class ShelfWindowManager {
     );
   }
 
+  notifyWindowPreferencesChanged(): void {
+    if (this.current === undefined || this.current.isDestroyed()) return;
+    void this.current.webContents.executeJavaScript(
+      "window.dispatchEvent(new CustomEvent('pasteboard-pro:window-preferences-changed'))",
+    );
+  }
+
   notifyPasteStackChanged(state: PasteStackState): void {
     if (this.current === undefined || this.current.isDestroyed()) return;
     const detail = JSON.stringify(state).replaceAll("<", "\\u003c");

@@ -12,6 +12,7 @@ import { ensureZToolsAutoStart } from "./auto-start";
 import type { PasteStackState } from "@pasteboard-pro/core";
 import { createOcrClient, createTesseractOcrClient } from "./ocr";
 import { NativeFileDragService } from "./native-file-drag";
+import { localizeMirroredImage } from "./mirrored-image";
 import { openQuickLook } from "./quick-look";
 import { rotateImageFile } from "./image-rotation";
 import {
@@ -19,7 +20,11 @@ import {
   createPortableSecretStore,
   type SafeStorageLike,
 } from "./keychain";
-import { copyCanonicalRecord, pasteCanonicalRecord } from "./paste-item";
+import {
+  copyCanonicalRecord,
+  pasteCanonicalRecord,
+  withRichClipboard,
+} from "./paste-item";
 import {
   isCapturePaused,
   performDirectPaste,
@@ -43,6 +48,12 @@ import {
   ZToolsPasteStackStore,
 } from "./paste-stack-store";
 import { executeRetentionPrune } from "./retention";
+import { ZToolsListOrderStore, type ListOrders } from "./list-order-store";
+import { loadThemeBackgroundImage } from "./theme-background";
+import {
+  clearClipboardHistory as clearStoredClipboardHistory,
+  type ClearClipboardHistoryResult,
+} from "./clear-history";
 import { runConfiguredVaultSync } from "./sync-controller";
 import {
   saveSyncConfiguration,
@@ -80,7 +91,7 @@ type IpcRendererLike = Readonly<{
 }>;
 
 const { clipboard, ipcRenderer, nativeImage, safeStorage } = require("electron") as {
-  clipboard: ClipboardWriter;
+  clipboard: ClipboardWriter & Readonly<{ clear(): void }>;
   ipcRenderer: IpcRendererLike;
   nativeImage: NativeImageApi;
   safeStorage?: SafeStorageLike;
@@ -120,6 +131,10 @@ type ZToolsHost = Readonly<{
   outPlugin(): void;
   simulateKeyboardTap?(key: string, ...modifiers: string[]): unknown;
   sendToParent?(channel: string, ...args: unknown[]): void;
+  showOpenDialog?(options: Readonly<{
+    properties: readonly ["openFile"];
+    filters: readonly Readonly<{ name: string; extensions: readonly string[] }>[];
+  }>): string[] | undefined | Promise<string[] | undefined>;
 }>;
 
 type PasteboardProBridge = Readonly<{
@@ -169,6 +184,10 @@ type PasteboardProBridge = Readonly<{
   retrySync(): Promise<SyncSettings>;
   getWindowPreferences(): Promise<WindowPreferences>;
   saveWindowPreferences(settings: WindowPreferences): Promise<WindowPreferences>;
+  selectThemeBackgroundImage(): Promise<string | undefined>;
+  clearClipboardHistory(): Promise<ClearClipboardHistoryResult>;
+  getListOrders(): Promise<ListOrders>;
+  saveListOrder(scope: string, itemIds: readonly string[]): Promise<ListOrders>;
   getPasteStack(): Promise<PasteStackState>;
   savePasteStack(state: PasteStackState): Promise<PasteStackState>;
   openPanel(panel: AuxiliaryPanel, params?: Readonly<Record<string, string>>): void;
@@ -189,7 +208,10 @@ const store = new ZToolsCanonicalClipboardStore(ztools.db.promises, {
   deviceId: ztools.getNativeId(),
 });
 const privacyStore = new ZToolsPrivacySettingsStore(ztools.db.promises);
-const windowPreferencesStore = new ZToolsWindowPreferencesStore(ztools.db.promises);
+const windowPreferencesStore = new ZToolsWindowPreferencesStore(ztools.db.promises, {
+  deviceId: ztools.getNativeId(),
+});
+const listOrderStore = new ZToolsListOrderStore(ztools.db.promises);
 const pasteStackStore = new ZToolsPasteStackStore(ztools.db.promises);
 const pinboardStore = new ZToolsPinboardStore(ztools.db.promises, {
   deviceId: ztools.getNativeId(),
@@ -231,15 +253,29 @@ let vaultSynchronization: Promise<SyncSettings> | undefined;
 let vaultSyncRequested = false;
 let shelfActivation = Promise.resolve();
 let shelfRefreshTimer: number | undefined;
-let pasteStackRefresh = Promise.resolve();
 let lastRetentionRun = 0;
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 const PANEL_REQUEST_CHANNEL = "pasteboard-pro:open-panel";
 const SCREEN_PROTECTION_CHANNEL = "pasteboard-pro:set-screen-protection";
 const SHELF_EDGE_CHANNEL = "pasteboard-pro:set-shelf-edge";
 const HISTORY_CHANGED_CHANNEL = "pasteboard-pro:history-changed";
+const WINDOW_PREFERENCES_CHANGED_CHANNEL = "pasteboard-pro:window-preferences-changed";
 const PASTE_STACK_CHANGED_CHANNEL = "pasteboard-pro:paste-stack-changed";
-const PASTE_STACK_REFRESH_INTERVAL_MS = 200;
+
+const canonicalClipboardHost = withRichClipboard(ztools.clipboard, {
+  write: (data) => clipboard.write(data),
+  leavePlugin: () => ztools.outPlugin(),
+  simulatePaste: () => {
+    if (ztools.simulateKeyboardTap === undefined) {
+      throw new Error("当前 ZTools 版本不支持模拟粘贴");
+    }
+    return ztools.simulateKeyboardTap(
+      "v",
+      process.platform === "darwin" ? "meta" : "ctrl",
+    );
+  },
+  waitForTarget: () => new Promise((resolve) => globalThis.setTimeout(resolve, 20)),
+});
 
 const pasteStackRuntime = isPrimaryWindow
   ? new PasteStackRuntime(
@@ -349,6 +385,15 @@ function broadcastHistoryChanged(): void {
   ztools.sendToParent?.(HISTORY_CHANGED_CHANNEL);
 }
 
+function broadcastWindowPreferencesChanged(): void {
+  window.dispatchEvent(new CustomEvent(WINDOW_PREFERENCES_CHANGED_CHANNEL));
+  if (isPrimaryWindow) {
+    shelfWindows.notifyWindowPreferencesChanged();
+    return;
+  }
+  ztools.sendToParent?.(WINDOW_PREFERENCES_CHANGED_CHANNEL);
+}
+
 function reportSynchronizationError(error: unknown): void {
   window.dispatchEvent(
     new CustomEvent("pasteboard-pro:sync-error", {
@@ -422,6 +467,17 @@ function scheduleHistoryMirror(): void {
             privacyInput(rawItem, record.item.payload.text),
             privacy.rules,
           ),
+        prepareRecord: async (_rawItem, record) => {
+          try {
+            return await localizeMirroredImage(record, {
+              readFile,
+              storeLocalBlob: (bytes, mediaType) =>
+                syncRepository.storeLocalBlob(bytes, mediaType),
+            });
+          } catch {
+            return record;
+          }
+        },
       });
       window.dispatchEvent(
         new CustomEvent("pasteboard-pro:history-mirrored", { detail: result }),
@@ -429,14 +485,6 @@ function scheduleHistoryMirror(): void {
       await runRetentionIfDue();
       broadcastHistoryChanged();
       void scheduleVaultSync().catch(reportSynchronizationError);
-    })
-    .catch(reportSynchronizationError);
-}
-
-function schedulePasteStackRefresh(): void {
-  pasteStackRefresh = pasteStackRefresh
-    .then(async () => {
-      await pasteStackRuntime?.refreshFromStore();
     })
     .catch(reportSynchronizationError);
 }
@@ -463,6 +511,9 @@ if (isPrimaryWindow) {
   ipcRenderer.on(HISTORY_CHANGED_CHANNEL, () => {
     shelfWindows.notifyHistoryChanged();
   });
+  ipcRenderer.on(WINDOW_PREFERENCES_CHANGED_CHANNEL, () => {
+    shelfWindows.notifyWindowPreferencesChanged();
+  });
   ipcRenderer.on(PASTE_STACK_CHANGED_CHANNEL, (_event, value) => {
     void pasteStackRuntime
       ?.replace(normalizePasteStackState(value), false)
@@ -470,17 +521,11 @@ if (isPrimaryWindow) {
   });
   void pasteStackRuntime
     ?.initialize()
-    .then(() => {
-      const timer = globalThis.setInterval(
-        schedulePasteStackRefresh,
-        PASTE_STACK_REFRESH_INTERVAL_MS,
-      );
-      (timer as unknown as { unref?: () => void }).unref?.();
-    })
     .catch(reportSynchronizationError);
 
   ztools.onPluginEnter((parameter) => {
     ztools.hideMainWindow(false);
+    pasteStackRuntime?.retryGlobalHook();
     window.dispatchEvent(
       new CustomEvent("pasteboard-pro:host-enter", { detail: parameter }),
     );
@@ -560,20 +605,20 @@ const bridge: PasteboardProBridge = {
   pasteHostItem: (hostItemId) =>
     performDirectPaste({ type: "host", hostItemId }, ztools.clipboard),
   pasteContent: (content) =>
-    performDirectPaste({ type: "content", content }, ztools.clipboard),
+    performDirectPaste({ type: "content", content }, canonicalClipboardHost),
   async pasteItem(itemId, plainText = false) {
     const record = await store.findRecordByItemId(itemId);
     if (record === undefined) {
       throw new RangeError("Clipboard item no longer exists");
     }
-    return pasteCanonicalRecord(record, ztools.clipboard, plainText);
+    return pasteCanonicalRecord(record, canonicalClipboardHost, plainText);
   },
   async copyItem(itemId, plainText = false) {
     const record = await store.findRecordByItemId(itemId);
     if (record === undefined) {
       throw new RangeError("Clipboard item no longer exists");
     }
-    await copyCanonicalRecord(record, ztools.clipboard, plainText);
+    await copyCanonicalRecord(record, canonicalClipboardHost, plainText);
   },
   async createTextItem(text, title, pinboardId) {
     if (
@@ -630,7 +675,21 @@ const bridge: PasteboardProBridge = {
         undefined,
       );
     }
-    await pinboardStore.delete(id);
+    try {
+      await pinboardStore.delete(id);
+    } catch (error) {
+      if (records.length > 0) {
+        try {
+          await store.restoreRecords(records);
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "删除分组失败，且无法完整恢复原分组内容",
+          );
+        }
+      }
+      throw error;
+    }
     void scheduleVaultSync().catch(reportSynchronizationError);
     return { id, unassignedItems: records.length };
   },
@@ -731,8 +790,45 @@ const bridge: PasteboardProBridge = {
   async saveWindowPreferences(settings) {
     await windowPreferencesStore.put(settings);
     requestShelfEdge(settings.dockEdge);
+    broadcastWindowPreferencesChanged();
+    void scheduleVaultSync().catch(reportSynchronizationError);
     return windowPreferencesStore.get();
   },
+  async selectThemeBackgroundImage() {
+    if (ztools.showOpenDialog === undefined) {
+      throw new Error("当前 ZTools 版本不支持选择主题背景图片");
+    }
+    const selected = await Promise.resolve(
+      ztools.showOpenDialog({
+        properties: ["openFile"],
+        filters: [
+          { name: "图片", extensions: ["png", "jpg", "jpeg", "webp"] },
+        ],
+      }),
+    );
+    const filePath = selected?.[0];
+    if (filePath === undefined) return undefined;
+    return loadThemeBackgroundImage(filePath, {
+      fileSystem: { readFile, stat },
+      nativeImage,
+    });
+  },
+  async clearClipboardHistory() {
+    const result = await clearStoredClipboardHistory(
+      store,
+      { delete: (input) => syncRepository.deleteLocalBlob(input) },
+      clipboard,
+    );
+    await pasteStackRuntime?.replace(
+      { itemIds: [], direction: "forward" },
+      true,
+    );
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    broadcastHistoryChanged();
+    return result;
+  },
+  getListOrders: () => listOrderStore.get(),
+  saveListOrder: (scope, itemIds) => listOrderStore.put(scope, itemIds),
   getPasteStack: () => pasteStackStore.get(),
   async savePasteStack(state) {
     const saved = await pasteStackStore.put(state);

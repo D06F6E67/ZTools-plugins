@@ -156,4 +156,32 @@ describe("ZTools Pinboard store", () => {
     });
     expect(await store.list()).toEqual([]);
   });
+
+  it("removes a new tombstone when deleting the Pinboard document fails", async () => {
+    const base = database();
+    let rejectPinboardRemoval = true;
+    const db: ZToolsDocumentDatabase = {
+      ...base,
+      async remove(document) {
+        const id = String((document as { _id?: unknown })._id);
+        if (rejectPinboardRemoval && id.startsWith("pasteboard-pro:pinboard:")) {
+          rejectPinboardRemoval = false;
+          throw new Error("simulated delete failure");
+        }
+        return base.remove!(document);
+      },
+    };
+    const store = new ZToolsPinboardStore(db, {
+      deviceId: "device-a",
+      idFactory: () => "board-1",
+      now: () => Date.parse("2026-07-17T00:00:00Z"),
+    });
+    const board = await store.create("Board", "#111111");
+
+    await expect(store.delete(board.id)).rejects.toThrow("simulated delete failure");
+    await expect(store.list()).resolves.toEqual([board]);
+    await expect(
+      db.get(`pasteboard-pro:tombstone:pinboard:${board.id}`),
+    ).rejects.toMatchObject({ status: 404 });
+  });
 });

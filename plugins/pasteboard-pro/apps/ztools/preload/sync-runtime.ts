@@ -30,8 +30,13 @@ import {
   type WebDavSyncResult,
   type WebDavVaultClient,
 } from "./sync";
+import {
+  parseSyncedWindowPreferences,
+  type SyncedWindowPreferences,
+} from "./window-preferences";
+import { compareClock } from "@pasteboard-pro/sync-protocol";
 
-export type SyncEntity = PasteItem | Pinboard | Tombstone;
+export type SyncEntity = PasteItem | Pinboard | SyncedWindowPreferences | Tombstone;
 
 export type SyncBlob = Readonly<{
   id: string;
@@ -65,6 +70,12 @@ function isTombstone(entity: SyncEntity): entity is Tombstone {
   return "deleted" in entity && entity.deleted === true;
 }
 
+function isWindowPreferences(
+  entity: SyncEntity,
+): entity is SyncedWindowPreferences {
+  return !isTombstone(entity) && "entityType" in entity;
+}
+
 function tombstone(value: unknown): Tombstone {
   if (
     !isRecord(value) ||
@@ -85,8 +96,11 @@ function tombstone(value: unknown): Tombstone {
   return structuredClone(value) as Tombstone;
 }
 
-function entityType(entity: SyncEntity): "item" | "pinboard" | "tombstone" {
+function entityType(
+  entity: SyncEntity,
+): "item" | "pinboard" | "preferences" | "tombstone" {
   if (isTombstone(entity)) return "tombstone";
+  if (isWindowPreferences(entity)) return "preferences";
   return "kind" in entity ? "item" : "pinboard";
 }
 
@@ -96,12 +110,14 @@ function entityObjectId(entity: SyncEntity): string {
 
 function entityIdentity(entity: SyncEntity): string {
   if (isTombstone(entity)) return `${entity.entityType}\0${entity.id}`;
+  if (isWindowPreferences(entity)) return `${entity.entityType}\0${entity.id}`;
   return `${"kind" in entity ? "paste_item" : "pinboard"}\0${entity.id}`;
 }
 
 function parseEntity(value: unknown, entry: VaultIndexEntry): SyncEntity {
   if (entry.objectType === "item") return PasteItemSchema.parse(value);
   if (entry.objectType === "pinboard") return PinboardSchema.parse(value);
+  if (entry.objectType === "preferences") return parseSyncedWindowPreferences(value);
   if (entry.objectType === "tombstone") return tombstone(value);
   throw new TypeError("Blob entries are not sync entities");
 }
@@ -247,12 +263,21 @@ function mergeEntities(
   for (const entity of remote) {
     const identity = entityIdentity(entity);
     const current = merged.get(identity);
-    merged.set(
-      identity,
-      current === undefined
-        ? structuredClone(entity)
-        : (mergeEntity(current, entity) as SyncEntity),
-    );
+    if (current === undefined) {
+      merged.set(identity, structuredClone(entity));
+      continue;
+    }
+    if (isWindowPreferences(current) || isWindowPreferences(entity)) {
+      if (!isWindowPreferences(current) || !isWindowPreferences(entity)) {
+        throw new RangeError("Sync entity identity contains incompatible entity types");
+      }
+      merged.set(
+        identity,
+        structuredClone(compareClock(current.clock, entity.clock) >= 0 ? current : entity),
+      );
+      continue;
+    }
+    merged.set(identity, mergeEntity(current, entity) as SyncEntity);
   }
   return [...merged.values()];
 }
@@ -260,7 +285,7 @@ function mergeEntities(
 function indexEntry(entity: SyncEntity, key: Uint8Array): VaultIndexEntry {
   const value = descriptor(entity, key);
   return {
-    objectType: value.objectType as "item" | "pinboard" | "tombstone",
+    objectType: value.objectType as "item" | "pinboard" | "preferences" | "tombstone",
     objectId: value.objectId,
     revision: value.revision,
     path: objectPath(value),

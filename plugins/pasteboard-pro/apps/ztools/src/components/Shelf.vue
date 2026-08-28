@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 import type { PasteItem, PasteStackDirection, Pinboard } from "@pasteboard-pro/core";
 import type { DockEdge } from "@pasteboard-pro/design-tokens";
 
 import { visualState, type ShelfDensity } from "../state";
+import type { SmartPinboard } from "../smart-pinboards";
+import type { ListReorderRequest } from "../list-order";
 import PasteStack from "./PasteStack.vue";
 import PinboardStrip from "./PinboardStrip.vue";
 import Timeline from "./Timeline.vue";
@@ -13,6 +15,7 @@ import Toolbar from "./Toolbar.vue";
 const props = defineProps<{
   items: readonly PasteItem[];
   pinboards: readonly Pinboard[];
+  smartPinboards: readonly SmartPinboard[];
   selectedIds: readonly string[];
   focusedItemId: string | undefined;
   query: string;
@@ -22,6 +25,7 @@ const props = defineProps<{
   activePinboardId: string | undefined;
   pasteStackCount: number;
   pasteStackDirection: PasteStackDirection;
+  reorderEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -43,9 +47,11 @@ const emit = defineEmits<{
   clearStack: [];
   openPrivacySettings: [];
   createText: [];
+  reorder: [value: ListReorderRequest];
 }>();
 
 const style = computed(() => visualState(props.edge, props.density));
+const pinboardStrip = ref<InstanceType<typeof PinboardStrip>>();
 
 function forwardSelect(itemId: string, extend: boolean, toggle: boolean): void {
   emit("select", itemId, extend, toggle);
@@ -62,6 +68,10 @@ function forwardAssignPinboard(
   emit("assignPinboard", pinboardId, itemId);
 }
 
+function requestCreatePinboard(): void {
+  pinboardStrip.value?.beginCreate();
+}
+
 </script>
 
 <template>
@@ -75,6 +85,7 @@ function forwardAssignPinboard(
       :query="query"
       :paused="paused"
       :compact="density === 'compact'"
+      :reorder-enabled="reorderEnabled"
       :edge="edge"
       @update:query="emit('update:query', $event)"
       @toggle-pause="emit('togglePause')"
@@ -83,7 +94,9 @@ function forwardAssignPinboard(
       @create-text="emit('createText')"
     />
     <PinboardStrip
+      ref="pinboardStrip"
       :pinboards="pinboards"
+      :smart-pinboards="smartPinboards"
       :active-id="activePinboardId"
       @select="emit('selectPinboard', $event)"
       @create="emit('createPinboard', $event)"
@@ -104,7 +117,9 @@ function forwardAssignPinboard(
       @paste="emit('paste', $event)"
       @preview="emit('preview', $event)"
       @assign-pinboard="forwardAssignPinboard"
+      @create-pinboard="requestCreatePinboard"
       @latest-visible="emit('latestVisible', $event)"
+      @reorder="emit('reorder', $event)"
     />
     <PasteStack
       :count="pasteStackCount"

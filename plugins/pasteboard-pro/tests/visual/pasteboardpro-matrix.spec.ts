@@ -86,7 +86,16 @@ for (const host of hosts) {
 
     const first = page.getByRole("option").first();
     await first.click();
-    await page.getByTitle(/粘贴队列/).click();
+    if (host === "ztools") {
+      const itemId = await first.getAttribute("data-pb-item-id");
+      await page.evaluate((queuedItemId) => {
+        window.dispatchEvent(new CustomEvent("pasteboard-pro:paste-stack-changed", {
+          detail: { direction: "forward", itemIds: [queuedItemId] },
+        }));
+      }, itemId);
+    } else {
+      await page.getByTitle(/粘贴队列/).click();
+    }
     await expect(page.getByRole("status")).toContainText("粘贴队列");
     await captureNamedState(page, host, "paste-stack", errors);
 
@@ -94,6 +103,113 @@ for (const host of hosts) {
     await page.context().close();
   });
 }
+
+test("ztools type-to-search, smart groups, reorder, and appearance settings", async ({ browser }) => {
+  const { page, errors } = await visualPage(browser, "ztools", "bottom", "light", "full");
+  await page.locator("main").click({ position: { x: 8, y: 8 } });
+  await page.keyboard.type("i");
+  const search = page.getByRole("searchbox");
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("i");
+  await search.fill("");
+  await search.press("ArrowLeft");
+  const firstCard = page.getByRole("option").first();
+  await expect(firstCard).toBeFocused();
+  await expect(firstCard).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("option").nth(1)).toBeFocused();
+
+  await page.getByRole("button", { name: "文本", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveCount(3);
+  await page.getByRole("button", { name: "图像", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.getByRole("button", { name: "全部", exact: true }).click();
+
+  const idsBefore = await page.getByRole("option").evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-pb-item-id")),
+  );
+  await page.getByRole("option").first().click();
+  await page.getByRole("option").nth(2).click({ modifiers: ["Meta"] });
+  await page.evaluate(async () => {
+    const cards = [...document.querySelectorAll("[data-pb-item-id]")];
+    const source = cards[0];
+    const target = cards[4];
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+      throw new Error("Reorder fixtures are missing");
+    }
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    const preview = document.querySelector<HTMLElement>(".paste-card-drag-group");
+    const previewCards = preview?.querySelectorAll(".paste-card--drag-preview");
+    const draggedCards = [...document.querySelectorAll<HTMLElement>("[data-pb-item-id]")]
+      .filter((card) => getComputedStyle(card).opacity === "0");
+    if (preview?.dataset.pbDragPreviewCount !== "2" || previewCards?.length !== 2) {
+      throw new Error("Multi-selection drag preview does not contain every selected card");
+    }
+    if (draggedCards.length !== 2) {
+      throw new Error("Multi-selection drag sources are not hidden as a group");
+    }
+    for (const previewCard of previewCards) {
+      if (
+        !(previewCard instanceof HTMLElement) ||
+        getComputedStyle(previewCard).transform === "none"
+      ) {
+        throw new Error("Multi-selection drag preview is missing its 3D card treatment");
+      }
+    }
+    const bounds = target.getBoundingClientRect();
+    target.dispatchEvent(new DragEvent("dragover", {
+      bubbles: true,
+      cancelable: true,
+      clientX: bounds.right - 2,
+      clientY: bounds.top + bounds.height / 2,
+      dataTransfer: transfer,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    target.dispatchEvent(new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      clientX: bounds.right - 2,
+      clientY: bounds.top + bounds.height / 2,
+      dataTransfer: transfer,
+    }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+  });
+  await expect.poll(async () =>
+    page.getByRole("option").evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-pb-item-id")),
+    ),
+  ).toEqual([idsBefore[1], idsBefore[3], idsBefore[4], idsBefore[0], idsBefore[2]]);
+  await expect(page.locator('[role="option"][aria-selected="true"]')).toHaveCount(2);
+
+  const settings = await page.context().newPage();
+  settings.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  settings.on("pageerror", (error) => errors.push(error.message));
+  await settings.goto(
+    "http://127.0.0.1:5179/?visual=1&panel=privacy&tab=appearance",
+    { waitUntil: "networkidle" },
+  );
+  await settings.getByRole("tab", { name: "外观" }).click();
+  await expect(settings.getByLabel("选择主题色")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "选择图片" })).toBeVisible();
+  const header = settings.locator(".settings-header");
+  const footer = settings.locator(".settings-footer");
+  const scroller = settings.locator(".settings-scroll");
+  const before = { header: await header.boundingBox(), footer: await footer.boundingBox() };
+  await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const after = { header: await header.boundingBox(), footer: await footer.boundingBox() };
+  expect(Math.round(after.header?.y ?? -1)).toBe(Math.round(before.header?.y ?? -2));
+  expect(Math.round(after.footer?.y ?? -1)).toBe(Math.round(before.footer?.y ?? -2));
+  expect(errors).toEqual([]);
+  await page.context().close();
+});
 
 test.afterAll(async () => {
   const expectedScreenshots = 72;

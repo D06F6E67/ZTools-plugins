@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PasteItem } from "@pasteboard-pro/core";
 
@@ -180,6 +180,29 @@ describe("ZTools clipboard adapter", () => {
     expect(await store.getCursor()).toEqual({ id: "text-1", timestamp: 300 });
   });
 
+  it("prepares accepted, non-duplicate records immediately before persistence", async () => {
+    const store = new MemoryStore();
+    const prepareRecord = vi.fn((_rawItem, record: CanonicalClipboardRecord) => ({
+      ...record,
+      origin: { ...record.origin, pluginBlobId: "plugin-copy" },
+    }));
+    const host: HostClipboardApi = {
+      async getHistory() {
+        return { items: [hostItems[1]], total: 1 };
+      },
+    };
+
+    await mirrorHostHistory(host, store, {
+      deviceId: "ztools-device",
+      prepareRecord,
+    });
+
+    expect(prepareRecord).toHaveBeenCalledTimes(1);
+    expect(store.records.get("ztools:image-1")?.origin).toMatchObject({
+      pluginBlobId: "plugin-copy",
+    });
+  });
+
   it("skips unsupported or malformed host values without inventing records", () => {
     expect(normalizeHostClipboardItem(null, "device")).toBeNull();
     expect(
@@ -353,6 +376,63 @@ describe("ZTools clipboard adapter", () => {
     const renamed = await store.updateItemTitle(created.item.id, "Final title");
     expect(renamed.item.title).toBe("Final title");
     expect(renamed.item.payload.revision).toBe(edited.item.payload.revision);
+  });
+
+  it("rolls back every item when a batch Pinboard assignment fails", async () => {
+    const documents = new Map<string, Record<string, unknown>>();
+    let revision = 0;
+    let assignmentWrites = 0;
+    let rejectAssignment = false;
+    const database: ZToolsDocumentDatabase = {
+      async get(id) {
+        const document = documents.get(id);
+        if (document === undefined) throw { status: 404 };
+        return structuredClone(document);
+      },
+      async put(document) {
+        const id = String(document._id);
+        const storedRecord = document.record as CanonicalClipboardRecord | undefined;
+        if (rejectAssignment && storedRecord?.item.pinboardId === "board-work") {
+          assignmentWrites += 1;
+          if (assignmentWrites === 2) {
+            rejectAssignment = false;
+            throw new Error("simulated assignment failure");
+          }
+        }
+        const current = documents.get(id);
+        if (current !== undefined && document._rev !== current._rev) {
+          throw { status: 409 };
+        }
+        revision += 1;
+        documents.set(id, { ...structuredClone(document), _rev: `${revision}-test` });
+        return { ok: true };
+      },
+      async allDocs(options) {
+        const start = String(options.startkey ?? "");
+        const end = String(options.endkey ?? "\uffff");
+        return {
+          rows: [...documents.entries()]
+            .filter(([id]) => id >= start && id <= end)
+            .map(([id, document]) => ({ id, doc: structuredClone(document) })),
+        };
+      },
+    };
+    const store = new ZToolsCanonicalClipboardStore(database, {
+      deviceId: "device-test",
+    });
+    const first = await store.createTextItem("First");
+    const second = await store.createTextItem("Second");
+    rejectAssignment = true;
+
+    await expect(
+      store.assignToPinboard([first.item.id, second.item.id], "board-work"),
+    ).rejects.toThrow("simulated assignment failure");
+    await expect(store.findRecordByItemId(first.item.id)).resolves.not.toHaveProperty(
+      "item.pinboardId",
+    );
+    await expect(store.findRecordByItemId(second.item.id)).resolves.not.toHaveProperty(
+      "item.pinboardId",
+    );
   });
 
   it("accepts ZTools native allDocs arrays", async () => {

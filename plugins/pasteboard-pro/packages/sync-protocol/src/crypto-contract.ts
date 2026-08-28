@@ -3,6 +3,7 @@ export const VAULT_VERSION = 1 as const;
 export const VAULT_OBJECT_TYPES = [
   "item",
   "pinboard",
+  "preferences",
   "tombstone",
   "index",
   "blob",

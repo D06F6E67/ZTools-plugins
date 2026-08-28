@@ -7,6 +7,33 @@ import {
   type DirectPasteTarget,
 } from "./privacy";
 
+export type RichClipboardDependencies = Readonly<{
+  write(data: Readonly<{ text: string; html: string }>): void;
+  leavePlugin(): void;
+  simulatePaste(): unknown;
+  waitForTarget?: () => Promise<void>;
+}>;
+
+export function withRichClipboard(
+  host: ClipboardPasteHost,
+  dependencies: RichClipboardDependencies,
+): ClipboardPasteHost {
+  return {
+    write: (id, shouldPaste) => host.write(id, shouldPaste),
+    async writeContent(input, shouldPaste) {
+      if (input.type !== "html") {
+        return host.writeContent(input, shouldPaste);
+      }
+      dependencies.write(input.content);
+      if (!shouldPaste) return true;
+      dependencies.leavePlugin();
+      await (dependencies.waitForTarget?.() ?? Promise.resolve());
+      dependencies.simulatePaste();
+      return true;
+    },
+  };
+}
+
 export function directPasteTarget(
   record: CanonicalClipboardRecord,
   plainText = false,
@@ -40,6 +67,18 @@ function canonicalContentTarget(
     };
   }
   const text = record.item.payload.text ?? record.item.ocrText;
+  if (!plainText && record.item.payload.html !== undefined) {
+    return {
+      type: "content",
+      content: {
+        type: "html",
+        content: {
+          text: text ?? "",
+          html: record.item.payload.html,
+        },
+      },
+    };
+  }
   if (text !== undefined) {
     return {
       type: "content",

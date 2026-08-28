@@ -195,6 +195,21 @@ export class PasteboardState {
     });
   }
 
+  selectFirst(
+    orderedIds: readonly string[] = this.visibleItems.map((item) => item.id),
+  ): string | undefined {
+    const firstId = this.scopedOrderedIds(orderedIds)[0];
+    if (firstId === undefined) {
+      this.selection = { selected: [] };
+      return undefined;
+    }
+    this.selection = reduceSelection(this.selection, {
+      type: "replace",
+      itemId: firstId,
+    });
+    return firstId;
+  }
+
   toggleSelection(itemId: string): void {
     if (!this.visibleItems.some((item) => item.id === itemId)) {
       throw new RangeError("Cannot select an item outside the visible timeline");

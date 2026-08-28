@@ -233,6 +233,7 @@ export class ZToolsPinboardStore {
       clock: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
     };
     const tombstoneId = `${TOMBSTONE_PREFIX}pinboard:${id}`;
+    let previousTombstone: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       let current: unknown;
       try {
@@ -240,6 +241,7 @@ export class ZToolsPinboardStore {
       } catch (error) {
         if (!databaseStatus(error, 404)) throw error;
       }
+      previousTombstone = current;
       try {
         await this.database.put({
           _id: tombstoneId,
@@ -255,7 +257,29 @@ export class ZToolsPinboardStore {
     if (this.database.remove === undefined) {
       throw new TypeError("ZTools database does not expose remove");
     }
-    await this.database.remove(await this.database.get(this.documentId(id)));
+    try {
+      await this.database.remove(await this.database.get(this.documentId(id)));
+    } catch (error) {
+      try {
+        const currentTombstone = await this.database.get(tombstoneId);
+        if (isRecord(previousTombstone)) {
+          const { _rev: _previousRevision, ...previous } = previousTombstone;
+          await this.database.put({
+            ...previous,
+            _id: tombstoneId,
+            _rev: revision(currentTombstone),
+          });
+        } else {
+          await this.database.remove(currentTombstone);
+        }
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Pinboard deletion and tombstone rollback both failed",
+        );
+      }
+      throw error;
+    }
     return tombstone;
   }
 

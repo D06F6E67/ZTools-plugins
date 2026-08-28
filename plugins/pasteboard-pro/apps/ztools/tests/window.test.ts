@@ -148,6 +148,39 @@ describe("ZTools shelf lifecycle", () => {
     );
   });
 
+  it("notifies an open shelf to reload saved appearance preferences", () => {
+    const scripts: string[] = [];
+    const host: ShelfWindowHost = {
+      createBrowserWindow() {
+        return {
+          isDestroyed: () => false,
+          webContents: {
+            async executeJavaScript(script) {
+              scripts.push(script);
+            },
+          },
+          show() {},
+          focus() {},
+          setBounds() {},
+          close() {},
+          setContentProtection() {},
+        };
+      },
+      hideMainWindow() {},
+    };
+    const manager = new ShelfWindowManager(host);
+    manager.open(primaryDisplay, {
+      edge: "bottom",
+      contentProtection: false,
+    });
+
+    manager.notifyWindowPreferencesChanged();
+
+    expect(scripts).toContain(
+      "window.dispatchEvent(new CustomEvent('pasteboard-pro:window-preferences-changed'))",
+    );
+  });
+
   it("toggles an active shelf closed on the next plugin activation", () => {
     let destroyed = false;
     let created = 0;
