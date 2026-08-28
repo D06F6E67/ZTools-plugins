@@ -143,7 +143,7 @@ async function serverStatus() {
     const currentServer = server
     const pairing = currentServer.pairing
     const base = currentServer.status
-    const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}`
+    const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}&code=${encodeURIComponent(pairing.qrCode)}&auto=1`
     const qrDataUrl = await QRCode.toDataURL(pairingUrl, { width: 360, margin: 1, errorCorrectionLevel: 'M' })
     if (server !== currentServer || currentServer.pairing.sessionId !== pairing.sessionId) continue
     return {
