@@ -34,10 +34,11 @@ const CHUNK_SIZE = 4 * 1024 * 1024
 const SHARED_CONVERSATION_ID = 'shared'
 
 class HttpError extends Error {
-  constructor(status, message, extra = {}) {
+  constructor(status, message, extra = {}, cause) {
     super(message)
     this.status = status
     this.extra = extra
+    if (cause) this.cause = cause
   }
 }
 
@@ -82,10 +83,15 @@ function createPairingState(pairingCode, ttlMs = PAIRING_TTL_MS) {
     secret: randomId(32),
     manualKey: randomId(32),
     code: pairingCode,
+    // QR links carry this one-generation-only value. Keep the human-entered
+    // pairing code separate so a QR proof cannot be replayed as a manual
+    // proof (or vice versa).
+    qrCode: String(crypto.randomInt(0, 10 ** 12)).padStart(12, '0'),
     sessionId: randomId(16),
     salt: randomId(16),
     challenge: randomId(24),
     expiresAt: Date.now() + ttlMs,
+    claimed: false,
   }
 }
 
@@ -155,6 +161,7 @@ async function createDeviceLinkServer(options) {
     pairingCode,
     maxIncomingFileBytes,
     onEvent,
+    onError = () => {},
     onPairingChanged = () => {},
     onPairingExpired = async (currentCode) => currentCode,
     pairingTtlMs = PAIRING_TTL_MS,
@@ -171,6 +178,9 @@ async function createDeviceLinkServer(options) {
   let closing = false
   let pairingExpiryTimer = null
   let pairingRefreshPromise = null
+  let activePairingMutation = null
+  let closePromise = null
+  const deviceCredentialMutations = new Map()
 
   const webRoot = path.join(__dirname, '..', '..', 'web')
   const mobileHtml = await fs.promises.readFile(path.join(webRoot, 'index.html'))
@@ -185,8 +195,8 @@ async function createDeviceLinkServer(options) {
     pairingExpiryTimer = setTimeout(() => {
       pairingExpiryTimer = null
       void refreshExpiredPairing()
-        .then((rotated) => { if (!rotated && !closing) schedulePairingExpiry() })
-        .catch(() => { if (!closing) schedulePairingExpiry() })
+        .then((rotated) => { if (!rotated && !closing && !pairing.claimed) schedulePairingExpiry() })
+        .catch(() => { if (!closing && !pairing.claimed) schedulePairingExpiry() })
     }, Math.max(0, pairing.expiresAt - Date.now()))
     // ZTools' renderer preload may expose browser-style numeric timer handles.
     if (typeof pairingExpiryTimer?.unref === 'function') pairingExpiryTimer.unref()
@@ -202,10 +212,10 @@ async function createDeviceLinkServer(options) {
   }
 
   async function refreshExpiredPairing() {
-    if (closing || pairing.expiresAt > Date.now()) return false
+    if (closing || pairing.claimed || pairing.expiresAt > Date.now()) return false
     if (!pairingRefreshPromise) {
       pairingRefreshPromise = (async () => {
-        if (closing || pairing.expiresAt > Date.now()) return false
+        if (closing || pairing.claimed || pairing.expiresAt > Date.now()) return false
         const expiredSessionId = pairing.sessionId
         let nextCode = pairing.code
         try { nextCode = await onPairingExpired(pairing.code) || pairing.code } catch {}
@@ -239,10 +249,54 @@ async function createDeviceLinkServer(options) {
     return { ...value, connected }
   }
 
-  function revokeDeviceSessions(pairedDeviceId, reason) {
+  function revokeDeviceSessions(pairedDeviceId, reason, keepToken = '') {
     for (const [existingToken, existingSession] of sessions) {
-      if (existingSession.deviceId === pairedDeviceId) revokeSession(existingToken, existingSession, 4000, reason)
+      if (existingToken !== keepToken && existingSession.deviceId === pairedDeviceId) {
+        revokeSession(existingToken, existingSession, 4000, reason)
+      }
     }
+  }
+
+  function sessionCountAfterReplacing(pairedDeviceId) {
+    let count = 0
+    for (const session of sessions.values()) {
+      if (session.deviceId !== pairedDeviceId) count += 1
+    }
+    return count
+  }
+
+  async function findStoredDevice(storedDeviceId) {
+    try {
+      return (await repository.listDevices()).find((item) => item.id === storedDeviceId)
+    } catch (error) {
+      throw new HttpError(503, '无法读取设备授权，请检查电脑端存储', {}, error)
+    }
+  }
+
+  // Pairing and trusted-device resume both replace the persisted credential for
+  // a device. Serialize that read/verify/write transaction per device so a
+  // stale resume proof is always checked against the credential it will use.
+  async function withDeviceCredentialMutation(targetDeviceId, action) {
+    if (closing) throw new HttpError(503, '服务正在停止，请稍后重试')
+    const previous = deviceCredentialMutations.get(targetDeviceId)
+    let release
+    const current = new Promise((resolve) => { release = resolve })
+    deviceCredentialMutations.set(targetDeviceId, current)
+    if (previous) await previous
+    try {
+      return await action()
+    } finally {
+      release()
+      if (deviceCredentialMutations.get(targetDeviceId) === current) {
+        deviceCredentialMutations.delete(targetDeviceId)
+      }
+    }
+  }
+
+  async function waitForDeviceCredentialMutations() {
+    // Once closing is true no new mutation can enqueue, so the current tails
+    // cover every pending write (and each tail already waits for its chain).
+    await Promise.all([...new Set(deviceCredentialMutations.values())])
   }
 
   function createSession(device, resumeCredential) {
@@ -286,6 +340,38 @@ async function createDeviceLinkServer(options) {
       sessions.delete(session.token)
       throw error
     }
+  }
+
+  async function rollbackActivatedPairing(session, previousDevice) {
+    revokeSession(session.token, session, 4000, 'Pairing generation replaced')
+    try {
+      if (previousDevice) {
+        await repository.putDevice(previousDevice)
+        const connected = [...sessions.values()].some((existingSession) => existingSession.deviceId === previousDevice.id && existingSession.socket)
+        try { onEvent('device:changed', publicDevice(previousDevice, Boolean(connected))) } catch {}
+      } else {
+        await repository.removeDevice(session.deviceId)
+        try { onEvent('device:deleted', { id: session.deviceId }) } catch {}
+      }
+    } catch (error) {
+      throw new HttpError(503, '无法回滚失效的设备授权，请检查电脑端存储', {}, error)
+    }
+  }
+
+  async function revokeDeviceAuthorization(targetDeviceId) {
+    const normalizedDeviceId = typeof targetDeviceId === 'string' ? targetDeviceId.slice(0, 100) : ''
+    if (!normalizedDeviceId) return null
+    return withDeviceCredentialMutation(normalizedDeviceId, async () => {
+      revokeDeviceSessions(normalizedDeviceId, 'Device authorization revoked')
+      for (const [challengeId, challenge] of resumeChallenges) {
+        if (challenge.deviceId === normalizedDeviceId) resumeChallenges.delete(challengeId)
+      }
+      const removed = await repository.removeDevice(normalizedDeviceId)
+      if (removed) {
+        try { onEvent('device:deleted', { id: normalizedDeviceId }) } catch {}
+      }
+      return removed
+    })
   }
 
   function sessionEnvelope(session, type, data) {
@@ -432,12 +518,15 @@ async function createDeviceLinkServer(options) {
       const body = await readJson(request)
       const attempt = attempts.get(address) || { count: 0, lockedUntil: 0, lastAttemptAt: Date.now() }
       if (attempt.lockedUntil > Date.now()) throw new HttpError(429, '匹配码错误次数过多，请稍后再试')
-      if (pairing.expiresAt < Date.now() || body.sessionId !== pairing.sessionId) throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
+      if (body.mode !== 'manual' && body.mode !== 'qr') throw new HttpError(400, '配对方式无效')
+      const pairingGeneration = pairing
+      if (pairingGeneration.expiresAt < Date.now() || body.sessionId !== pairingGeneration.sessionId) throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
       let pairKey
       try {
-        const pairingSecret = body.mode === 'manual' ? pairing.manualKey : pairing.secret
-        pairKey = derivePairKey(pairingSecret, pairing.code, pairing.salt)
-        const expected = pairingProof(pairKey, pairing.sessionId, pairing.challenge)
+        const pairingSecret = body.mode === 'manual' ? pairingGeneration.manualKey : pairingGeneration.secret
+        const pairingCode = body.mode === 'manual' ? pairingGeneration.code : pairingGeneration.qrCode
+        pairKey = derivePairKey(pairingSecret, pairingCode, pairingGeneration.salt)
+        const expected = pairingProof(pairKey, pairingGeneration.sessionId, pairingGeneration.challenge)
         if (!secureEqual(expected, body.proof)) throw new Error('proof mismatch')
       } catch {
         attempt.count += 1
@@ -449,30 +538,79 @@ async function createDeviceLinkServer(options) {
         attempts.set(address, attempt)
         throw new HttpError(401, '匹配码不正确')
       }
-      attempts.delete(address)
-      const pairedDeviceId = typeof body.deviceId === 'string' && body.deviceId.length >= 12 ? body.deviceId.slice(0, 100) : randomId(16)
-      revokeDeviceSessions(pairedDeviceId, 'Device paired again')
-      if (sessions.size >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
-      const resumeSecret = randomId(32)
-      const resumeCredential = protectCredential(resumeSecret)
-      if (typeof resumeCredential !== 'string' || !resumeCredential) throw new HttpError(500, '无法保存设备授权')
-      const session = createSession({
-        id: pairedDeviceId,
-        name: body.deviceName,
-        platform: body.platform,
-      }, resumeCredential)
-      await activateSession(session)
-      replacePairing(pairing.code, true)
-      sendJson(response, 200, {
-        package: encryptJson(pairKey, {
-          token: session.token,
-          sessionKey: session.key.toString('base64url'),
-          resumeSecret,
-          deviceId: session.deviceId,
-          serverDeviceId: deviceId,
-          expiresAt: new Date(session.expiresAt).toISOString(),
-        }, `pair:${body.sessionId}`),
-      })
+
+      if (pairing !== pairingGeneration) {
+        throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
+      }
+      if (pairingGeneration.claimed) {
+        throw new HttpError(409, '此配对正在处理中，请稍后刷新二维码')
+      }
+      // A desktop refresh can replace the pairing generation while an earlier
+      // request is awaiting persistence. Do not allow a new generation to
+      // commit until the earlier mutation (including its rollback) has settled.
+      if (activePairingMutation) {
+        throw new HttpError(409, '另一台设备的配对正在处理中，请稍后重试')
+      }
+      if (pairing !== pairingGeneration) {
+        throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
+      }
+      if (pairingGeneration.claimed) {
+        throw new HttpError(409, '此配对正在处理中，请稍后刷新二维码')
+      }
+      pairingGeneration.claimed = true
+      activePairingMutation = pairingGeneration
+      try {
+        attempts.delete(address)
+        const pairedDeviceId = typeof body.deviceId === 'string' && body.deviceId.length >= 12 ? body.deviceId.slice(0, 100) : randomId(16)
+        if (sessionCountAfterReplacing(pairedDeviceId) >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
+        const resumeSecret = randomId(32)
+        let resumeCredential
+        try {
+          resumeCredential = protectCredential(resumeSecret)
+        } catch (error) {
+          throw new HttpError(503, '电脑端安全存储暂时不可用，请重试', {}, error)
+        }
+        if (typeof resumeCredential !== 'string' || !resumeCredential) {
+          throw new HttpError(503, '电脑端安全存储暂时不可用，请重试')
+        }
+        const session = createSession({
+          id: pairedDeviceId,
+          name: body.deviceName,
+          platform: body.platform,
+        }, resumeCredential)
+        await withDeviceCredentialMutation(pairedDeviceId, async () => {
+          const previousDevice = await findStoredDevice(pairedDeviceId)
+          if (pairing !== pairingGeneration) throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
+          await activateSession(session)
+          if (pairing !== pairingGeneration) {
+            await rollbackActivatedPairing(session, previousDevice)
+            throw new HttpError(410, '配对信息已过期，请在电脑端刷新二维码')
+          }
+          revokeDeviceSessions(pairedDeviceId, 'Device paired again', session.token)
+        })
+        replacePairing(pairingGeneration.code, true)
+        sendJson(response, 200, {
+          package: encryptJson(pairKey, {
+            token: session.token,
+            sessionKey: session.key.toString('base64url'),
+            resumeSecret,
+            deviceId: session.deviceId,
+            serverDeviceId: deviceId,
+            expiresAt: new Date(session.expiresAt).toISOString(),
+          }, `pair:${body.sessionId}`),
+        })
+      } catch (error) {
+        if (pairing === pairingGeneration) {
+          pairingGeneration.claimed = false
+          schedulePairingExpiry()
+        }
+        if (error instanceof HttpError) throw error
+        throw new HttpError(503, '无法保存设备授权，请检查电脑端存储', {}, error)
+      } finally {
+        if (activePairingMutation === pairingGeneration) {
+          activePairingMutation = null
+        }
+      }
       return
     }
 
@@ -480,7 +618,7 @@ async function createDeviceLinkServer(options) {
       const body = await readJson(request)
       const resumeDeviceId = typeof body.deviceId === 'string' ? body.deviceId.slice(0, 100) : ''
       if (resumeDeviceId.length < 12) throw new HttpError(400, '设备标识无效')
-      const stored = (await repository.listDevices()).find((item) => item.id === resumeDeviceId)
+      const stored = await findStoredDevice(resumeDeviceId)
       if (!stored?.resumeCredential) throw new HttpError(401, '该设备需要重新配对')
       const challenge = {
         id: randomId(16),
@@ -509,28 +647,40 @@ async function createDeviceLinkServer(options) {
       if (!challenge || challenge.deviceId !== resumeDeviceId || challenge.address !== address || challenge.expiresAt < Date.now()) {
         throw new HttpError(401, '自动连接凭据已失效，请重新配对')
       }
-      const stored = (await repository.listDevices()).find((item) => item.id === resumeDeviceId)
-      let resumeSecret
-      try {
-        resumeSecret = unprotectCredential(stored?.resumeCredential || '')
-        const expected = resumeProof(resumeSecret, challenge.id, challenge.value)
-        if (!secureEqual(expected, body.proof)) throw new Error('proof mismatch')
-      } catch {
-        throw new HttpError(401, '自动连接凭据已失效，请重新配对')
-      }
-      revokeDeviceSessions(resumeDeviceId, 'Device resumed elsewhere')
-      if (sessions.size >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
-      const session = createSession(stored, stored.resumeCredential)
-      await activateSession(session)
-      const resumeKey = Buffer.from(resumeSecret, 'base64url')
+      const resumed = await withDeviceCredentialMutation(resumeDeviceId, async () => {
+        // Re-read after waiting for a QR re-pair. A proof for the replaced
+        // credential must not be allowed to restore the old authorization.
+        const stored = await findStoredDevice(resumeDeviceId)
+        let resumeSecret
+        try {
+          resumeSecret = unprotectCredential(stored?.resumeCredential || '')
+          const expected = resumeProof(resumeSecret, challenge.id, challenge.value)
+          if (!secureEqual(expected, body.proof)) throw new Error('proof mismatch')
+        } catch (error) {
+          if (error?.code === 'CREDENTIAL_BACKEND_UNAVAILABLE') {
+            throw new HttpError(503, '电脑端安全存储暂时不可用，请稍后重试', {}, error)
+          }
+          throw new HttpError(401, '自动连接凭据已失效，请重新配对')
+        }
+        if (sessionCountAfterReplacing(resumeDeviceId) >= MAX_SESSIONS) throw new HttpError(503, '已配对设备过多，请先移除旧设备')
+        const session = createSession(stored, stored.resumeCredential)
+        try {
+          await activateSession(session)
+        } catch (error) {
+          throw new HttpError(503, '无法恢复设备授权，请检查电脑端存储', {}, error)
+        }
+        revokeDeviceSessions(resumeDeviceId, 'Device resumed elsewhere', session.token)
+        return { session, resumeSecret }
+      })
+      const resumeKey = Buffer.from(resumed.resumeSecret, 'base64url')
       sendJson(response, 200, {
         package: encryptJson(resumeKey, {
-          token: session.token,
-          sessionKey: session.key.toString('base64url'),
-          deviceId: session.deviceId,
+          token: resumed.session.token,
+          sessionKey: resumed.session.key.toString('base64url'),
+          deviceId: resumed.session.deviceId,
           serverDeviceId: deviceId,
-          expiresAt: new Date(session.expiresAt).toISOString(),
-        }, `resume:${session.deviceId}:${challenge.id}`),
+          expiresAt: new Date(resumed.session.expiresAt).toISOString(),
+        }, `resume:${resumed.session.deviceId}:${challenge.id}`),
       })
       return
     }
@@ -722,6 +872,17 @@ async function createDeviceLinkServer(options) {
       }
       const statusCode = error instanceof HttpError ? error.status : 500
       const message = error instanceof HttpError ? error.message : '服务处理请求时发生错误'
+      if (statusCode >= 500) {
+        let pathname = '/'
+        try { pathname = new URL(request.url, 'http://device-link.local').pathname } catch {}
+        try {
+          onError(error.cause || error, {
+            method: request.method || 'UNKNOWN',
+            pathname,
+            statusCode,
+          })
+        } catch {}
+      }
       sendJson(response, statusCode, { error: message, ...(error.extra || {}) })
     })
   })
@@ -746,11 +907,21 @@ async function createDeviceLinkServer(options) {
   })
 
   wss.on('connection', async (socket, session) => {
-    session.socket?.close(4000, 'Replaced by a newer connection')
-    session.socket = socket
-    session.lastSeenAt = new Date().toISOString()
     try {
-      await registerDevice(session)
+      const initialized = await withDeviceCredentialMutation(session.deviceId, async () => {
+        // The upgrade can capture a session just before an explicit revoke.
+        // Do not let that stale connection write its device credential back.
+        if (sessions.get(session.token) !== session) {
+          socket.close(4001, 'Authorization revoked')
+          return false
+        }
+        session.socket?.close(4000, 'Replaced by a newer connection')
+        session.socket = socket
+        session.lastSeenAt = new Date().toISOString()
+        await registerDevice(session)
+        return true
+      })
+      if (!initialized) return
       sendToSession(session, 'session:ready', { deviceId, deviceName, expiresAt: new Date(session.expiresAt).toISOString() })
       sendToSession(session, 'messages:sync', (await listSessionMessages(session)).map((message) => messageView(message, deviceId)))
     } catch {
@@ -846,23 +1017,29 @@ async function createDeviceLinkServer(options) {
       return [...sessions.values()].filter((session) => session.socket).map((session) => session.deviceId)
     },
     disconnectDevice(id) {
-      for (const [token, session] of sessions) {
-        if (session.deviceId === id) revokeSession(token, session)
-      }
+      return revokeDeviceAuthorization(id)
     },
-    async close() {
-      if (closing) return
+    revokeDeviceAuthorization,
+    close() {
+      if (closePromise) return closePromise
       closing = true
-      clearInterval(cleanupTimer)
-      if (pairingExpiryTimer !== null) clearTimeout(pairingExpiryTimer)
-      pairingExpiryTimer = null
-      await Promise.all([...transfers.values()].map(removeTransfer))
-      for (const session of sessions.values()) session.socket?.close(1001, 'Server stopped')
-      sessions.clear()
-      resumeChallenges.clear()
-      await new Promise((resolve) => wss.close(() => resolve()))
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-      status = { running: false, port, lanIPs: [], selectedIP: '', accessUrl: '' }
+      closePromise = (async () => {
+        clearInterval(cleanupTimer)
+        if (pairingExpiryTimer !== null) clearTimeout(pairingExpiryTimer)
+        pairingExpiryTimer = null
+        // Stop accepting new traffic immediately. Existing handlers can finish
+        // only after their credential mutation tail has drained below.
+        const websocketClosed = new Promise((resolve) => wss.close(() => resolve()))
+        const httpClosed = new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+        for (const session of sessions.values()) session.socket?.close(1001, 'Server stopped')
+        await Promise.all([...transfers.values()].map(removeTransfer))
+        await waitForDeviceCredentialMutations()
+        sessions.clear()
+        resumeChallenges.clear()
+        await Promise.all([websocketClosed, httpClosed])
+        status = { running: false, port, lanIPs: [], selectedIP: '', accessUrl: '' }
+      })()
+      return closePromise
     },
   }
 }

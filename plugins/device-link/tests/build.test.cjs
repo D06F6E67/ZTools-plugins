@@ -13,6 +13,9 @@ test('installable manifest always opens the bundled UI', () => {
   assert.equal(manifest.main, 'index.html')
   assert.equal(manifest.development, undefined)
   assert.equal(fs.existsSync(path.join(root, 'dist', manifest.main)), true)
+  const credentialModule = path.join(root, 'dist', 'preload', 'core', 'credential-storage.js')
+  assert.equal(fs.existsSync(credentialModule), true)
+  assert.equal(typeof require(credentialModule).createCredentialStorage, 'function')
 })
 
 test('pairing links and mobile client refresh the pairing generation', () => {
