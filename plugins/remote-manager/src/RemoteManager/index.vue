@@ -13,13 +13,24 @@ interface RemoteHost {
   address: string
   username: string
   password: string
+  order?: number
 }
 
 const hosts = ref<RemoteHost[]>([])
 const showAddModal = ref(false)
 const showEditModal = ref(false)
+const showDeleteModal = ref(false)
+const showAddPassword = ref(false)
+const showEditPassword = ref(false)
 const tip = ref('')
 const search = ref('')
+const draggingIndex = ref(-1)
+const dragOverIndex = ref(-1)
+const dragSourceIndex = ref(-1)
+const dragHandlePressed = ref(false)
+const hostToDelete = ref<RemoteHost | null>(null)
+
+const isSearching = computed(() => search.value.trim().length > 0)
 
 const filteredHosts = computed(() => {
   const keyword = search.value.trim().toLowerCase()
@@ -41,10 +52,9 @@ const editForm = ref<RemoteHost>({
   password: ''
 })
 
-const showAddPassword = ref(false)
-const showEditPassword = ref(false)
-
 const originalId = ref('')
+const originalEncryptedPassword = ref('')
+const editOriginalPassword = ref('')
 
 onMounted(() => {
   loadHosts()
@@ -65,7 +75,10 @@ function openAdd() {
 
 function openEdit(host: RemoteHost) {
   originalId.value = host.id
-  editForm.value = { ...host }
+  originalEncryptedPassword.value = host.password
+  const plainPassword = window.services.decryptPassword(host.password)
+  editOriginalPassword.value = plainPassword
+  editForm.value = { ...host, password: plainPassword }
   showEditModal.value = true
 }
 
@@ -94,7 +107,10 @@ function handleEdit() {
     return
   }
   try {
-    const result = window.services.updateHost(originalId.value, editForm.value)
+    const passwordToSave = editForm.value.password === editOriginalPassword.value
+      ? originalEncryptedPassword.value
+      : editForm.value.password
+    const result = window.services.updateHost(originalId.value, { ...editForm.value, password: passwordToSave })
     if (result.success) {
       showEditModal.value = false
       loadHosts()
@@ -108,9 +124,14 @@ function handleEdit() {
 }
 
 function handleDelete(host: RemoteHost) {
-  if (!confirm(`确定删除 "${host.id}" 吗？`)) return
+  hostToDelete.value = host
+  showDeleteModal.value = true
+}
+
+function confirmDelete() {
+  if (!hostToDelete.value) return
   try {
-    const result = window.services.deleteHost(host.id)
+    const result = window.services.deleteHost(hostToDelete.value.id)
     if (result.success) {
       loadHosts()
       showTip('删除成功')
@@ -119,7 +140,15 @@ function handleDelete(host: RemoteHost) {
     }
   } catch (e: any) {
     showTip('删除失败: ' + e.message)
+  } finally {
+    showDeleteModal.value = false
+    hostToDelete.value = null
   }
+}
+
+function cancelDelete() {
+  showDeleteModal.value = false
+  hostToDelete.value = null
 }
 
 function handleConnect(host: RemoteHost) {
@@ -134,6 +163,92 @@ function handleConnect(host: RemoteHost) {
   } catch (e: any) {
     showTip('连接失败: ' + e.message)
   }
+}
+
+function handleDragStart(e: DragEvent, index: number) {
+  if (!dragHandlePressed.value || isSearching.value) {
+    e.preventDefault()
+    dragHandlePressed.value = false
+    return
+  }
+  draggingIndex.value = index
+  dragSourceIndex.value = index
+  dragOverIndex.value = index
+  dragHandlePressed.value = false
+}
+
+function handleTbodyDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (draggingIndex.value === -1 || isSearching.value) return
+
+  const tbody = e.currentTarget as HTMLElement
+  const rows = Array.from(tbody.querySelectorAll('tr.draggable-row'))
+  if (rows.length === 0) return
+
+  let newIndex = rows.length
+  for (let i = 0; i < rows.length; i++) {
+    const rect = rows[i].getBoundingClientRect()
+    const midpoint = rect.top + rect.height / 2
+    if (e.clientY < midpoint) {
+      newIndex = i
+      break
+    }
+  }
+
+  dragOverIndex.value = newIndex
+}
+
+function handleTbodyDragLeave(e: DragEvent) {
+  const tbody = e.currentTarget as HTMLElement
+  const related = e.relatedTarget as HTMLElement
+  if (!tbody.contains(related)) {
+    dragOverIndex.value = -1
+  }
+}
+
+function handleTbodyDrop(e: DragEvent) {
+  e.preventDefault()
+  if (draggingIndex.value === -1 || dragOverIndex.value === -1 || isSearching.value) return
+
+  const sourceIndex = dragSourceIndex.value
+  const targetIndex = dragOverIndex.value
+  if (sourceIndex === targetIndex || sourceIndex + 1 === targetIndex) {
+    draggingIndex.value = -1
+    dragOverIndex.value = -1
+    dragSourceIndex.value = -1
+    return
+  }
+
+  const newList = [...filteredHosts.value]
+  const [movedItem] = newList.splice(sourceIndex, 1)
+
+  let insertIndex = targetIndex
+  if (sourceIndex < targetIndex) {
+    insertIndex = targetIndex - 1
+  }
+  newList.splice(insertIndex, 0, movedItem)
+
+  hosts.value = newList.map((h, index) => ({ ...h, order: index + 1 }))
+
+  try {
+    const result = window.services.updateOrder(hosts.value)
+    if (!result.success) {
+      showTip('排序保存失败: ' + result.error)
+    }
+  } catch (err: any) {
+    showTip('排序保存失败: ' + err.message)
+  }
+
+  draggingIndex.value = -1
+  dragOverIndex.value = -1
+  dragSourceIndex.value = -1
+}
+
+function handleDragEnd() {
+  draggingIndex.value = -1
+  dragOverIndex.value = -1
+  dragSourceIndex.value = -1
+  dragHandlePressed.value = false
 }
 
 function showTip(msg: string) {
@@ -184,22 +299,61 @@ function showTip(msg: string) {
       <table class="hosts-table">
         <thead>
           <tr>
+            <th class="col-drag"></th>
             <th class="col-id">编号</th>
             <th class="col-address">地址</th>
             <th class="col-username">用户名</th>
             <th class="col-actions">操作</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="host in filteredHosts" :key="host.id">
-            <td class="col-id">{{ host.id }}</td>
-            <td class="col-address">{{ host.address }}</td>
-            <td class="col-username">{{ host.username }}</td>
-            <td class="col-actions">
-              <button class="btn-connect" @click="handleConnect(host)">连接</button>
-              <button class="btn-edit" @click="openEdit(host)">编辑</button>
-              <button class="btn-delete" @click="handleDelete(host)">删除</button>
-            </td>
+        <tbody
+          @dragover.prevent="handleTbodyDragOver"
+          @dragleave="handleTbodyDragLeave"
+          @drop.prevent="handleTbodyDrop"
+        >
+          <template v-for="(host, index) in filteredHosts" :key="host.id">
+            <tr
+              v-if="draggingIndex !== -1 && dragOverIndex === index"
+              class="drop-indicator"
+            >
+              <td colspan="5"><div class="drop-line"></div></td>
+            </tr>
+            <tr
+              :draggable="!isSearching"
+              class="draggable-row"
+              :class="{ dragging: draggingIndex === index, 'drag-disabled': isSearching }"
+              @mousedown="dragHandlePressed = false"
+              @dragstart="handleDragStart($event, index)"
+              @dragend="handleDragEnd"
+            >
+              <td class="col-drag" @mousedown.stop="dragHandlePressed = true">
+                <svg class="drag-handle" viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
+                  <circle cx="4" cy="4" r="1.5"/>
+                  <circle cx="8" cy="4" r="1.5"/>
+                  <circle cx="12" cy="4" r="1.5"/>
+                  <circle cx="4" cy="8" r="1.5"/>
+                  <circle cx="8" cy="8" r="1.5"/>
+                  <circle cx="12" cy="8" r="1.5"/>
+                  <circle cx="4" cy="12" r="1.5"/>
+                  <circle cx="8" cy="12" r="1.5"/>
+                  <circle cx="12" cy="12" r="1.5"/>
+                </svg>
+              </td>
+              <td class="col-id">{{ host.id }}</td>
+              <td class="col-address">{{ host.address }}</td>
+              <td class="col-username">{{ host.username }}</td>
+              <td class="col-actions">
+                <button class="btn-connect" @click="handleConnect(host)">连接</button>
+                <button class="btn-edit" @click="openEdit(host)">编辑</button>
+                <button class="btn-delete" @click="handleDelete(host)">删除</button>
+              </td>
+            </tr>
+          </template>
+          <tr
+            v-if="draggingIndex !== -1 && dragOverIndex === filteredHosts.length"
+            class="drop-indicator"
+          >
+            <td colspan="5"><div class="drop-line"></div></td>
           </tr>
         </tbody>
       </table>
@@ -287,6 +441,24 @@ function showTip(msg: string) {
         <div class="modal-footer">
           <button class="btn-cancel" @click="showEditModal = false">取消</button>
           <button class="btn-confirm" @click="handleEdit">确定</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="cancelDelete">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h3>确认删除</h3>
+          <button class="modal-close" @click="cancelDelete">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="confirm-text">
+            确定删除主机 <strong>"{{ hostToDelete?.id }}"</strong> 吗？<br>
+            <span class="confirm-tip">删除后无法恢复</span>
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="cancelDelete">取消</button>
+          <button class="btn-delete" @click="confirmDelete">删除</button>
         </div>
       </div>
     </div>
@@ -448,6 +620,59 @@ function showTip(msg: string) {
   background: var(--hover-bg, rgba(88, 164, 246, 0.06));
 }
 
+.draggable-row {
+  cursor: default;
+}
+
+.draggable-row.dragging {
+  opacity: 0.4;
+  background: rgba(88, 164, 246, 0.08);
+}
+
+.draggable-row.drag-disabled {
+  cursor: default;
+}
+
+.draggable-row.drag-disabled .drag-handle {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.col-drag {
+  width: 32px;
+  padding: 0;
+  cursor: grab;
+}
+
+.drag-handle {
+  color: #bbb;
+  display: block;
+  margin: 0 auto;
+  cursor: grab;
+}
+
+.draggable-row:hover .drag-handle {
+  color: #888;
+}
+
+.drop-indicator {
+  height: 2px;
+  padding: 0;
+}
+
+.drop-indicator td {
+  padding: 0;
+  border: none;
+  height: 2px;
+}
+
+.drop-line {
+  height: 2px;
+  background: rgb(88, 164, 246);
+  border-radius: 1px;
+  box-shadow: 0 0 4px rgba(88, 164, 246, 0.5);
+}
+
 .col-id {
   width: 90px;
   font-weight: 500;
@@ -472,10 +697,11 @@ function showTip(msg: string) {
 }
 
 .col-actions button {
-  padding: 3px 10px;
+  padding: 5px 14px;
   font-size: 12px;
   border-radius: 3px;
   line-height: 1.6;
+  margin: 0 3px;
 }
 
 .btn-connect {
@@ -646,6 +872,33 @@ function showTip(msg: string) {
 
 .btn-toggle-password:hover {
   color: rgb(88, 164, 246);
+}
+
+.modal-confirm {
+  width: 320px;
+}
+
+.confirm-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--text-color, #333);
+}
+
+.confirm-text strong {
+  color: #f44336;
+}
+
+.confirm-tip {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #999;
+}
+
+.modal-body .confirm-text {
+  padding: 8px 0;
 }
 
 .btn-cancel {
