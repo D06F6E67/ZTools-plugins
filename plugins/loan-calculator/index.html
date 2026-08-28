@@ -250,8 +250,8 @@
   <header>
     <svg class="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#5b6ef5"/><path d="M9 22 L16 9 L23 22" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.5 17 H20.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
     <h1>贷款计算器</h1>
-    <span class="sub">房贷 · 方案对比 · 提前还款 · 浮动利率 · 历史记录</span>
-    <span class="ver">v1.7.0</span>
+    <span class="sub">房贷 · 真实利率（IRR） · 方案对比 · 提前还款 · 浮动利率 · 历史记录</span>
+    <span class="ver">v1.9.0</span>
   </header>
 
   <div class="tabs">
@@ -259,6 +259,7 @@
     <button class="tab" data-tab="compare">方案对比</button>
     <button class="tab" data-tab="prepay">提前还款</button>
     <button class="tab" data-tab="variable">浮动利率</button>
+    <button class="tab" data-tab="irr">真实利率（IRR）</button>
     <button class="tab" data-tab="history">历史记录</button>
   </div>
 
@@ -752,6 +753,98 @@
         <span class="hist-count" id="hist-count"></span>
       </div>
       <div id="hist-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ 真实利率（IRR 反算真实利率） ============ -->
+  <section class="panel" id="irr">
+    <div class="layout">
+      <div class="card col-left">
+        <h3>分期参数</h3>
+
+        <div class="field">
+          <label>本金（元）</label>
+          <div class="input-wrap"><input type="number" id="irr-principal" value="50000" min="0" step="0.01" /><span class="unit">元</span></div>
+          <div class="err-msg" id="irr-principal-err"></div>
+        </div>
+
+        <div class="field">
+          <label>分期方式</label>
+          <div class="seg" id="irr-method">
+            <button data-v="equal-installment" class="active">等额本息</button>
+            <button data-v="equal-principal">等额本金</button>
+            <button data-v="interest-only">先息后本</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>分期期数（期，按月）</label>
+          <div class="input-wrap"><input type="number" id="irr-periods" value="12" min="1" step="1" /><span class="unit">期</span></div>
+          <div class="err-msg" id="irr-periods-err"></div>
+        </div>
+
+        <div class="field">
+          <label>每期还款（元）</label>
+          <div class="input-wrap"><input type="number" id="irr-payment" value="4236.74" min="0" step="0.01" /><span class="unit">元</span></div>
+          <div class="hint" id="irr-payment-hint"></div>
+          <div class="err-msg" id="irr-payment-err"></div>
+        </div>
+
+        <div class="field">
+          <label>每期手续费（元，无则 0）</label>
+          <div class="input-wrap"><input type="number" id="irr-fee" value="0" min="0" step="0.01" /><span class="unit">元</span></div>
+          <div class="err-msg" id="irr-fee-err"></div>
+        </div>
+
+        <div class="err-msg" id="irr-err"></div>
+        <button class="btn primary" style="width:100%" id="irr-btn">开始计算</button>
+        <div class="save-bar">
+          <button class="btn" id="irr-save" style="flex:1">保存到历史</button>
+          <button class="btn" id="irr-copy" style="flex:1">复制结果</button>
+        </div>
+        <button class="btn accent" id="irr-reset" style="width:100%;margin-top:8px">恢复默认</button>
+      </div>
+
+      <div>
+        <div class="highlight">
+          <div>
+            <div class="lab">真实月利率（IRR 反算）</div>
+            <div class="big" id="irr-monthly">—</div>
+          </div>
+          <div class="note" id="irr-method-note"></div>
+        </div>
+
+        <div class="result-grid">
+          <div class="stat"><div class="k">名义年化 APR（单利）</div><div class="v" id="irr-apr">—</div></div>
+          <div class="stat alt"><div class="k">实际年化 IRR（复利）</div><div class="v" id="irr-irr">—</div></div>
+          <div class="stat alt"><div class="k">总利息</div><div class="v" id="irr-interest">—</div></div>
+        </div>
+
+        <div id="irr-verify" style="margin-bottom:18px"></div>
+
+        <div class="card">
+          <div class="table-head">
+            <h3>还款明细</h3>
+            <div class="ctrl">
+              <select id="irr-detail-mode">
+                <option value="month" selected>按期</option>
+                <option value="year">按年</option>
+              </select>
+              <button class="btn" id="irr-export-csv">导出CSV</button>
+            </div>
+          </div>
+          <table>
+            <thead id="irr-thead"></thead>
+            <tbody id="irr-tbody"></tbody>
+          </table>
+          <div class="pager">
+            <button class="btn" id="irr-prev">上一页</button>
+            <span id="irr-page">1 / 1</span>
+            <button class="btn" id="irr-next">下一页</button>
+          </div>
+          <div class="hint" id="irr-detail-hint"></div>
+        </div>
+      </div>
     </div>
   </section>
 </div>
@@ -2442,7 +2535,7 @@ function bindEnter(panelId, btnId) {
 /* ===================== 跨页签缓存：自动保存/回填，切换与重载不丢数据 ===================== */
 const STATE_KEY = 'loan-calc-state-v1';
 let _saveTimer = null;
-const computed = { calc: false, cmp: false, pp: false, vr: false };
+const computed = { calc: false, cmp: false, pp: false, vr: false, irr: false };
 function scheduleSave() { if (_saveTimer) clearTimeout(_saveTimer); _saveTimer = setTimeout(saveState, 250); }
 function saveState() {
   _saveTimer = null;
@@ -2465,7 +2558,7 @@ function equivalentRate(principal, months, targetMonthly, method) {
 }
 function collectState() {
   const inputs = {};
-  document.querySelectorAll('#calc input, #calc select, #compare input, #compare select, #prepay input, #prepay select, #variable input, #variable select').forEach(el => {
+  document.querySelectorAll('#calc input, #calc select, #compare input, #compare select, #prepay input, #prepay select, #variable input, #variable select, #irr input, #irr select').forEach(el => {
     if (el.id) inputs[el.id] = el.value;
   });
   const segs = {};
@@ -2496,9 +2589,12 @@ function restoreState() {
   const vm = document.querySelector('#vr-method button.active');
   if (vm) vrMethod = vm.dataset.v;
   refreshTypeUI(calcState.type);
+  const im = document.querySelector('#irr-method button.active');
+  if (im) irrState.method = im.dataset.v;
   if (st.computed) {
     computed.calc = !!st.computed.calc; computed.cmp = !!st.computed.cmp;
     computed.pp = !!st.computed.pp; computed.vr = !!st.computed.vr;
+    computed.irr = !!st.computed.irr;
   }
 }
 /* 房贷 → 方案对比：当前结果写入 A，原 A 移至 B（组合贷直接带入明细） */
@@ -2763,6 +2859,300 @@ bindEnter('calc', 'calc-btn');
 bindEnter('compare', 'cmp-btn');
 bindEnter('prepay', 'pp-btn');
 bindEnter('variable', 'vr-btn');
+bindEnter('irr', 'irr-btn');
+
+/* ===================== 真实利率（IRR 反算真实利率） ===================== */
+/* 参考《分期利率计算工具_需求文档》：输入本金/分期方式/期数/每期还款/每期手续费，
+   用 IRR 法反算真实月利率，并给出名义年化 APR、实际年化 IRR、总利息与还款明细。 */
+let irrState = { method: 'equal-installment' };
+let irrResult = null;
+let irrPage = 1;
+
+function fmtCNY(y) { return '¥' + (y || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtPct(x) { return (x * 100).toFixed(2) + '%'; }
+const IRR_METHOD_LABEL = { 'equal-installment': '等额本息', 'equal-principal': '等额本金', 'interest-only': '先息后本' };
+
+/* IRR 真实月利率反算（三种分期方式）
+ * C = 每期还款 + 每期手续费，为当期总现金流出
+ */
+function solveMonthlyRate(P, C, n, method) {
+  if (!(P > 0) || !(C >= 0) || !(n >= 1)) return null;
+  if (method === 'interest-only') {
+    // 先息后本：每期付息（含手续费），末期一次性归还本金
+    // NPV: P = C·a(n,r) + P·(1+r)^-n  =>  P·r = C  =>  r = C / P
+    if (C <= 0) return 0;
+    return C / P;
+  }
+  if (method === 'equal-principal') {
+    // 等额本金：以用户输入的「每期还款」视为首期总还款（本金 P/n + 首期利息）
+    // 首期利息 = C - P/n，月利率 r = (C - P/n) / P
+    const principalPerPeriod = P / n;
+    if (C <= principalPerPeriod) return null; // 首期还款不足以覆盖本金部分
+    return (C - principalPerPeriod) / P;
+  }
+  // 等额本息：求 r 使 P = C·[1-(1+r)^(-n)]/r
+  const f = (r) => {
+    if (Math.abs(r) < 1e-12) return C * n - P;
+    return C * (1 - Math.pow(1 + r, -n)) / r - P;
+  };
+  if (Math.abs(C * n - P) < 1e-9) return 0;
+  if (C * n < P) return null; // 还款总额不足以覆盖本金
+  let lo = 0, hi = 1.5;
+  if (f(hi) > 0) return null;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const fm = f(mid);
+    if (Math.abs(fm) < 1e-12) return mid;
+    if (fm > 0) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/* 根据分期方式生成还款明细（利率 r 已由 solveMonthlyRate 解出） */
+function buildIrrSchedule(P, C, n, r, method, pay, fee) {
+  const rows = [];
+  let balance = P;
+  if (method === 'interest-only') {
+    // 先息后本：每期只还利息（pay = P·r），末期一次性归还本金；手续费每期另计，不计入利率
+    for (let i = 1; i <= n; i++) {
+      const interest = pay;
+      const principalPart = (i === n) ? balance : 0;
+      const payment = interest + principalPart + (fee || 0);
+      balance -= principalPart;
+      if (balance < 0) balance = 0;
+      rows.push({ period: i, payment, principal: principalPart, interest, balance });
+    }
+    return { rows, totalInterest: pay * n, finalBalance: balance };
+  }
+  if (method === 'equal-principal') {
+    const principalPerPeriod = P / n;
+    for (let i = 1; i <= n; i++) {
+      const interest = balance * r;
+      const pay = principalPerPeriod + interest;
+      balance -= principalPerPeriod;
+      if (balance < 0) balance = 0;
+      rows.push({ period: i, payment: pay, principal: principalPerPeriod, interest, balance });
+    }
+    const totalInterest = rows.reduce((s, row) => s + row.interest, 0);
+    return { rows, totalInterest, finalBalance: balance };
+  }
+  // 等额本息
+  let totalInterest = 0;
+  for (let i = 1; i <= n; i++) {
+    const interest = balance * r;
+    let principalPart = C - interest;
+    let pay = C;
+    if (i === n) { principalPart = balance; pay = balance + interest; }
+    balance -= principalPart; if (balance < 0) balance = 0;
+    totalInterest += interest;
+    rows.push({ period: i, payment: pay, principal: principalPart, interest, balance });
+  }
+  return { rows, totalInterest, finalBalance: balance };
+}
+
+bindSeg('irr-method', v => { irrState.method = v; updateIrrPaymentHint(); if (irrResult) runIrr(); });
+
+/* 「每期还款」下限提示：根据本金/期数/手续费/分期方式实时给出最低可输入的每期还款 */
+function updateIrrPaymentHint() {
+  const hint = $('irr-payment-hint');
+  if (!hint) return;
+  const P = parseFloat($('irr-principal').value);
+  const n = parseInt($('irr-periods').value, 10);
+  const fee = parseFloat($('irr-fee').value) || 0;
+  const method = irrState.method || 'equal-installment';
+  if (!(P > 0) || !(n >= 1)) { hint.textContent = '输入本金与期数后，将显示每期还款下限'; return; }
+  const perPrincipal = P / n;                       // 本金分摊（每期应还本金）
+  const minPay = Math.max(0, perPrincipal - fee);   // 字段「每期还款」下限（手续费已单列）
+  const base = '本金 ' + fmtCNY(P) + ' ÷ ' + n + '期';  // 回显实际填入的本金与期数，便于核对是否填错
+  if (method === 'interest-only') {
+    hint.textContent = '先息后本：每期还款即利息，需大于 0（' + base + '，本金第 ' + n + ' 期一次性归还）';
+  } else if (method === 'equal-principal') {
+    hint.textContent = '等额本金：首期还款需 ≥ ' + fmtCNY(minPay) + '（' + base + '，本金分摊 ' + fmtCNY(perPrincipal) + '/期，利息逐月递减）';
+  } else {
+    hint.textContent = '等额本息：每期还款需 ≥ ' + fmtCNY(minPay) + '（' + base + '，本金分摊 ' + fmtCNY(perPrincipal) + '/期，另计手续费）';
+  }
+}
+
+function validateIrr() {
+  const errs = [];
+  const P = parseFloat($('irr-principal').value);
+  const n = parseInt($('irr-periods').value, 10);
+  const pay = parseFloat($('irr-payment').value);
+  const fee = parseFloat($('irr-fee').value) || 0;
+  const method = irrState.method || 'equal-installment';
+  if (!(P > 0)) errs.push('本金需大于 0');
+  if (!(n >= 1)) errs.push('分期期数需为 ≥ 1 的正整数');
+  if (!(pay >= 0)) errs.push('每期还款需 ≥ 0');
+  if (fee < 0) errs.push('手续费需 ≥ 0');
+  const C = pay + fee;
+  if (method === 'equal-installment' && C * n < P) errs.push('等额本息：每期还款+手续费需 ≥ ' + fmtCNY(P / n) + '（本金分摊）');
+  if (method === 'equal-principal' && C <= P / n) errs.push('首期还款需大于本金分摊 ' + fmtCNY(P / n));
+  if (method === 'interest-only' && !(pay > 0)) errs.push('先息后本：每期还款（即利息）需大于 0');
+  return { errs, P, n, pay, fee, method };
+}
+
+function runIrr() {
+  const v = validateIrr();
+  const errBox = $('irr-err');
+  if (v.errs.length) {
+    errBox.textContent = '⚠ 参数异常，请检查输入（' + v.errs.join('；') + '）';
+    errBox.classList.add('show');
+    clearIrrResult();
+    return;
+  }
+  errBox.classList.remove('show');
+
+  const P = v.P, n = v.n, C = v.pay + (v.fee || 0), method = v.method, pay = v.pay, fee = v.fee || 0;
+  let r;
+  if (method === 'interest-only') {
+    r = pay / P;                                  // 每期还款即利息 → 月利率 r = 每期还款 / 本金
+  } else {
+    r = solveMonthlyRate(P, C, n, method);
+    if (r === null) {
+      errBox.textContent = '⚠ 参数异常，请检查输入（还款总额不足以覆盖本金或利率过高）';
+      errBox.classList.add('show');
+      clearIrrResult();
+      return;
+    }
+  }
+  const sched = buildIrrSchedule(P, C, n, r, method, pay, fee);
+  const totalRepay = sched.rows.reduce((s, row) => s + row.payment, 0);
+  const totalInterest = sched.totalInterest;
+  const ok = Math.abs(sched.finalBalance) < 0.01;        // 4.3 校验：N 期后余额归零
+
+  irrResult = { r, apr: r * 12, irr: Math.pow(1 + r, 12) - 1, P, n, C, pay: v.pay, fee: v.fee, totalRepay, totalInterest, rows: sched.rows, method: method, ok };
+  markComputed('irr');
+  irrPage = 1;
+
+  $('irr-monthly').textContent = fmtPct(r);
+  $('irr-apr').textContent = fmtPct(r * 12);
+  $('irr-irr').textContent = fmtPct(Math.pow(1 + r, 12) - 1);
+  $('irr-interest').textContent = fmtCNY(totalInterest);
+  $('irr-method-note').textContent = IRR_METHOD_LABEL[method] + ' · ' + n + ' 期';
+
+  const vb = $('irr-verify');
+  if (ok) vb.innerHTML = '<span class="badge" style="background:var(--green-soft);color:var(--green)">✓ 验证通过（' + n + '期后余额归零）</span>';
+  else vb.innerHTML = '<span class="badge" style="background:var(--red-soft);color:var(--red)">⚠ 校验未通过，余额 ' + fmtCNY(sched.finalBalance) + '</span>';
+
+  const dh = $('irr-detail-hint');
+  if (method === 'interest-only') {
+    dh.textContent = '先息后本：每期偿还利息 ' + fmtCNY(pay) + (fee > 0 ? '，另付手续费 ' + fmtCNY(fee) : '') + '，第 ' + n + ' 期一次性归还本金 ' + fmtCNY(P);
+  } else if (method === 'equal-principal') {
+    dh.textContent = '等额本金：每期归还固定本金 ' + fmtCNY(P / n) + '，利息逐月递减，首月还款 ' + fmtCNY(C);
+  } else {
+    dh.textContent = '总还款 ' + fmtCNY(totalRepay) + ' · 本金 ' + fmtCNY(P) + ' · 每期固定 ' + fmtCNY(C) + ' 元' + (v.fee > 0 ? '（含手续费 ' + fmtCNY(v.fee) + '）' : '');
+  }
+  renderIrrDetail();
+}
+
+function clearIrrResult() {
+  ['irr-monthly', 'irr-apr', 'irr-irr', 'irr-interest'].forEach(id => $(id).textContent = '—');
+  $('irr-method-note').textContent = '';
+  $('irr-verify').innerHTML = '';
+  $('irr-tbody').innerHTML = '';
+  $('irr-thead').innerHTML = '';
+  $('irr-page').textContent = '1 / 1';
+  $('irr-detail-hint').textContent = '';
+  $('irr-prev').disabled = true;
+  $('irr-next').disabled = true;
+  irrResult = null;
+}
+
+function renderIrrDetail() {
+  if (!irrResult) return;
+  const mode = $('irr-detail-mode').value;
+  const rows = irrResult.rows;
+  let data = [], head = '';
+  if (mode === 'year') {
+    const groups = {};
+    rows.forEach(r => {
+      const y = Math.ceil(r.period / 12);
+      if (!groups[y]) groups[y] = { year: y, payment: 0, principal: 0, interest: 0, balance: 0 };
+      groups[y].payment += r.payment; groups[y].principal += r.principal;
+      groups[y].interest += r.interest; groups[y].balance = r.balance;
+    });
+    data = Object.values(groups);
+    head = '<tr><th>年份</th><th>年还本息</th><th>年还本金</th><th>年还利息</th><th>年末剩余</th></tr>';
+  } else {
+    data = rows;
+    head = '<tr><th>期数</th><th>当期还款</th><th>本金</th><th>利息</th><th>剩余本金</th></tr>';
+  }
+  $('irr-thead').innerHTML = head;
+  const total = Math.ceil(data.length / PAGE);
+  if (irrPage > total) irrPage = total;
+  const start = (irrPage - 1) * PAGE;
+  const slice = data.slice(start, start + PAGE);
+  $('irr-tbody').innerHTML = slice.map(r => {
+    const c0 = mode === 'year' ? r.year + ' 年' : r.period + ' 期';
+    return '<tr><td>' + c0 + '</td><td>' + fmtCNY(r.payment) + '</td><td>' + fmtCNY(r.principal) + '</td><td>' + fmtCNY(r.interest) + '</td><td>' + fmtCNY(r.balance) + '</td></tr>';
+  }).join('');
+  $('irr-page').textContent = irrPage + ' / ' + total;
+  $('irr-prev').disabled = irrPage <= 1;
+  $('irr-next').disabled = irrPage >= total;
+}
+
+$('irr-btn').onclick = runIrr;
+/* 「每期还款」下限提示：本金 / 期数 / 手续费变化时实时刷新 */
+['irr-principal', 'irr-periods', 'irr-fee'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', updateIrrPaymentHint); });
+updateIrrPaymentHint();
+$('irr-detail-mode').onchange = () => { irrPage = 1; renderIrrDetail(); };
+$('irr-prev').onclick = () => { if (irrPage > 1) { irrPage--; renderIrrDetail(); } };
+$('irr-next').onclick = () => { irrPage++; renderIrrDetail(); };
+$('irr-export-csv').onclick = () => {
+  if (!irrResult) { showToast('请先计算'); return; }
+  const rows = [['期数', '当期还款(元)', '本金(元)', '利息(元)', '剩余本金(元)']];
+  irrResult.rows.forEach(r => rows.push([r.period, r.payment.toFixed(2), r.principal.toFixed(2), r.interest.toFixed(2), r.balance.toFixed(2)]));
+  rows.push([]);
+  rows.push(['本金(元)', irrResult.P.toFixed(2)]);
+  rows.push(['每期还款(元)', irrResult.pay.toFixed(2)]);
+  rows.push(['每期手续费(元)', irrResult.fee.toFixed(2)]);
+  rows.push(['期数', irrResult.n]);
+  rows.push(['真实月利率', fmtPct(irrResult.r)]);
+  rows.push(['名义年化APR', fmtPct(irrResult.apr)]);
+  rows.push(['实际年化IRR', fmtPct(irrResult.irr)]);
+  rows.push(['总还款(元)', irrResult.totalRepay.toFixed(2)]);
+  rows.push(['总利息(元)', irrResult.totalInterest.toFixed(2)]);
+  rows.push(['校验', irrResult.ok ? ('通过(' + irrResult.n + '期后余额归零)') : '未通过']);
+  downloadCsv('真实利率明细.csv', toCsv(rows));
+};
+$('irr-copy').onclick = () => {
+  if (!irrResult) { showToast('请先计算'); return; }
+  const text = '【真实利率计算】\n本金：' + fmtCNY(irrResult.P) +
+    '\n分期方式：' + IRR_METHOD_LABEL[irrResult.method] +
+    '\n期数：' + irrResult.n +
+    '\n每期还款：' + fmtCNY(irrResult.pay) +
+    '\n每期手续费：' + fmtCNY(irrResult.fee) +
+    '\n真实月利率：' + fmtPct(irrResult.r) +
+    '\n名义年化 APR：' + fmtPct(irrResult.apr) +
+    '\n实际年化 IRR：' + fmtPct(irrResult.irr) +
+    '\n总利息：' + fmtCNY(irrResult.totalInterest) +
+    '\n校验：' + (irrResult.ok ? (irrResult.n + '期后余额归零 ✓') : '未通过');
+  copyText(text);
+};
+$('irr-save').onclick = () => {
+  if (!irrResult) runIrr();
+  if (!irrResult) return;
+  const item = {
+    ts: Date.now(),
+    type: 'irr',
+    title: '真实利率·' + IRR_METHOD_LABEL[irrResult.method],
+    detail: '本金 ' + fmtCNY(irrResult.P) + ' · ' + irrResult.n + '期 · 月利率 ' + fmtPct(irrResult.r) + ' · APR ' + fmtPct(irrResult.apr),
+    result: '月利率 ' + fmtPct(irrResult.r) + ' · 实际年化 IRR ' + fmtPct(irrResult.irr) + ' · 总利息 ' + fmtCNY(irrResult.totalInterest)
+  };
+  const okSave = saveHistoryItem(item);
+  const btn = $('irr-save');
+  btn.textContent = okSave ? '已保存 ✓' : '保存失败';
+  setTimeout(() => { btn.textContent = '保存到历史'; }, 1500);
+};
+$('irr-reset').onclick = () => {
+  $('irr-principal').value = 50000;
+  setSeg('irr-method', 'equal-installment'); irrState.method = 'equal-installment';
+  $('irr-periods').value = 12;
+  $('irr-payment').value = 4236.74;
+  $('irr-fee').value = 0;
+  updateIrrPaymentHint();
+  runIrr();
+};
 
 /* ===================== 初始化 ===================== */
 renderTimeline();
@@ -2777,6 +3167,7 @@ runCalc();
 if (computed.cmp) { try { $('cmp-btn').onclick(); } catch (e) {} }
 if (computed.pp) { try { $('pp-btn').onclick(); } catch (e) {} }
 if (computed.vr) { try { $('vr-btn').onclick(); } catch (e) {} }
+runIrr();
 </script>
 </body>
 </html>
