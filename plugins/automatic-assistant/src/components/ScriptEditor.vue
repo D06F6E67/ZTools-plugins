@@ -151,7 +151,7 @@ function handleSave() {
     <div class="form-pane">
       <fieldset class="script-feature-form" :disabled="readonly">
         <div class="feature-form-icon">
-          <img class="feature-icon" draggable="false" :src="draft.feature.icon || '/logo.png'" alt="" />
+          <img class="feature-icon" draggable="false" :src="draft.feature.icon || 'logo.png'" alt="" />
           <button class="btn-text pick-icon" :disabled="readonly" @click="selectIcon">选择图标</button>
         </div>
         <div>

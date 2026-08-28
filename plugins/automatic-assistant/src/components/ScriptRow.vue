@@ -80,7 +80,7 @@ function pickMove(categoryId: string) {
 <template>
   <li class="script-item">
     <div class="script-item-avatar">
-      <img :src="feature.icon || '/logo.png'" draggable="false" alt="" />
+      <img :src="feature.icon || 'logo.png'" draggable="false" alt="" />
     </div>
     <div class="script-item-text">
       <div class="script-item-cmd">
@@ -100,7 +100,7 @@ function pickMove(categoryId: string) {
           <img
             v-for="p in platforms()"
             :key="p"
-            :src="'/res/' + p + '.png'"
+            :src="'res/' + p + '.png'"
             :alt="p"
             :title="'可在 ' + platformName(p) + ' 平台运行'"
             draggable="false"

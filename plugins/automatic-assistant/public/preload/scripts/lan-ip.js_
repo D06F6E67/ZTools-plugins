@@ -43,7 +43,7 @@ const rank = (nic) => (nic.address.startsWith('169.254.') ? 100 : 0) + (VIRTUAL_
 return routedIp().then((ip) => {
   const main = nics.find((nic) => nic.address === ip) || nics.slice().sort((a, b) => rank(a) - rank(b))[0]
   const others = nics.filter((nic) => nic !== main)
-  utools.copyText(main.address)
+  ztools.copyText(main.address)
   print('内网 IP 地址已复制')
   print(`出口网卡：${main.name}`)
   if (others.length) print('其它网卡：' + others.map((nic) => `${nic.address}（${nic.name}）`).join('、'))

@@ -27,7 +27,7 @@
 | --- | --- |
 | `ENTER` | 进入插件的参数：`code` / `type` / `payload` / `option` / `from` |
 | `print(msg)` | 输出内容到运行面板 |
-| `utools` | 插件 API：剪贴板、键鼠模拟、屏幕、系统路径、Shell 等 |
+| `ztools` | 插件 API：剪贴板、键鼠模拟、屏幕、系统路径、Shell 等 |
 | `require` | Node 内置模块，如 `child_process`、`fs`、`os`、`https` |
 | `sleep(ms)` | 阻塞等待 |
 | `runAppleScript(script)` | 执行 AppleScript（macOS） |

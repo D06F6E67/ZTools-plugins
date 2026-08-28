@@ -1,4 +1,4 @@
-if (utools.isMacOS()) {
+if (ztools.isMacOS()) {
   // 运行 AppleScript  激活终端 并执行脚本
   runAppleScript(`tell application "Terminal"
     activate
@@ -6,7 +6,7 @@ if (utools.isMacOS()) {
   end tell`)
   return
 }
-if (utools.isWindows()) {
+if (ztools.isWindows()) {
   // 打开 CMD 并执行脚本
   require('child_process').spawn(
     'start', 

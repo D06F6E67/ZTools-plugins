@@ -2,9 +2,9 @@ const result = ENTER.payload.toLowerCase()
 
 if (ENTER.from === 'panel') {
   // 如果使用超级面板打开，直接粘贴，替换当前选中的文本
-  utools.hideMainWindowPasteText(result)
+  ztools.hideMainWindowPasteText(result)
 } else {
   // 复制
-  utools.copyText(result)
+  ztools.copyText(result)
   return '结果已复制'
 }

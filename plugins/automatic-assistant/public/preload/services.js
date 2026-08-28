@@ -13,7 +13,7 @@ const sleepMs = (ms) => {
 
 const pasteModifier = () => (zt.isMacOS() ? 'command' : 'ctrl')
 
-// 脚本沙箱内允许使用的 utools API 白名单（与原 uTools 自动化助手一致）。
+// 脚本沙箱内允许使用的 API 白名单。
 // 运行时探测：ZTools 已实现的直接透传，未实现的调用时抛出明确错误，
 // 后续 ZTools 补齐 API 后无需修改本文件即可生效。
 const PASSTHROUGH_APIS = [
@@ -48,14 +48,14 @@ const PASSTHROUGH_APIS = [
   'isLinux'
 ]
 
-const sandboxUtools = {}
+const sandboxApi = {}
 
 for (const name of PASSTHROUGH_APIS) {
   if (typeof zt[name] === 'function') {
-    sandboxUtools[name] = (...args) => zt[name](...args)
+    sandboxApi[name] = (...args) => zt[name](...args)
   } else {
-    sandboxUtools[name] = () => {
-      throw new Error(`utools.${name} 在 ZTools 中暂不支持`)
+    sandboxApi[name] = () => {
+      throw new Error(`ztools.${name} 在 ZTools 中暂不支持`)
     }
   }
 }
@@ -74,7 +74,7 @@ const hideAndPaste = () => {
 
 // 原生存在则用原生，否则用 fallback
 const nativeOrFallback = (name, fallback) => {
-  sandboxUtools[name] = (...args) => {
+  sandboxApi[name] = (...args) => {
     if (typeof zt[name] === 'function') return zt[name](...args)
     return fallback(...args)
   }
@@ -101,7 +101,9 @@ nativeOrFallback('hideMainWindowPasteImage', (image) => {
 })
 
 const SCRIPT_CONTEXT = {
-  utools: sandboxUtools,
+  // 脚本内统一使用 ztools；utools 作为别名保留，便于直接粘贴既有脚本
+  ztools: sandboxApi,
+  utools: sandboxApi,
   Buffer,
   require,
   process,
