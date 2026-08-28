@@ -16,7 +16,7 @@ function encryptPassword(pwd) {
   return `enc:${iv.toString('hex')}:${encrypted}`
 }
 
-function decryptPassword(encryptedText) {
+function _decryptPassword(encryptedText) {
   if (encryptedText.startsWith('enc:')) {
     const parts = encryptedText.split(':')
     if (parts.length !== 3) return encryptedText
@@ -40,15 +40,22 @@ function docToHost(doc) {
     id: doc._id,
     address: doc.address,
     username: doc.username,
-    password: doc.password
+    password: doc.password,
+    order: doc.order ?? 0
   }
+}
+
+function getNextOrder(docs) {
+  if (!docs || docs.length === 0) return 1
+  const maxOrder = Math.max(...docs.map(d => d.order ?? 0))
+  return maxOrder + 1
 }
 
 window.services = {
   getHosts() {
     try {
       const docs = window.ztools.db.allDocs()
-      return docs.map(docToHost)
+      return docs.map(docToHost).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     } catch {
       return []
     }
@@ -60,11 +67,13 @@ window.services = {
       if (existing) {
         return { success: false, error: '编号已存在' }
       }
+      const docs = window.ztools.db.allDocs()
       window.ztools.db.put({
         _id: host.id,
         address: host.address,
         username: host.username,
-        password: encryptPassword(host.password)
+        password: encryptPassword(host.password),
+        order: getNextOrder(docs)
       })
       return { success: true }
     } catch (e) {
@@ -92,7 +101,8 @@ window.services = {
         username: host.username,
         password: host.password === oldDoc.password
           ? host.password
-          : encryptPassword(host.password)
+          : encryptPassword(host.password),
+        order: host.order ?? oldDoc.order ?? 0
       }
       if (host.id === originalId && oldDoc._rev) {
         newDoc._rev = oldDoc._rev
@@ -113,9 +123,34 @@ window.services = {
     }
   },
 
+  updateOrder(hosts) {
+    try {
+      hosts.forEach((host, index) => {
+        const doc = window.ztools.db.get(host.id)
+        if (doc) {
+          window.ztools.db.put({
+            ...doc,
+            order: index + 1
+          })
+        }
+      })
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e.message }
+    }
+  },
+
+  decryptPassword(encryptedText) {
+    try {
+      return _decryptPassword(encryptedText)
+    } catch {
+      return ''
+    }
+  },
+
   connectRdp(address, username, password) {
     try {
-      const decodedPassword = decryptPassword(password)
+      const decodedPassword = _decryptPassword(password)
 
       const tempDir = os.tmpdir()
       const rdpFile = path.join(tempDir, `rdp_${Date.now()}.rdp`)
@@ -139,28 +174,17 @@ window.services = {
       ].join('\r\n')
 
       fs.writeFileSync(rdpFile, rdpContent, 'utf-8')
-      console.log('[RDP] RDP 文件已写入:', rdpFile)
 
       try {
-        const cmdkeyResult = execSync(
+        execSync(
           `cmdkey /generic:TERMSRV/${address} /user:"${username}" /pass:"${decodedPassword}"`,
           { encoding: 'utf-8' }
         )
-        console.log('[RDP] cmdkey 输出:', cmdkeyResult)
-      } catch (cmdErr) {
-        console.error('[RDP] cmdkey 失败:', cmdErr.message)
-      }
+      } catch {}
 
       const mstscPath = path.join(process.env.WINDIR || 'C:\\Windows', 'System32', 'mstsc.exe')
-      console.log('[RDP] 启动 mstsc:', mstscPath, rdpFile)
 
-      exec(`"${mstscPath}" "${rdpFile}"`, (err, stdout, stderr) => {
-        if (err) {
-          console.error('[RDP] mstsc 启动失败:', err.message)
-        } else {
-          console.log('[RDP] mstsc 已启动')
-        }
-      })
+      exec(`"${mstscPath}" "${rdpFile}"`, () => {})
 
       setTimeout(() => {
         try {
