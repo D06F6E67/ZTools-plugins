@@ -42,8 +42,28 @@ function toBuffer(x) {
   return Buffer.from(x);
 }
 
+// 统一通知（ZTools 通知；测试环境降级为 console）
+function notify(text) {
+  try {
+    if (typeof window !== 'undefined' && window.ztools && typeof window.ztools.showNotification === 'function') {
+      window.ztools.showNotification(text);
+      return;
+    }
+  } catch (e) {}
+  try { console.log('[notify] ' + text) } catch (e) {}
+}
+
+// 诊断日志：每次转换都写 %TEMP%\ncm-converter-debug.log，失败时可直接查原因
+const LOG_FILE = path.join(os.tmpdir(), 'ncm-converter-debug.log')
+function log(msg) {
+  try {
+    fs.appendFileSync(LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] ${msg}\n`)
+  } catch (e) {}
+}
+
 // 超强兼容：把 action 里各种可能形态的文件描述提取为纯路径字符串数组。
 function collectPaths(action) {
+  log('收到 action: ' + summarize(action))
   let payload = action;
   if (action && typeof action === 'object') {
     if ('payload' in action) payload = action.payload;
@@ -105,16 +125,17 @@ function runFfmpeg(args) {
   const ff = findFfmpeg();
   if (ff) {
     return new Promise((resolve, reject) => {
+      log('ffmpeg 命令: ' + ff + ' ' + args.map(a => (/[\s"']/.test(String(a)) ? `"${a}"` : a)).join(' '));
       const cp = spawn(ff, args, { windowsHide: true });
       let err = '';
       if (cp.stderr) cp.stderr.on('data', d => { err += d.toString(); });
-      cp.on('error', e => reject(e));
+      cp.on('error', e => { log('spawn 错误: ' + e.message); reject(e); });
       cp.on('close', code => {
-        if (code === 0) return resolve();
-        const tail = err.split('\n')
-          .filter(l => /error|invalid|failed|no such file|unable/i.test(l))
-          .slice(-3).join('\n') || ('ffmpeg 退出码 ' + code);
-        reject(new Error(tail));
+        if (code === 0) { log('ffmpeg 成功'); return resolve(); }
+        // 保留原始 stderr 尾部（不过滤，避免把中文/真实错误滤掉）
+        const tail = err.trim() ? err.trim().split('\n').slice(-8).join('\n') : '(ffmpeg 无 stderr 输出)';
+        log('ffmpeg 失败 code=' + code + '\n' + tail);
+        reject(new Error(`ffmpeg 退出码 ${code}\n${tail}`));
       });
     });
   }
@@ -123,6 +144,16 @@ function runFfmpeg(args) {
     return window.ztools.runFFmpeg(args);
   }
   return Promise.reject(new Error('未检测到 ffmpeg。请安装 ffmpeg 并加入 PATH，或设置环境变量 FFMPEG_PATH。'));
+}
+
+// 目录是否可写（用于输出目录回退）
+function isWritable(dir) {
+  try {
+    fs.accessSync(dir, fs.constants.W_OK);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // 生成不冲突的输出路径
@@ -184,22 +215,30 @@ async function convertFile(filePath) {
   if (ext === 'ncm') return ncmToMp3(filePath);
 
   const outName = `${buildName(filePath)}.mp3`;
-  const outPath = uniquePath(path.dirname(filePath), outName);
-  await runFfmpeg(['-y', '-i', filePath, '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', outPath]);
+  let outDir = path.dirname(filePath);
+  // 源目录不可写（网盘/只读/受保护目录）时回退到桌面，避免整单失败
+  if (!isWritable(outDir)) {
+    const desk = path.join(os.homedir(), 'Desktop');
+    log(`源目录不可写，回退桌面: ${outDir} -> ${desk}`);
+    outDir = isWritable(desk) ? desk : os.tmpdir();
+  }
+  const outPath = uniquePath(outDir, outName);
+  log(`转换: ${filePath} -> ${outPath}`);
+  // -map 0:a:0：只取第一条音轨，避开封面/多轨导致 flac 转码失败
+  await runFfmpeg(['-y', '-i', filePath, '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', outPath]);
   return outPath;
 }
 
 // 统一的入口处理
 async function handle(action) {
   try {
-    // 静默：ZTools 启动任何插件都会先弹主窗口（AppsAPI.launch → mainWindow.show()），
-    // headless 插件必须主动 hideMainWindow 才能让用户无感；outPlugin 退出插件视图。
+    // 静默：只隐藏主窗口，**绝不**在这里调用 outPlugin()！
+    // outPlugin() 会让 ZTools 立刻销毁插件进程（日志实证：load → killPlugin → 插件已终止，
+    // 全程 <150ms），导致下面的 ffmpeg 转换根本没机会执行，表现就是「点了转换没反应」。
+    // mode:'none' 插件在 enter 的 Promise resolve 后会自动退出，无需手动 outPlugin。
     if (typeof window !== 'undefined' && window.ztools) {
       if (typeof window.ztools.hideMainWindow === 'function') {
         try { window.ztools.hideMainWindow(false); } catch (e) {}
-      }
-      if (typeof window.ztools.outPlugin === 'function') {
-        window.ztools.outPlugin().catch(() => {});
       }
     }
 
@@ -217,17 +256,25 @@ async function handle(action) {
             extensions: ['ncm', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus', 'mp3', 'ape', 'caf', 'aiff', 'amr']
           }]
         });
+        // showOpenDialog 可能同步返回，也可能返回 Promise —— 两种都处理
+        if (picked && typeof picked.then === 'function') {
+          try { picked = await picked } catch (e) { picked = null }
+        }
         if (picked && !Array.isArray(picked) && Array.isArray(picked.filePaths)) picked = picked.filePaths;
       }
       if (Array.isArray(picked) && picked.length) files = picked;
     }
 
     if (!files.length) {
+      log('未获取到文件，放弃')
       if (typeof window !== 'undefined' && window.ztools && typeof window.ztools.showNotification === 'function') {
         window.ztools.showNotification('未获取到音频文件。\naction:\n' + summarize(action));
       }
       return;
     }
+
+    // 先给即时反馈：大文件转码要几秒到几十秒，没有反馈会被当成"没反应"
+    notify(`开始转换 ${files.length} 个文件…`);
 
     const lines = [];
     for (const f of files) {
@@ -240,7 +287,9 @@ async function handle(action) {
         const out = await convertFile(fp);
         lines.push('✓ ' + path.basename(out));
       } catch (e) {
-        lines.push('✗ ' + path.basename(fp) + ': ' + (e && e.message ? e.message : e));
+        const msg = (e && e.message ? e.message : String(e));
+        log('转换失败 ' + fp + ' : ' + msg);
+        lines.push('✗ ' + path.basename(fp) + ': ' + msg);
       }
     }
 
