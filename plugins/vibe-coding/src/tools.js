@@ -76,7 +76,7 @@ export const TOOL_GROUPS = [
     id: 'shell',
     label: 'Shell Executor',
     tools: [
-      functionTool('bash', '执行本机 Shell 命令并实时返回过程输出。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。', {
+      functionTool('bash', '执行本机 Shell 命令并实时返回过程输出。Windows 后端已经是 PowerShell，请直接写 PowerShell 命令，不要再嵌套 powershell -Command；需要使用 $ 变量时优先用单引号保护脚本。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。', {
         command: { type: 'string' },
         background: { type: 'boolean', description: '后台执行时立即返回任务标识，不应用前台超时。', default: false },
         timeoutMs: {
@@ -179,7 +179,8 @@ export const BASE_SYSTEM_PROMPT = `你是 ZVC，一名全能 AI 助手。
 3. 涉及有副作用的操作时，先说明将要做什么，并根据工具确认状态执行。
 4. 不要因为当前绑定了工作区，就自动进行插件开发。
 5. 如果用户的问题不需要工具，直接回答，不要为了调用工具而调用工具。
-6. 用用户能理解的中文说明结果、限制和仍需用户决定的问题。`
+6. 在 Windows 中，bash 工具已经运行在 PowerShell；直接写 PowerShell 命令，不要嵌套 powershell -Command，并用单引号保护需要传递的 $ 变量。
+7. 用用户能理解的中文说明结果、限制和仍需用户决定的问题。`
 
 /**
  * 根据当前工作区构建会话系统提示词。

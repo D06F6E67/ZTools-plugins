@@ -98,6 +98,9 @@ function createProcessManager(options = {}) {
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // 让 Node 在数据分片边界组装 UTF-8 字符，避免中文和 Emoji 被替换。
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
 
     /**
      * 构建当前输出快照，并在发生截断时附加完整日志路径。

@@ -1,4 +1,5 @@
 const { platform } = require('node:os');
+const { createShellInvocation } = require('./shell-command');
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const MAX_TIMEOUT_MS = 600000;
@@ -44,12 +45,12 @@ function createShellTool(dependencies) {
     validateCommand(command);
     const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
     const windows = platform() === 'win32';
-    const shell = windows ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
-    const shellArgs = windows ? ['-NoProfile', '-Command', command] : ['-lc', command];
-    const result = await dependencies.processManager.run(shell, shellArgs, {
+    const environment = dependencies.getEnvironment();
+    const invocation = createShellInvocation(command, environment, windows ? 'win32' : platform());
+    const result = await dependencies.processManager.run(invocation.command, invocation.args, {
       callId: context.callId,
       cwd: workingDirectory,
-      env: dependencies.getEnvironment(),
+      env: environment,
       timeoutMs,
       signal: context.signal,
       onUpdate: (update) => context.onUpdate?.({ kind: 'shell', command, ...update }),

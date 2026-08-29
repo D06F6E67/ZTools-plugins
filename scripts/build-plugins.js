@@ -276,7 +276,7 @@ async function packagePlugin(pluginName, version) {
       const stat = statSync(filePath);
 
       // 排除不需要的文件
-      const excludes = ['.git', '.DS_Store', 'node_modules', 'package-lock.json', 'npm-debug.log'];
+      const excludes = ['.git', '.DS_Store', 'package-lock.json', 'npm-debug.log'];
       if (excludes.includes(file) || file.endsWith('.zpx')) {
         return;
       }

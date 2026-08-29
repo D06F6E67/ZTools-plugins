@@ -74,6 +74,12 @@ plugin-project/
 10. 提供加载、空白、错误、禁用和成功状态。界面无需依赖营销式说明文字才能使用。
 11. 使用相邻旧插件时只参考产品和样式，不复制未经当前校验器确认的清单或 preload 结构。
 
+### Windows Shell 约定
+
+- `bash` 工具在 Windows 中已经通过 PowerShell 执行，直接传入 PowerShell 命令；不要再次包裹 `powershell -Command` 或 `pwsh -Command`。
+- 命令中需要保留 PowerShell `$` 变量时优先使用单引号，避免被外层 PowerShell 提前展开。
+- 需要调用外部程序时保持参数边界清晰，避免依赖多层嵌套引号；工具运行时会统一将 PowerShell 输出编码为 UTF-8。
+
 ## 构建和校验
 
 生成项目后执行：

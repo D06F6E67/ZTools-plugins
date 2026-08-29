@@ -7,6 +7,7 @@ const { createConversationStore } = require("./conversation-store");
 const { normalizeConversationMessages } = require("./conversation-messages");
 const { createPluginDataPaths } = require("./data-paths");
 const { createWorkspaceStore } = require("./workspace-store");
+const { createShellInvocation, normalizePathEnvironment } = require("./runtime/tools/shell-command");
 
 const STORAGE_KEYS = {
   workspaces: "zvc:workspaces",
@@ -121,11 +122,17 @@ function getRunningHostExecutablePath() {
 
 /**
  * 构建可在 Finder 或 Spotlight 启动 ZTools 时使用的命令环境。
- * @returns {NodeJS.ProcessEnv} 补齐常见运行时目录和当前宿主位置后的进程环境。
+ * @returns {NodeJS.ProcessEnv} 补齐运行时目录、宿主位置和 Windows Python UTF-8 设置后的进程环境。
  */
 function getCommandEnvironment() {
-  const env = { ...process.env, NO_COLOR: "1" };
-  const currentPath = String(env.PATH || "")
+  const env = normalizePathEnvironment({ ...process.env, NO_COLOR: "1" });
+  // Python 连接管道时可能回退到 GBK，显式要求其标准流输出 UTF-8，避免 Node 解码出错。
+  if (process.platform === "win32") {
+    env.PYTHONIOENCODING = "utf-8";
+    env.PYTHONUTF8 = "1";
+  }
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const currentPath = String(env[pathKey] || "")
     .split(path.delimiter)
     .filter(Boolean);
   const extraPaths = [];
@@ -156,7 +163,7 @@ function getCommandEnvironment() {
     // nvm 为可选依赖，读取失败时继续使用系统 PATH。
   }
 
-  env.PATH = [...new Set([...extraPaths, ...currentPath])].join(path.delimiter);
+  env[pathKey] = [...new Set([...extraPaths, ...currentPath])].join(path.delimiter);
   const runningHostExecutable = getRunningHostExecutablePath();
   // 子进程始终使用当前 ZTools 实例，避免 E2E 自动选择到另一安装版本。
   if (runningHostExecutable)
@@ -1479,22 +1486,19 @@ async function invokeTool(
     ];
     if (dangerousPatterns.some((pattern) => pattern.test(command)))
       throw new Error("命令包含高风险操作，已被安全策略阻止");
-    const shell =
-      process.platform === "win32"
-        ? "powershell.exe"
-        : process.env.SHELL || "/bin/bash";
-    const shellArgs =
-      process.platform === "win32"
-        ? ["-NoProfile", "-Command", command]
-        : ["-lc", command];
+    const environment = getCommandEnvironment();
+    const invocation = createShellInvocation(command, environment);
     const id = randomUUID();
     const { spawn } = getChildProcessModule();
-    const child = spawn(shell, shellArgs, {
+    const child = spawn(invocation.command, invocation.args, {
       cwd: workingDirectory,
       windowsHide: true,
       detached: process.platform !== "win32",
-      env: getCommandEnvironment(),
+      env: environment,
     });
+    // 后台输出同样使用 UTF-8 流，避免与前台 Shell 产生不同的编码结果。
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
     const record = {
       id,
       command,

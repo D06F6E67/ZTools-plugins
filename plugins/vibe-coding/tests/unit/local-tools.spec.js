@@ -18,6 +18,11 @@ const {
   resolvePlatformKey,
   validateArchiveEntries,
 } = require('../../public/runtime/tools/binary-manager.js')
+const {
+  createShellInvocation,
+  normalizePathEnvironment,
+  resolveShellCommand,
+} = require('../../public/runtime/tools/shell-command.js')
 
 test('read 按行读取且 edit 原子应用多个修改并保留 BOM 与 CRLF', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zvc-file-tools-'))
@@ -117,6 +122,68 @@ test('子进程管理器节流发布过程输出并能取消整个调用', async
     assert.equal(manager.activeCount(), 0)
   } finally {
     manager.cancelAll()
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('子进程管理器在 UTF-8 字符跨输出分片时保留完整字符', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zvc-process-manager-utf8-'))
+  const manager = createProcessManager({ outputRoot: root })
+
+  try {
+    const result = await manager.run(process.execPath, ['-e', "process.stdout.write(Buffer.from([0xe6])); setTimeout(() => process.stdout.write(Buffer.from([0xb5, 0x8b])), 50)"], {
+      callId: 'utf8-split-test',
+      cwd: root,
+      timeoutMs: 2000,
+    })
+    assert.equal(result.stdout, '测')
+    assert.equal(result.output, '测')
+    assert.equal(result.output.includes('�'), false)
+  } finally {
+    manager.cancelAll()
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows Shell 环境合并 Path/PATH 且不会留下重复键', () => {
+  const environment = normalizePathEnvironment({
+    Path: 'C:\\Windows\\System32',
+    PATH: 'C:\\Tools',
+    TEMP: 'fixture',
+  }, 'win32')
+
+  assert.equal(environment.Path, 'C:\\Windows\\System32;C:\\Tools')
+  assert.equal(Object.keys(environment).filter((key) => key.toLowerCase() === 'path').length, 1)
+  assert.equal(environment.PATH, undefined)
+})
+
+test('Windows Shell 优先使用存在的系统或显式 PowerShell 路径', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zvc-shell-command-'))
+  const pwshPath = path.join(root, 'pwsh.exe')
+  await fs.writeFile(pwshPath, '')
+
+  try {
+    assert.equal(resolveShellCommand({ ZVC_PWSH_PATH: pwshPath }, 'win32'), pwshPath)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Shell 执行参数只在 Windows 注入 UTF-8 PowerShell 初始化', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zvc-shell-invocation-'))
+  const pwshPath = path.join(root, 'pwsh.exe')
+  await fs.writeFile(pwshPath, '')
+
+  try {
+    const windows = createShellInvocation('Write-Output 中文', { ZVC_PWSH_PATH: pwshPath }, 'win32')
+    assert.equal(windows.command, pwshPath)
+    assert.deepEqual(windows.args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-Command'])
+    assert.match(windows.args[3], /^\$OutputEncoding = /)
+    assert.match(windows.args[3], /Write-Output 中文$/)
+
+    const mac = createShellInvocation('printf 中文', { SHELL: '/bin/zsh' }, 'darwin')
+    assert.deepEqual(mac, { command: '/bin/zsh', args: ['-lc', 'printf 中文'] })
+  } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
 })

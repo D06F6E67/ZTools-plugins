@@ -159,6 +159,20 @@ test('Shell Executor 分组切换后能力弹窗仍正常绘制', async ({}, tes
     const inheritedHostPath = String(inheritedHost.stdout || inheritedHost.output || '').trim()
     expect(await fs.realpath(inheritedHostPath)).toBe(await fs.realpath(launchOptions.executablePath))
 
+    // Windows PowerShell 输出必须保留中文、Emoji 和多字节符号，不能在分片解码时替换为 �。
+    const unicodeCommand = process.platform === 'win32'
+      ? 'Write-Output "中文 😀 ✓"'
+      : 'printf "中文 😀 ✓\\n"'
+    const unicodeResult = await executeInContents(electronApp, pluginUrl, `(async () => (
+      window.zvcBridge.invokeTool('', 'bash', {
+        command: ${JSON.stringify(unicodeCommand)},
+        timeoutMs: 3000
+      })
+    ))()`)
+    expect(unicodeResult).toMatchObject({ code: 0 })
+    expect(unicodeResult.stdout).toContain('中文 😀 ✓')
+    expect(unicodeResult.stdout).not.toContain('�')
+
     const footerLayout = await executeInContents(electronApp, pluginUrl, `(() => {
       const footer = document.querySelector('.sidebar-footer')?.getBoundingClientRect()
       const settings = document.querySelector('.sidebar-footer [aria-label="ZVC 设置"]')?.getBoundingClientRect()
@@ -174,10 +188,10 @@ test('Shell Executor 分组切换后能力弹窗仍正常绘制', async ({}, tes
     expect(footerLayout.footerRight - footerLayout.collapseRight).toBeLessThan(20)
 
     const delayedCommand = process.platform === 'win32'
-      ? 'powershell -NoProfile -Command "Start-Sleep -Milliseconds 1200; Write-Output zvc-timeout-ok"'
+      ? 'Start-Sleep -Milliseconds 1200; Write-Output zvc-timeout-ok'
       : 'sleep 1.2; printf zvc-timeout-ok'
     const timeoutCommand = process.platform === 'win32'
-      ? 'powershell -NoProfile -Command "Start-Sleep -Milliseconds 1500"'
+      ? 'Start-Sleep -Milliseconds 1500'
       : 'sleep 1.5'
     const shellTimeoutState = await executeInContents(electronApp, pluginUrl, `(async () => {
       const completedAt = Date.now()
@@ -228,7 +242,7 @@ test('Shell Executor 分组切换后能力弹窗仍正常绘制', async ({}, tes
 
     // 取消必须终止整个进程组，等待超过原命令延时后再检查副作用。
     const cancelCommand = process.platform === 'win32'
-      ? `Write-Output started; Start-Sleep -Seconds 3; Set-Content -Path "${cancelMarker}" -Value residual`
+      ? `Write-Output started; Start-Sleep -Seconds 3; Set-Content -Path '${cancelMarker}' -Value residual`
       : `printf "started\\n"; sleep 3; printf residual > "${cancelMarker}"`
     const cancelState = await executeInContents(electronApp, pluginUrl, `(async () => {
       const updates = []

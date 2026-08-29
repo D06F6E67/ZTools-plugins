@@ -17,6 +17,14 @@ test('Bash 超时参数明确使用毫秒并提供有界的前台执行时间', 
   })
 })
 
+test('Bash 工具描述明确 Windows 已使用 PowerShell 且禁止嵌套调用', () => {
+  const shellTool = TOOL_GROUPS.find((group) => group.id === 'shell')?.tools.find((tool) => tool.function.name === 'bash')
+  const description = shellTool?.function.description || ''
+
+  assert.match(description, /Windows 后端已经是 PowerShell/)
+  assert.match(description, /不要再嵌套 powershell -Command/)
+})
+
 test('文件与搜索工具使用 Pi 风格的精简协议', () => {
   const fileNames = TOOL_GROUPS.find((group) => group.id === 'files')?.tools.map((tool) => tool.function.name)
   const searchNames = TOOL_GROUPS.find((group) => group.id === 'search')?.tools.map((tool) => tool.function.name)
