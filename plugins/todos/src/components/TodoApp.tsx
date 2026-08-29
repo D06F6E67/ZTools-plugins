@@ -5,12 +5,15 @@ import { CalendarView } from './Calendar/CalendarView';
 import { TaskPool } from './Task/TaskPool';
 import { WorkspaceGradient } from './WorkspaceGradient';
 import { DevRefreshButton } from './DevRefreshButton';
+import { BottomLegend } from './BottomLegend';
+import { KeyboardShortcutPanel } from './KeyboardShortcutPanel';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useAppContext } from '../context/AppContext';
 
 function TodoAppContent() {
   const { state, dispatch } = useAppContext();
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const handleHoverTask = useCallback((taskId: string | null) => {
     setHoveredTaskId(taskId);
@@ -19,6 +22,14 @@ function TodoAppContent() {
   const handleSelectTask = useCallback((taskId: string) => {
     dispatch({ type: 'SET_SELECTED_TASK', payload: { taskId } });
   }, [dispatch]);
+
+  const toggleShortcuts = useCallback(() => {
+    setShowShortcuts(prev => !prev);
+  }, []);
+
+  const closeShortcuts = useCallback(() => {
+    setShowShortcuts(false);
+  }, []);
 
   useKeyboardShortcuts({
     onSearch: () => {
@@ -32,8 +43,13 @@ function TodoAppContent() {
       dispatch({ type: 'SET_VIEW_MODE', payload: { viewMode: newMode } });
     },
     onEscape: () => {
-      dispatch({ type: 'SET_SEARCH_QUERY', payload: { query: '' } });
-    }
+      if (showShortcuts) {
+        setShowShortcuts(false);
+      } else {
+        dispatch({ type: 'SET_SEARCH_QUERY', payload: { query: '' } });
+      }
+    },
+    onShowShortcuts: toggleShortcuts
   });
 
   return (
@@ -46,6 +62,8 @@ function TodoAppContent() {
         <TaskPool hoveredTaskId={hoveredTaskId} onHoverTask={handleHoverTask} />
         <WorkspaceGradient />
       </div>
+      <BottomLegend onShowShortcuts={toggleShortcuts} />
+      <KeyboardShortcutPanel visible={showShortcuts} onClose={closeShortcuts} />
       <DevRefreshButton />
     </div>
   );

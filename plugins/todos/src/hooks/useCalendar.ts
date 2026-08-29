@@ -50,7 +50,9 @@ export function useCalendar() {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     
-    const firstDayOfWeek = firstDay.getDay();
+    const dayOfWeek = firstDay.getDay();
+    // Convert from Sunday-first (getDay: 0=Sun) to Monday-first (0=Mon, 6=Sun)
+    const firstDayOfWeek = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const daysInMonth = lastDay.getDate();
     
     const days = [];

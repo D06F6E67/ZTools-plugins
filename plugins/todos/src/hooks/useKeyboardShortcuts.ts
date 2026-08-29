@@ -6,6 +6,7 @@ interface ShortcutHandlers {
   onSearch?: () => void;
   onToggleView?: () => void;
   onEscape?: () => void;
+  onShowShortcuts?: () => void;
 }
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
@@ -37,6 +38,14 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
     // Escape: 取消/关闭
     if (e.key === 'Escape') {
       handlers.onEscape?.();
+    }
+
+    // ?: 显示操作指引
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.isContentEditable) {
+        handlers.onShowShortcuts?.();
+      }
     }
   }, [handlers]);
 

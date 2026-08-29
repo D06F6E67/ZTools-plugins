@@ -3,7 +3,7 @@ import { useCalendar } from '../../hooks/useCalendar';
 import { useTasks } from '../../hooks/useTasks';
 import { useAppContext } from '../../context/AppContext';
 import { DayCell } from './DayCell';
-import { isToday } from '../../utils/dateUtils';
+import { isToday, getWeekStart, formatDate } from '../../utils/dateUtils';
 import { COLOR_SCHEMES } from '../../constants/colorSchemes';
 
 interface MonthViewProps {
@@ -77,17 +77,14 @@ export function MonthView({ hoveredTaskId, onHoverTask, onSelectTask, onDateClic
     setHoveredDate(null);
   };
 
-  const getWeekStart = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekStart = new Date(d);
-    weekStart.setDate(diff);
-    return weekStart.toISOString().split('T')[0];
+  const getWeekStartStr = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const d = new Date(year, month - 1, day);
+    return formatDate(getWeekStart(d));
   };
 
   const isSameWeek = (date1: string, date2: string) => {
-    return getWeekStart(date1) === getWeekStart(date2);
+    return getWeekStartStr(date1) === getWeekStartStr(date2);
   };
 
   return (
