@@ -23,6 +23,9 @@ const {
   normalizePathEnvironment,
   resolveShellCommand,
 } = require('../../public/runtime/tools/shell-command.js')
+const {
+  resolveRuntimeToolName,
+} = require('../../public/runtime/tools/shell-tool-name.js')
 
 test('read 按行读取且 edit 原子应用多个修改并保留 BOM 与 CRLF', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'zvc-file-tools-'))
@@ -182,10 +185,19 @@ test('Shell 执行参数只在 Windows 注入 UTF-8 PowerShell 初始化', async
     assert.match(windows.args[3], /Write-Output 中文$/)
 
     const mac = createShellInvocation('printf 中文', { SHELL: '/bin/zsh' }, 'darwin')
-    assert.deepEqual(mac, { command: '/bin/zsh', args: ['-lc', 'printf 中文'] })
+    assert.deepEqual(mac, { command: '/bin/bash', args: ['-lc', 'printf 中文'] })
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+test('模型侧 Shell 工具名只允许匹配当前宿主平台的方言', () => {
+  assert.equal(resolveRuntimeToolName('bash', 'darwin'), 'bash')
+  assert.equal(resolveRuntimeToolName('bash', 'linux'), 'bash')
+  assert.equal(resolveRuntimeToolName('powershell', 'win32'), 'bash')
+  assert.equal(resolveRuntimeToolName('read', 'win32'), 'read')
+  assert.throws(() => resolveRuntimeToolName('powershell', 'darwin'), /只在 Windows 中可用/)
+  assert.throws(() => resolveRuntimeToolName('bash', 'win32'), /请使用 powershell 工具/)
 })
 
 test('搜索工具清单固定版本与校验和并拒绝路径穿越压缩包', () => {

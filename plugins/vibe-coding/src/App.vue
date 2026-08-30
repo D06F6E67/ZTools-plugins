@@ -109,9 +109,11 @@ import {
 import {
   ALL_TOOLS,
   DEFAULT_ENABLED_TOOLS,
+  getModelTools,
   PLUGIN_DEVELOPMENT_TOOL_GROUPS,
   buildSystemPrompt,
   getToolExecutionMode,
+  isShellToolName,
   TOOL_GROUPS,
 } from "./tools";
 import { isSupportedZToolsVersion } from "./utils/app-version";
@@ -179,6 +181,7 @@ const {
 const workspaces = ref([]);
 const conversations = ref([]);
 const skills = ref([]);
+const runtimePlatform = ref("");
 const activeConversationId = ref("");
 const defaultSelectedModel = ref("");
 const hostModels = ref([]);
@@ -2305,7 +2308,7 @@ function isPresentedToolResult(value) {
  * @returns {number} 前端等待超时时间，单位毫秒。
  */
 function getToolExecutionTimeoutMs(call) {
-  if (call?.name !== "bash" || call?.args?.background)
+  if (!isShellToolName(call?.name) || call?.args?.background)
     return DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
   const requestedTimeout = Number(call.args?.timeoutMs);
   const shellTimeout =
@@ -2619,9 +2622,7 @@ async function createRequestEnvelope(runtime) {
     reasoningEffort: resolveRuntimeReasoningEffort(runtime, selection),
     systemPrompt: buildSystemPrompt({ project: workspace }),
     tools: [
-      ...ALL_TOOLS.filter((tool) =>
-        runtime.enabledToolNames.includes(tool.function.name),
-      ),
+      ...getModelTools(runtime.enabledToolNames, runtimePlatform.value),
       ...[skillTool].filter(Boolean),
     ],
   };
@@ -3799,6 +3800,7 @@ onMounted(async () => {
     conversations: [],
   };
   workspaces.value = initial.workspaces || [];
+  runtimePlatform.value = String(initial.runtimePlatform || "").trim();
   collapsedWorkspaceIds.value = Array.isArray(initial.collapsedWorkspaceIds)
     ? initial.collapsedWorkspaceIds
     : [];

@@ -61,7 +61,11 @@ function commandExists(command, environment) {
  * @returns {string} 可传给 child_process.spawn 的 Shell 执行器。
  */
 function resolveShellCommand(environment = process.env, platformName = process.platform) {
-  if (platformName !== 'win32') return environment.SHELL || '/bin/bash';
+  if (platformName !== 'win32') {
+    // 与模型侧 bash 工具保持同一方言；仅在系统没有 Bash 时回退到兼容 Shell。
+    if (fs.existsSync('/bin/bash')) return '/bin/bash';
+    return environment.SHELL || 'sh';
+  }
   const systemRoot = environment.SystemRoot || environment.WINDIR || 'C:\\Windows';
   const candidates = [
     environment.ZVC_PWSH_PATH,

@@ -76,7 +76,7 @@ export const TOOL_GROUPS = [
     id: 'shell',
     label: 'Shell Executor',
     tools: [
-      functionTool('bash', '执行本机 Shell 命令并实时返回过程输出。Windows 后端已经是 PowerShell，请直接写 PowerShell 命令，不要再嵌套 powershell -Command；需要使用 $ 变量时优先用单引号保护脚本。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。', {
+      functionTool('bash', '执行当前平台的本机 Shell 命令并实时返回过程输出。模型请求会根据宿主平台将该能力装配为 Bash 或 PowerShell。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。', {
         command: { type: 'string' },
         background: { type: 'boolean', description: '后台执行时立即返回任务标识，不应用前台超时。', default: false },
         timeoutMs: {
@@ -137,6 +137,70 @@ export const TOOL_GROUPS = [
 
 export const ALL_TOOLS = TOOL_GROUPS.flatMap((group) => group.tools)
 
+const SHELL_MODEL_TOOL_CONFIGS = Object.freeze({
+  darwin: {
+    name: 'bash',
+    description: '在 macOS 中执行 Bash 命令并实时返回过程输出。每次调用使用独立的 Bash 兼容 POSIX Shell；不会保留 cd、变量或函数状态。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。',
+  },
+  linux: {
+    name: 'bash',
+    description: '在 Linux 中执行 Bash 命令并实时返回过程输出。每次调用使用独立的 Bash 兼容 POSIX Shell；不会保留 cd、变量或函数状态。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。',
+  },
+  win32: {
+    name: 'powershell',
+    description: '在 Windows 中执行 PowerShell 命令并实时返回过程输出。每次调用使用独立的 PowerShell 进程；不会保留位置、变量或函数状态。直接使用 PowerShell 语法，不要再次嵌套 powershell -Command 或 pwsh -Command；需要保留 $ 变量时优先使用单引号。绑定工作区时默认在工作区执行，否则默认在插件数据目录的 workspace/ 子目录执行。开发服务器等长任务必须设置 background=true。',
+  },
+})
+
+const MODEL_SHELL_TOOL_NAMES = new Set(['bash', 'powershell'])
+
+/**
+ * 判断名称是否属于模型侧的平台专属 Shell 工具。
+ * @param {unknown} toolName 待判断的工具名称。
+ * @returns {boolean} 是否为 Bash 或 PowerShell 工具。
+ */
+export function isShellToolName(toolName) {
+  return MODEL_SHELL_TOOL_NAMES.has(String(toolName || ''))
+}
+
+/**
+ * 根据宿主平台把内部 Shell 能力装配为唯一的模型侧工具协议。
+ * @param {unknown} platform 宿主进程平台标识。
+ * @returns {Record<string, unknown>|null} 平台专属 Shell 工具定义；平台未知时返回空值。
+ */
+export function getShellModelTool(platform) {
+  const normalized = normalizeRuntimePlatform(platform)
+  const config = SHELL_MODEL_TOOL_CONFIGS[normalized]
+  if (!config) return null
+  const logicalTool = ALL_TOOLS.find((tool) => tool.function.name === 'bash')
+  if (!logicalTool) return null
+  return {
+    ...logicalTool,
+    function: {
+      ...logicalTool.function,
+      name: config.name,
+      description: config.description,
+    },
+  }
+}
+
+/**
+ * 将会话保存的逻辑工具选择转换为当前平台真正提供给模型的工具列表。
+ * @param {unknown} enabledToolNames 会话已启用的内部工具名称。
+ * @param {unknown} platform 宿主进程平台标识。
+ * @returns {Array<Record<string, unknown>>} 与当前平台执行器一致的模型工具定义。
+ */
+export function getModelTools(enabledToolNames, platform) {
+  const enabled = new Set(Array.isArray(enabledToolNames) ? enabledToolNames.map(String) : [])
+  const shellTool = enabled.has('bash') ? getShellModelTool(platform) : null
+  return ALL_TOOLS.flatMap((tool) => {
+    const logicalName = tool.function.name
+    if (!enabled.has(logicalName)) return []
+    if (logicalName === 'bash') return shellTool ? [shellTool] : []
+    return [tool]
+  })
+}
+
 /**
  * 工具执行调度模式；只读工具允许同组并行，有副作用工具默认独占。
  * @typedef {'parallel'|'exclusive'} ToolExecutionMode
@@ -169,18 +233,19 @@ export const GENERAL_TOOLS = TOOL_GROUPS
 // 普通会话保持纯对话；用户可在能力面板手动启用 Web 或本地工具。
 export const DEFAULT_ENABLED_TOOLS = []
 export const PLUGIN_DEVELOPMENT_TOOL_GROUPS = new Set(['files', 'search', 'shell', 'tasks', 'web'])
-export const BASE_SYSTEM_PROMPT = `你是 ZVC，一名全能 AI 助手。
+export const BASE_SYSTEM_PROMPT = `你是 ZVC，一名全能 AI 助手。直接帮助用户完成任务，需要操作时使用当前提供的工具。除非用户明确要求，否则不要修改文件、运行命令或创建内容。绑定工作区不代表要开发插件。`
 
-你可以回答问题、分析资料、搜索网页、整理信息，并使用当前会话中启用的工具。
-
-工作规则：
-1. 只使用当前会话明确启用的工具；没有启用的能力不可调用。
-2. 除非用户明确要求，否则不要修改文件、运行命令或创建工作区内容。
-3. 涉及有副作用的操作时，先说明将要做什么，并根据工具确认状态执行。
-4. 不要因为当前绑定了工作区，就自动进行插件开发。
-5. 如果用户的问题不需要工具，直接回答，不要为了调用工具而调用工具。
-6. 在 Windows 中，bash 工具已经运行在 PowerShell；直接写 PowerShell 命令，不要嵌套 powershell -Command，并用单引号保护需要传递的 $ 变量。
-7. 用用户能理解的中文说明结果、限制和仍需用户决定的问题。`
+/**
+ * 规范化宿主运行平台，避免未知值导致模型套用错误的 Shell 规则。
+ * @param {unknown} platform 宿主进程提供的平台标识。
+ * @returns {'darwin'|'linux'|'win32'|'unknown'} 受支持的平台标识。
+ */
+export function normalizeRuntimePlatform(platform) {
+  const value = String(platform || '').trim().toLowerCase()
+  return Object.prototype.hasOwnProperty.call(SHELL_MODEL_TOOL_CONFIGS, value)
+    ? value
+    : 'unknown'
+}
 
 /**
  * 根据当前工作区构建会话系统提示词。
@@ -191,9 +256,9 @@ export const BASE_SYSTEM_PROMPT = `你是 ZVC，一名全能 AI 助手。
 export function buildSystemPrompt({ project = null } = {}) {
   const sections = [BASE_SYSTEM_PROMPT]
   if (project) {
-    sections.push(`当前会话工作区：${project.name}\n工作区路径：${project.path}\nShell 命令和相对文件路径默认以该工作区为基准；用户明确指定绝对路径时可以访问其他非敏感本机路径。`)
+    sections.push(`工作区：${project.name}（${project.path}）。相对路径和 Shell 命令以此为基准。`)
   } else {
-    sections.push('当前会话未绑定工作区。Shell 命令和相对文件路径默认以插件数据目录的 workspace/ 子目录为基准，也可以使用绝对路径访问非敏感本机位置。')
+    sections.push('未绑定工作区；相对路径和 Shell 命令以 ZVC 默认工作目录为基准。')
   }
   return sections.join('\n\n')
 }

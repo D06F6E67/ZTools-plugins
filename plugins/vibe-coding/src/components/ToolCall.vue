@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Check, ChevronDown, CircleAlert, Copy, FileSearch, FileText, Globe2, ListTodo, Search, SquareTerminal, Wrench, X } from '@lucide/vue'
 import ImageGallery from './ImageGallery.vue'
+import { isShellToolName } from '../tools.js'
 
 const props = defineProps({ call: { type: Object, required: true } })
 const emit = defineEmits(['approve', 'reject'])
@@ -22,6 +23,7 @@ const TOOL_PRESENTATION = {
   write: { title: '写入', icon: FileText, keys: ['path'] },
   edit: { title: '编辑', icon: FileText, keys: ['path'] },
   bash: { title: 'Bash', icon: SquareTerminal, keys: ['description', 'command'] },
+  powershell: { title: 'PowerShell', icon: SquareTerminal, keys: ['description', 'command'] },
   list_background_shells: { title: 'Shell', icon: SquareTerminal, keys: [] },
   read_background_shell_output: { title: 'Shell', icon: SquareTerminal, keys: ['shell_id'] },
   kill_background_shell: { title: 'Shell', icon: SquareTerminal, keys: ['shell_id'] },
@@ -234,11 +236,11 @@ function buildVisibleRows(rows, maxLines) {
 }
 
 /**
- * 判断当前工具调用是否为前台 Bash 命令执行。
+ * 判断当前工具调用是否为平台专属的前台 Shell 命令执行。
  * @returns {boolean} 是否使用专用终端视图。
  */
 function isShellExecutionCall() {
-  return props.call.name === 'bash'
+  return isShellToolName(props.call.name)
 }
 
 /**

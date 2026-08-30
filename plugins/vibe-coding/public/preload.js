@@ -8,6 +8,7 @@ const { normalizeConversationMessages } = require("./conversation-messages");
 const { createPluginDataPaths } = require("./data-paths");
 const { createWorkspaceStore } = require("./workspace-store");
 const { createShellInvocation, normalizePathEnvironment } = require("./runtime/tools/shell-command");
+const { resolveRuntimeToolName } = require("./runtime/tools/shell-tool-name");
 
 const STORAGE_KEYS = {
   workspaces: "zvc:workspaces",
@@ -24,10 +25,11 @@ const CONVERSATION_STORAGE_VERSION = 5;
 const MAX_OUTPUT_CHARS = 120000;
 const MAX_WEB_RESULTS = 10;
 const MAX_WEB_READ = 30000;
-const BUNDLED_SKILL_REVISIONS = { "develop-ztools-plugin": "12" };
+const BUNDLED_SKILL_REVISIONS = { "develop-ztools-plugin": "14" };
 const DEFAULT_ENABLED_TOOLS = [];
 const DEFAULT_STREAM_BATCH_INTERVAL_MS = 50;
 const MAX_STREAM_BATCH_INTERVAL_MS = 1000;
+const AI_REQUEST_TIMEOUT_MS = 300000;
 const DEFAULT_AUTO_COMPACTION_THRESHOLD_PERCENT = 70;
 const DEFAULT_TOOL_CONCURRENCY_LIMIT = 10;
 const MAX_TOOL_CONCURRENCY_LIMIT = 50;
@@ -1465,13 +1467,15 @@ async function invokeTool(
   context = {},
   onUpdate = null,
 ) {
+  // 模型侧工具名必须先通过宿主平台校验，再进入内部统一的 Shell 能力名称。
+  const runtimeToolName = resolveRuntimeToolName(toolName, process.platform);
   const workspace = projectId ? requireWorkspace(projectId) : null;
   const root = workspace ? path.resolve(workspace.path) : "";
   const workingDirectory = root || getPluginDataPaths().workspaceRoot;
   // 未绑定会话首次调用本地工具时准备默认目录，避免子进程因 cwd 不存在而失败。
   if (!workspace) fs.mkdirSync(workingDirectory, { recursive: true });
 
-  if (toolName === "bash" && args.background) {
+  if (runtimeToolName === "bash" && args.background) {
     const command = String(args.command || "").trim();
     if (!command || command.length > 10000) throw new Error("命令为空或过长");
     const dangerousPatterns = [
@@ -1528,9 +1532,9 @@ async function invokeTool(
     backgroundProcesses.set(id, record);
     return { shell_id: id, pid: child.pid };
   }
-  if (LOCAL_RUNTIME_TOOL_NAMES.has(toolName)) {
+  if (LOCAL_RUNTIME_TOOL_NAMES.has(runtimeToolName)) {
     const toolRuntime = getLocalToolRuntime();
-    return toolRuntime.execute(toolName, args, {
+    return toolRuntime.execute(runtimeToolName, args, {
       callId: context.callId,
       workspace,
       workingDirectory,
@@ -1755,7 +1759,7 @@ function createChatRequest(options, onEvent) {
             Number(options.maxTokens) > 0
               ? Math.min(Number(options.maxTokens), 32768)
               : undefined,
-          timeout: 120000,
+          timeout: AI_REQUEST_TIMEOUT_MS,
           streamBatchIntervalMs,
         });
         hostRequest = window.ztools.aiChat(hostOptions, (event) => {
@@ -1878,13 +1882,14 @@ function cleanupBackgroundProcesses() {
 window.zvcBridge = {
   /**
    * 获取插件启动所需的全部本地状态。
-   * @returns {Record<string, unknown>} 工作区、会话、模型和能力初始状态。
+   * @returns {Record<string, unknown>} 工作区、会话、模型、能力和宿主平台初始状态。
    */
   getInitialState() {
     const conversations = getConversations();
     return {
       workspaces: getWorkspaces(),
       conversations,
+      runtimePlatform: process.platform,
       selectedModel: readStorage(STORAGE_KEYS.selectedModel, ""),
       autoApproveTools:
         readStorage(STORAGE_KEYS.autoApproveTools, true) !== false,
