@@ -29,6 +29,7 @@ const dragOverIndex = ref(-1)
 const dragSourceIndex = ref(-1)
 const dragHandlePressed = ref(false)
 const hostToDelete = ref<RemoteHost | null>(null)
+const isDark = ref(false)
 
 const isSearching = computed(() => search.value.trim().length > 0)
 
@@ -56,8 +57,30 @@ const originalId = ref('')
 const originalEncryptedPassword = ref('')
 const editOriginalPassword = ref('')
 
+function detectDarkMode() {
+  try {
+    if (window.ztools && typeof window.ztools.isDarkColors === 'function') {
+      return window.ztools.isDarkColors()
+    }
+  } catch {}
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
 onMounted(() => {
+  isDark.value = detectDarkMode()
   loadHosts()
+
+  if (window.matchMedia) {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      isDark.value = detectDarkMode()
+    }
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handler)
+    } else if ((mediaQuery as any).addListener) {
+      (mediaQuery as any).addListener(handler)
+    }
+  }
 })
 
 function loadHosts() {
@@ -258,7 +281,7 @@ function showTip(msg: string) {
 </script>
 
 <template>
-  <div class="remote-manager">
+  <div class="remote-manager" :class="{ dark: isDark }">
     <div class="toolbar">
       <div class="toolbar-left">
         <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -473,6 +496,49 @@ function showTip(msg: string) {
   height: 100%;
   min-height: 280px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: var(--rm-bg);
+
+  --rm-bg: #ffffff;
+  --rm-text: #333333;
+  --rm-text-secondary: #666666;
+  --rm-text-muted: #999999;
+  --rm-border: #e8e8e8;
+  --rm-header-bg: #fafafa;
+  --rm-input-bg: #ffffff;
+  --rm-hover-bg: rgba(88, 164, 246, 0.06);
+  --rm-placeholder: #bbbbbb;
+  --rm-icon: #bbbbbb;
+  --rm-icon-hover: #888888;
+}
+
+.remote-manager.dark {
+  --rm-bg: #1e1e1e;
+  --rm-text: #f0f0f0;
+  --rm-text-secondary: #c0c0c0;
+  --rm-text-muted: #909090;
+  --rm-border: #404040;
+  --rm-header-bg: #2a2a2a;
+  --rm-input-bg: #2a2a2a;
+  --rm-hover-bg: rgba(88, 164, 246, 0.18);
+  --rm-placeholder: #666666;
+  --rm-icon: #666666;
+  --rm-icon-hover: #a0a0a0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .remote-manager:not(.light) {
+    --rm-bg: #1e1e1e;
+    --rm-text: #f0f0f0;
+    --rm-text-secondary: #c0c0c0;
+    --rm-text-muted: #909090;
+    --rm-border: #404040;
+    --rm-header-bg: #2a2a2a;
+    --rm-input-bg: #2a2a2a;
+    --rm-hover-bg: rgba(88, 164, 246, 0.18);
+    --rm-placeholder: #666666;
+    --rm-icon: #666666;
+    --rm-icon-hover: #a0a0a0;
+  }
 }
 
 .toolbar {
@@ -480,8 +546,8 @@ function showTip(msg: string) {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color, #e8e8e8);
-  background: var(--bg-color, #fafafa);
+  border-bottom: 1px solid var(--rm-border);
+  background: var(--rm-header-bg);
 }
 
 .toolbar-left {
@@ -501,9 +567,9 @@ function showTip(msg: string) {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border: 1px solid var(--border-color, #ddd);
+  border: 1px solid var(--rm-border);
   border-radius: 4px;
-  background: var(--input-bg, #fff);
+  background: var(--rm-input-bg);
   transition: border-color 0.2s;
 }
 
@@ -512,7 +578,7 @@ function showTip(msg: string) {
 }
 
 .search-box svg {
-  color: #999;
+  color: var(--rm-icon);
   flex-shrink: 0;
 }
 
@@ -522,11 +588,11 @@ function showTip(msg: string) {
   background: transparent;
   font-size: 13px;
   width: 120px;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .search-box input::placeholder {
-  color: #bbb;
+  color: var(--rm-placeholder);
 }
 
 .toolbar-icon {
@@ -539,7 +605,7 @@ function showTip(msg: string) {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .btn-add {
@@ -562,7 +628,7 @@ function showTip(msg: string) {
   align-items: center;
   justify-content: center;
   padding: 32px 20px;
-  color: #999;
+  color: var(--rm-text-muted);
 }
 
 .empty-icon {
@@ -598,17 +664,16 @@ function showTip(msg: string) {
 .hosts-table td {
   padding: 10px 12px;
   text-align: center;
-  border-bottom: 1px solid var(--border-color, #f0f0f0);
+  border-bottom: 1px solid var(--rm-border);
   vertical-align: middle;
   line-height: 1.5;
 }
 
 .hosts-table th {
   font-weight: 600;
-  color: #666;
+  color: var(--rm-text-secondary);
   font-size: 12px;
-  background: var(--bg-color, #fafafa);
-  border-bottom-color: var(--border-color, #e8e8e8);
+  background: var(--rm-header-bg);
   white-space: nowrap;
 }
 
@@ -617,7 +682,7 @@ function showTip(msg: string) {
 }
 
 .hosts-table tbody tr:hover {
-  background: var(--hover-bg, rgba(88, 164, 246, 0.06));
+  background: var(--rm-hover-bg);
 }
 
 .draggable-row {
@@ -645,14 +710,14 @@ function showTip(msg: string) {
 }
 
 .drag-handle {
-  color: #bbb;
+  color: var(--rm-icon);
   display: block;
   margin: 0 auto;
   cursor: grab;
 }
 
 .draggable-row:hover .drag-handle {
-  color: #888;
+  color: var(--rm-icon-hover);
 }
 
 .drop-indicator {
@@ -676,19 +741,19 @@ function showTip(msg: string) {
 .col-id {
   width: 90px;
   font-weight: 500;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .col-address {
   width: 160px;
   font-family: 'Consolas', 'Courier New', monospace;
   font-size: 12.5px;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .col-username {
   width: 90px;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .col-actions {
@@ -722,7 +787,7 @@ function showTip(msg: string) {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  color: #ffffff;
   padding: 6px 14px;
   border-radius: 4px;
   font-size: 13px;
@@ -756,8 +821,8 @@ function showTip(msg: string) {
 }
 
 .modal {
-  background: var(--bg-color, #fff);
-  color: var(--text-color, #333);
+  background: var(--rm-bg);
+  color: var(--rm-text);
   border-radius: 8px;
   width: 360px;
   max-width: 90vw;
@@ -775,18 +840,19 @@ function showTip(msg: string) {
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--border-color, #e8e8e8);
+  border-bottom: 1px solid var(--rm-border);
 }
 
 .modal-header h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+  color: var(--rm-text);
 }
 
 .modal-close {
   background: none;
-  color: #999;
+  color: var(--rm-text-muted);
   font-size: 20px;
   line-height: 1;
   padding: 2px 4px;
@@ -795,8 +861,8 @@ function showTip(msg: string) {
 }
 
 .modal-close:hover {
-  background: var(--hover-bg, #f0f0f0);
-  color: var(--text-color, #333);
+  background: var(--rm-hover-bg);
+  color: var(--rm-text);
 }
 
 .modal-body {
@@ -808,7 +874,7 @@ function showTip(msg: string) {
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
-  border-top: 1px solid var(--border-color, #e8e8e8);
+  border-top: 1px solid var(--rm-border);
 }
 
 .form-group {
@@ -823,16 +889,16 @@ function showTip(msg: string) {
   display: block;
   margin-bottom: 5px;
   font-size: 12px;
-  color: #666;
+  color: var(--rm-text-secondary);
 }
 
 .form-group input {
   width: 100%;
   padding: 7px 10px;
-  border: 1px solid var(--border-color, #ddd);
+  border: 1px solid var(--rm-border);
   border-radius: 4px;
-  background: var(--input-bg, #fff);
-  color: var(--text-color, #333);
+  background: var(--rm-input-bg);
+  color: var(--rm-text);
   box-sizing: border-box;
   font-size: 13px;
   transition: border-color 0.2s;
@@ -860,7 +926,7 @@ function showTip(msg: string) {
   top: 50%;
   transform: translateY(-50%);
   background: none;
-  color: #999;
+  color: var(--rm-icon);
   border: none;
   padding: 4px;
   cursor: pointer;
@@ -883,7 +949,7 @@ function showTip(msg: string) {
   font-size: 14px;
   line-height: 1.6;
   text-align: center;
-  color: var(--text-color, #333);
+  color: var(--rm-text);
 }
 
 .confirm-text strong {
@@ -894,7 +960,7 @@ function showTip(msg: string) {
   display: block;
   margin-top: 6px;
   font-size: 12px;
-  color: #999;
+  color: var(--rm-text-muted);
 }
 
 .modal-body .confirm-text {
@@ -902,7 +968,7 @@ function showTip(msg: string) {
 }
 
 .btn-cancel {
-  background: #999;
+  background: #999999;
 }
 
 .btn-confirm {
