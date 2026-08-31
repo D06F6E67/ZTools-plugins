@@ -6,7 +6,7 @@
   "description": "快速转换各种格式的时间",
   "author": "hanzhe",
   "version": "1.0.1",
-  "main": "dist/index.html",
+  "main": "index.html",
   "logo": "logo.png",
   "development": {
     "main": "http://localhost:5173"
