@@ -7,19 +7,19 @@ ZTools 本地图片压缩插件，支持 JPG、PNG、GIF、SVG，基于 JavaScri
 | 命令 | 说明 |
 | --- | --- |
 | `npm test` | 运行全部测试（Node 内置 test runner，`test/*.test.cjs`） |
-| `npm run notices` | 重新生成第三方许可证清单 |
-| `npm run build` | 构建发布包 `dist/img-comp.zpx`（会先自动生成许可证清单） |
+| `npm run build` | 构建完整插件目录 `dist/` 和本地安装包 `dist/img-comp.zpx` |
 
-环境要求 Node.js >= 22.12。
+环境要求 Node.js >= 20.0。官方插件仓库的构建 Action 使用 Node.js 20。
 
 ## 代码分层
 
 调整目录结构或模块职责时，必须同步更新本节：
 
 1. `compression-engine.js` 仅负责格式识别和 JPEG、PNG、GIF、SVG 编解码。
-2. `runtime-service.js` 负责批次生命周期、文件扫描、临时结果、历史记录和剪贴板。
-3. `preload.js` 只建立一个只读的 `imgCompRuntime` 浏览器桥接对象。
-4. `index.js` 只负责渲染和用户交互，不直接访问 Node.js 文件系统。
+2. `compression-worker.js` 负责在线程或独立 Node 子进程中读取、压缩并写入单张图片。
+3. `runtime-service.js` 负责并行执行器池、批次生命周期、文件扫描、临时结果、历史记录和剪贴板。
+4. `preload.js` 只建立一个只读的 `imgCompRuntime` 浏览器桥接对象。
+5. `index.js` 只负责渲染和用户交互，不直接访问 Node.js 文件系统。
 
 红线：`index.js` 不得引入 Node API；`preload.js` 不得添加业务逻辑；新增源文件必须同步加入 `build-zpx.js` 的 `SOURCE_FILES` 白名单，否则不会进入发布包。
 
@@ -47,9 +47,9 @@ batch
 
 ## 发布边界
 
-- `build-zpx.js` 采用源码白名单，并经 `release-deps.js` 从 `package.json` 解析运行时依赖闭包；测试、开发依赖、源码映射不会进入 `.zpx`。
-- `THIRD_PARTY_NOTICES.md` 由 `generate-notices.js` 自动生成，禁止手工修改；依赖版本变化后必须重新执行 `npm run notices`。
-- 项目自身代码采用 MIT 许可证，依赖保持各自上游许可证。
+- `build-zpx.js` 采用源码白名单，并经 `release-deps.js` 从 `package.json` 解析运行时依赖闭包；`dist/` 是官方 Action 的 ZIP 打包源，`dist/img-comp.zpx` 是同一内容生成的 Brotli ZPX。
+- 官方 Action 会从 `dist/` 内容创建 ZIP，因此 `dist/` 根目录必须同时包含 `plugin.json`、`index.html`、Logo 和 preload。
+- 构建会将运行时依赖目录及其中的许可证文件、许可证元数据复制到发布包；项目自身代码采用 MIT 许可证，依赖保持各自上游许可证。
 
 ## 文档维护
 
