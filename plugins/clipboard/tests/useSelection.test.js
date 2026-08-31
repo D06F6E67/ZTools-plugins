@@ -201,6 +201,36 @@ test('selects matching items in a shift range', () => {
   assert.deepEqual(selection.selectedItems.value, [first, third])
 })
 
+test('lets an explicit Shift+click replace a browser text selection', () => {
+  const first = { type: 'text', content: 'first' }
+  const second = { type: 'text', content: 'second' }
+  const third = { type: 'text', content: 'third' }
+  const { selection } = createSelection([first, second, third])
+  let cleared = false
+
+  withSelection({
+    rangeCount: 1,
+    isCollapsed: false,
+    removeAllRanges: () => { cleared = true }
+  }, () => {
+    selection.handleItemClick(clickEvent({ shiftKey: true }), 2)
+  })
+
+  assert.equal(cleared, true)
+  assert.deepEqual(selection.selectedItems.value, [first, second, third])
+})
+
+test('selects a range when Shift+clicking a checkbox', () => {
+  const first = { type: 'text', content: 'first' }
+  const second = { type: 'text', content: 'second' }
+  const third = { type: 'text', content: 'third' }
+  const { selection } = createSelection([first, second, third])
+
+  selection.handleToggleClick(clickEvent({ shiftKey: true }), 2)
+
+  assert.deepEqual(selection.selectedItems.value, [first, second, third])
+})
+
 test('orders a reverse shift range from the anchor to the clicked item', () => {
   const first = { type: 'text', content: 'first' }
   const second = { type: 'text', content: 'second' }

@@ -111,7 +111,7 @@ const handleDeleteSelected = (items) => {
 const {
   activeIndex, selectedItemSet, selectedCount, clipboardListRef, resetSelection,
   handleItemClick, handleContextSelection, handleDoubleClick,
-  handleKeydown, toggleItem, copySelected, pasteSelected
+  handleKeydown, handleToggleClick, copySelected, pasteSelected
 } = useSelection(filteredData, tabs, activeTab, writeClipboardItems, handleDeleteSelected)
 
 watch(selectedCount, (count, previousCount = 0) => {
@@ -245,23 +245,6 @@ const focusSearchInput = () => {
   })
 }
 
-const handleListItemClick = (event, index) => {
-  if (handleItemClick(event, index)) {
-    focusSearchInput()
-  }
-}
-
-const handleListToggleSelection = (index) => {
-  if (toggleItem(index)) {
-    focusSearchInput()
-  }
-}
-
-const handleListDoubleClick = (index) => {
-  void handleDoubleClick(index)
-  focusSearchInput()
-}
-
 const resetSearchAndFocus = async () => {
   searchText.value = ''
   try {
@@ -283,6 +266,18 @@ const isAnyModalOpen = computed(() =>
 
 const handleGlobalKeydown = (event) => {
   if (isAnyModalOpen.value) return
+
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 'f'
+  ) {
+    event.preventDefault()
+    focusSearchInput()
+    return
+  }
+
   handleKeydown(event)
 }
 
@@ -330,9 +325,9 @@ onUnmounted(() => {
         :active-tab="activeTab"
         :expanded-items="expandedItems"
         :needs-expand="needsExpand"
-        @select="handleListItemClick"
-        @toggle-selection="handleListToggleSelection"
-        @dblclick="handleListDoubleClick"
+        @select="handleItemClick"
+        @toggle-selection="handleToggleClick"
+        @dblclick="handleDoubleClick"
         @contextmenu="handleContextMenu"
         @toggle-expand="toggleExpand"
         @delete-favorite="handleDeleteFavorite"

@@ -221,7 +221,7 @@ onBeforeUnmount(resetDragState)
         type="checkbox"
         :checked="selectedItems.has(item)"
         :aria-label="`选择第 ${index + 1} 条记录`"
-        @click.stop="emit('toggle-selection', index)"
+        @click.stop="emit('toggle-selection', $event, index)"
         @dblclick.stop
         @keydown.space.stop
       />
