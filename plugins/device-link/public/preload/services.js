@@ -6,6 +6,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const QRCode = require('qrcode')
 const { clipboard, nativeImage, safeStorage, shell, webUtils } = require('electron')
+const { createCredentialStorage } = require('./core/credential-storage')
 const { resolveDroppedFilePaths } = require('./core/drop')
 const { clearMessageHistory, removeMessageFromHistory } = require('./core/history')
 const { createRepository } = require('./core/repository')
@@ -65,26 +66,11 @@ function fallbackKey() {
   return crypto.createHash('sha256').update(`device-link-local:${nativeId}:${dataDir}`).digest()
 }
 
-function seal(value) {
-  if (!value) return ''
-  if (safeStorage.isEncryptionAvailable()) return `safe:${safeStorage.encryptString(value).toString('base64')}`
-  const nonce = crypto.randomBytes(12)
-  const cipher = crypto.createCipheriv('aes-256-gcm', fallbackKey(), nonce)
-  const body = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
-  return `local:${Buffer.concat([nonce, cipher.getAuthTag(), body]).toString('base64')}`
-}
-
-function unseal(value) {
-  if (!value) return ''
-  if (value.startsWith('safe:')) return safeStorage.decryptString(Buffer.from(value.slice(5), 'base64'))
-  if (value.startsWith('local:')) {
-    const bytes = Buffer.from(value.slice(6), 'base64')
-    const decipher = crypto.createDecipheriv('aes-256-gcm', fallbackKey(), bytes.subarray(0, 12))
-    decipher.setAuthTag(bytes.subarray(12, 28))
-    return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8')
-  }
-  return ''
-}
+const { seal, unseal } = createCredentialStorage({
+  dataDir,
+  safeStorage,
+  legacyKey: fallbackKey(),
+})
 
 async function getSettingsRecord() {
   const stored = (await repository.getSettings()) || {}
@@ -157,7 +143,7 @@ async function serverStatus() {
     const currentServer = server
     const pairing = currentServer.pairing
     const base = currentServer.status
-    const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}`
+    const pairingUrl = `${base.accessUrl}/?pairing=${encodeURIComponent(pairing.sessionId)}#pair=${encodeURIComponent(pairing.secret)}&code=${encodeURIComponent(pairing.qrCode)}&auto=1`
     const qrDataUrl = await QRCode.toDataURL(pairingUrl, { width: 360, margin: 1, errorCorrectionLevel: 'M' })
     if (server !== currentServer || currentServer.pairing.sessionId !== pairing.sessionId) continue
     return {
@@ -187,6 +173,14 @@ async function startServer() {
     },
     onPairingChanged() {
       void serverStatus().then((status) => emit('server:changed', status)).catch(() => {})
+    },
+    onError(error, context) {
+      console.error('[device-link] service request failed', {
+        ...context,
+        name: error?.name || 'Error',
+        message: error?.message || String(error),
+        stack: error?.stack || '',
+      })
     },
     protectCredential: seal,
     unprotectCredential: unseal,
@@ -448,10 +442,10 @@ window.deviceLink = {
     return result
   },
   async disconnectDevice(deviceId) {
-    server?.disconnectDevice(deviceId)
+    if (server) return Boolean(await server.revokeDeviceAuthorization(deviceId))
     const removed = await repository.removeDevice(deviceId)
-    emit('device:deleted', { id: deviceId })
-    return removed
+    if (removed) emit('device:deleted', { id: deviceId })
+    return Boolean(removed)
   },
   subscribe(callback) {
     const listener = (event) => callback(event.detail)

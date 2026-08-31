@@ -36,3 +36,40 @@ test('message limits apply after access filtering and independently per conversa
   assert.deepEqual(grouped.filter((message) => message.conversationId === 'device:phone-a').map((message) => message.id), ['private-a'])
   assert.deepEqual(grouped.filter((message) => message.conversationId === 'device:phone-b').map((message) => message.id), ['private-b-999', 'private-b-1000'])
 })
+
+test('database error results are rejected instead of reporting a successful write', async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-repository-error-test-'))
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const repository = createRepository({
+    async allDocs() { return [] },
+    async get(id) {
+      if (id === 'remove-me') return { _id: id, _rev: '1-a' }
+      return { error: true, name: 'not_found', status: 404 }
+    },
+    async put() { return { error: true, name: 'conflict', status: 409, reason: 'Document update conflict' } },
+    async remove() { return { error: true, name: 'forbidden', status: 403 } },
+  }, root)
+
+  await assert.rejects(
+    repository.putSettings({ pairingCodeMode: 'random' }),
+    (error) => error.code === 'DEVICE_LINK_STORAGE_FAILED' && error.status === 409,
+  )
+  await assert.rejects(
+    repository.remove('remove-me'),
+    (error) => error.code === 'DEVICE_LINK_STORAGE_FAILED' && error.status === 403,
+  )
+})
+
+test('database read failures are not mistaken for missing records', async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-repository-read-error-test-'))
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const repository = createRepository({
+    async allDocs() { return { error: true, name: 'unavailable', status: 503 } },
+    async get() { return { error: true, name: 'unavailable', status: 503 } },
+    async put() {},
+    async remove() {},
+  }, root)
+
+  await assert.rejects(repository.get('settings'), (error) => error.code === 'DEVICE_LINK_STORAGE_FAILED')
+  await assert.rejects(repository.listDevices(), (error) => error.code === 'DEVICE_LINK_STORAGE_FAILED')
+})

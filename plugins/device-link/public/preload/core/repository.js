@@ -10,6 +10,28 @@ const TOMBSTONE_PREFIX = 'device-link:tombstone:'
 const SETTINGS_ID = 'device-link:settings'
 const SYNC_ID = 'device-link:webdav'
 
+function isNotFound(error) {
+  return error?.status === 404 || error?.name === 'not_found' || error?.error === 'not_found'
+}
+
+function isFailedResult(result) {
+  return Boolean(result && typeof result === 'object' && (
+    result.error === true
+      || typeof result.error === 'string'
+      || result.ok === false
+      || (Number.isFinite(Number(result.status)) && Number(result.status) >= 400)
+  ))
+}
+
+function storageError(operation, result) {
+  const detail = result?.reason || result?.message || result?.name || result?.error
+  const error = new Error(`设备互联本地存储${operation}失败${detail ? `：${detail}` : ''}`)
+  error.name = 'DeviceLinkStorageError'
+  error.code = 'DEVICE_LINK_STORAGE_FAILED'
+  error.status = Number(result?.status) || undefined
+  return error
+}
+
 function createRepository(db, dataDir) {
   const attachmentsDir = path.join(dataDir, 'attachments')
   const transfersDir = path.join(dataDir, 'transfers')
@@ -19,6 +41,7 @@ function createRepository(db, dataDir) {
   async function allDocs(prefix) {
     if (typeof db.allDocs === 'function') {
       const result = await db.allDocs(prefix)
+      if (isFailedResult(result)) throw storageError('读取', result)
       return Array.isArray(result) ? result : result?.rows?.map((row) => row.doc).filter(Boolean) || []
     }
     return []
@@ -29,19 +52,26 @@ function createRepository(db, dataDir) {
     transfersDir,
     async get(id) {
       try {
-        return await db.get(id)
-      } catch {
-        return null
+        const result = await db.get(id)
+        if (isNotFound(result)) return null
+        if (isFailedResult(result)) throw storageError('读取', result)
+        return result || null
+      } catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async put(doc) {
       const current = await this.get(doc._id)
-      return db.put(current?._rev ? { ...doc, _rev: current._rev } : doc)
+      const result = await db.put(current?._rev ? { ...doc, _rev: current._rev } : doc)
+      if (isFailedResult(result)) throw storageError('写入', result)
+      return result
     },
     async remove(id) {
       const current = await this.get(id)
       if (!current) return false
-      await db.remove(current)
+      const result = await db.remove(current)
+      if (isFailedResult(result)) throw storageError('删除', result)
       return true
     },
     async listMessages(limit = 1000, options = {}) {
