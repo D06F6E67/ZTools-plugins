@@ -11,6 +11,7 @@ if (import.meta.env.DEV) {
     showTip: () => {},
     getClipboardContent: () => '',
     getPath: (type: string) => type === 'userData' ? '.' : '.',
+    isDarkColors: () => false,
     db: {
       allDocs: () => hostsFile,
       get: (id: string) => hostsFile.find((h: any) => h._id === id) || null,
