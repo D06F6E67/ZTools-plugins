@@ -52,3 +52,22 @@ test('QR pairing links drive automatic mobile connection while direct links rema
   assert.match(preload, /createCredentialStorage/)
   assert.match(preload, /protectCredential:\s*seal/)
 })
+
+test('desktop attachments expose separate open and save actions', () => {
+  const component = fs.readFileSync(path.join(root, 'src', 'components', 'MessageList.vue'), 'utf8')
+  const app = fs.readFileSync(path.join(root, 'src', 'App.vue'), 'utf8')
+  const preload = fs.readFileSync(path.join(root, 'public', 'preload', 'services.js'), 'utf8')
+  const attachment = fs.readFileSync(path.join(root, 'public', 'preload', 'core', 'attachment.js'), 'utf8')
+  const types = fs.readFileSync(path.join(root, 'src', 'types.ts'), 'utf8')
+
+  assert.match(component, /emit\('open', message\.id, attachment\.id\)/)
+  assert.match(component, /emit\('download', message\.id, attachment\.id\)/)
+  assert.match(component, /下载附件/)
+  assert.match(component, /savingAttachmentIds\?\.has\(attachment\.id\)/)
+  assert.match(app, /@download="link\.saveAttachment"/)
+  assert.match(types, /saveAttachment\(messageId: string, attachmentId: string\): Promise<SaveAttachmentResult>/)
+  assert.match(preload, /repository\.getMessage\(messageId\)/)
+  assert.match(preload, /saveAttachmentFile\(await localAttachment\(messageId, attachmentId\), ztools\)/)
+  assert.match(attachment, /showSaveDialog/)
+  assert.match(attachment, /fs\.promises\.copyFile\(sourcePath, destination\)/)
+})
